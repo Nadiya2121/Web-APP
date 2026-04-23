@@ -41,7 +41,7 @@ async def auto_delete_worker():
                     pass
                 await db.auto_delete.delete_one({"_id": msg["_id"]})
         except Exception as e:
-            print("Auto-Delete Worker Error:", e)
+            pass
         await asyncio.sleep(60)
 
 # ==========================================
@@ -211,11 +211,12 @@ async def web_ui():
             .logo span { background:red; color:#fff; padding:2px 5px; border-radius:5px; margin-left:5px; font-size:16px; }
             .user-info { display:flex; align-items:center; gap:8px; background:#1e293b; padding:5px 12px; border-radius:20px; font-weight:bold; font-size:14px; }
             .user-info img { width:26px; height:26px; border-radius:50%; object-fit:cover; }
+            
             .search-box { padding:15px; }
             .search-input { width:100%; padding:14px; border-radius:25px; border:none; outline:none; text-align:center; background:#1e293b; color:#fff; font-size:16px; transition: 0.3s; }
             .search-input:focus { box-shadow: 0 0 10px rgba(248,113,113,0.5); }
             
-            .grid { padding:0 15px 100px; display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; }
+            .grid { padding:0 15px 20px; display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; }
             .card { background:#1e293b; border-radius:12px; overflow:hidden; cursor:pointer; transition: transform 0.2s; }
             .card:active { transform: scale(0.95); }
             
@@ -228,17 +229,22 @@ async def web_ui():
 
             .post-content img { width:100%; height:180px; object-fit:cover; display:block; border-radius: 10px; }
             
-            /* ট্যাগ পজিশন ঠিক করা হয়েছে (Top-Right) */
             .tag { position:absolute; top:10px; right:10px; padding:4px 8px; border-radius:8px; font-weight:bold; font-size:11px; display:flex; align-items:center; gap:4px; box-shadow: 0 2px 5px rgba(0,0,0,0.5); }
             .tag-locked { background:rgba(0,0,0,0.85); color:#f87171; border: 1px solid #f87171; }
             .tag-unlocked { background:rgba(0,0,0,0.85); color:#10b981; border: 1px solid #10b981; }
             
-            /* টাইটেল যাতে পুরোটা দেখায় তার জন্য আপডেট করা হয়েছে */
             .card-footer { padding:10px; font-size:13px; font-weight:bold; text-align:center; word-wrap: break-word; color:#e2e8f0; line-height:1.4; }
             
             .skeleton { background: #1e293b; border-radius: 12px; height: 215px; overflow: hidden; position: relative; }
             .skeleton::after { content: ""; position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: linear-gradient(90deg, transparent, rgba(255,255,255,0.05), transparent); animation: shimmer 1.5s infinite; }
             @keyframes shimmer { 0% { transform: translateX(-100%); } 100% { transform: translateX(100%); } }
+
+            /* Pagination Styles */
+            .pagination { display: flex; justify-content: center; align-items: center; gap: 8px; padding: 10px 15px 120px; flex-wrap: wrap; }
+            .page-btn { background: #1e293b; color: #fff; border: 1px solid #334155; padding: 10px 15px; border-radius: 8px; cursor: pointer; font-weight: bold; transition: 0.2s; outline: none; }
+            .page-btn:active { transform: scale(0.9); }
+            .page-btn.active { background: #f87171; border-color: #f87171; color: white; }
+            .page-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
             .floating-btn { position:fixed; right:20px; color:white; width:50px; height:50px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:20px; font-weight:bold; z-index:500; cursor:pointer; box-shadow: 0 4px 10px rgba(0,0,0,0.5); }
             .btn-18 { bottom:155px; background:red; border:2px solid #fff; }
@@ -265,6 +271,9 @@ async def web_ui():
         </div>
 
         <div class="grid" id="movieGrid"></div>
+        
+        <!-- Pagination Box -->
+        <div class="pagination" id="paginationBox"></div>
 
         <div class="floating-btn btn-18" onclick="window.open('{{LINK_18}}')">18+</div>
         <div class="floating-btn btn-tg" onclick="window.open('{{TG_LINK}}')"><i class="fa-brands fa-telegram"></i></div>
@@ -297,7 +306,7 @@ async def web_ui():
             let tg = window.Telegram.WebApp; tg.expand();
             const ZONE_ID = "{{ZONE_ID}}";
             
-            let page = 1; let isLoading = false; let hasMore = true; let searchQuery = "";
+            let currentPage = 1; let isLoading = false; let searchQuery = "";
             let uid = tg.initDataUnsafe.user?.id || 0;
 
             if(tg.initDataUnsafe && tg.initDataUnsafe.user) {
@@ -313,23 +322,26 @@ async def web_ui():
                 let html = ""; for(let i=0; i<count; i++) html += `<div class="skeleton"></div>`; return html;
             }
 
-            async function loadMovies(reset = false) {
-                if(isLoading || (!hasMore && !reset)) return;
+            // মুভি লোড করা (পেজ অনুযায়ী)
+            async function loadMovies(page = 1) {
+                if(isLoading) return;
                 isLoading = true;
+                currentPage = page;
+                
                 const grid = document.getElementById('movieGrid');
-                if(reset) { page = 1; hasMore = true; grid.innerHTML = drawSkeletons(6); }
-                else { grid.innerHTML += drawSkeletons(4); }
+                const pBox = document.getElementById('paginationBox');
+                
+                grid.innerHTML = drawSkeletons(16);
+                pBox.innerHTML = "";
 
                 try {
-                    const r = await fetch(`/api/list?page=${page}&q=${searchQuery}&uid=${uid}`);
+                    const r = await fetch(`/api/list?page=${currentPage}&q=${searchQuery}&uid=${uid}`);
                     const data = await r.json();
-                    grid.querySelectorAll('.skeleton').forEach(el => el.remove());
-
-                    if(data.length === 0) {
-                        hasMore = false;
-                        if(page === 1) grid.innerHTML = "<p style='grid-column: span 2; text-align:center; color:gray; padding:20px;'>কোনো মুভি পাওয়া যায়নি!</p>";
+                    
+                    if(data.movies.length === 0) {
+                        grid.innerHTML = "<p style='grid-column: span 2; text-align:center; color:gray; padding:20px;'>কোনো মুভি পাওয়া যায়নি!</p>";
                     } else {
-                        const html = data.map(m => {
+                        grid.innerHTML = data.movies.map(m => {
                             let tagHtml = m.is_unlocked 
                                 ? `<div class="tag tag-unlocked"><i class="fa-solid fa-unlock"></i> Unlocked</div>` 
                                 : `<div class="tag tag-locked"><i class="fa-solid fa-lock"></i> Locked</div>`;
@@ -343,20 +355,54 @@ async def web_ui():
                                 <div class="card-footer">${m.title}</div>
                             </div>`;
                         }).join('');
-                        if(reset) grid.innerHTML = html; else grid.innerHTML += html;
-                        page++;
+                        
+                        renderPagination(data.total_pages);
                     }
                 } catch(e) {}
                 isLoading = false;
             }
 
+            // পেজ বাটন তৈরি করা
+            function renderPagination(totalPages) {
+                if (totalPages <= 1) return;
+                let html = "";
+                
+                html += `<button class="page-btn" ${currentPage === 1 ? 'disabled' : ''} onclick="goToPage(${currentPage - 1})"><i class="fa-solid fa-angle-left"></i></button>`;
+                
+                let start = Math.max(1, currentPage - 1);
+                let end = Math.min(totalPages, currentPage + 1);
+                
+                if (start > 1) {
+                    html += `<button class="page-btn" onclick="goToPage(1)">1</button>`;
+                    if (start > 2) html += `<span style="color:gray;">...</span>`;
+                }
+                
+                for (let i = start; i <= end; i++) {
+                    html += `<button class="page-btn ${i === currentPage ? 'active' : ''}" onclick="goToPage(${i})">${i}</button>`;
+                }
+                
+                if (end < totalPages) {
+                    if (end < totalPages - 1) html += `<span style="color:gray;">...</span>`;
+                    html += `<button class="page-btn" onclick="goToPage(${totalPages})">${totalPages}</button>`;
+                }
+                
+                html += `<button class="page-btn" ${currentPage === totalPages ? 'disabled' : ''} onclick="goToPage(${currentPage + 1})"><i class="fa-solid fa-angle-right"></i></button>`;
+                
+                document.getElementById('paginationBox').innerHTML = html;
+            }
+
+            // নতুন পেজে যাওয়া
+            function goToPage(p) {
+                if (p < 1) return;
+                loadMovies(p);
+                window.scrollTo({ top: 0, behavior: 'smooth' }); // স্ক্রল করে উপরে নিয়ে যাবে
+            }
+
             let timeout = null;
             document.getElementById('searchInput').addEventListener('input', function(e) {
                 clearTimeout(timeout); searchQuery = e.target.value.trim();
-                timeout = setTimeout(() => { loadMovies(true); }, 500);
+                timeout = setTimeout(() => { loadMovies(1); }, 500); // সার্চ করলে পেজ ১ এ চলে যাবে
             });
-
-            window.addEventListener('scroll', () => { if(window.innerHeight + window.scrollY >= document.body.offsetHeight - 200) loadMovies(); });
 
             function handleMovieClick(id, isUnlocked) {
                 if(isUnlocked) {
@@ -379,7 +425,7 @@ async def web_ui():
                 await fetch('/api/send', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({userId: uid, movieId: id})});
                 document.getElementById('adScreen').style.display = 'none';
                 document.getElementById('successModal').style.display = 'flex';
-                setTimeout(() => { loadMovies(true); }, 1000); 
+                setTimeout(() => { loadMovies(currentPage); }, 1000); 
             }
 
             function openReqModal() { document.getElementById('reqModal').style.display = 'flex'; }
@@ -393,7 +439,8 @@ async def web_ui():
                 alert('রিকোয়েস্ট সফলভাবে পাঠানো হয়েছে!');
             }
 
-            loadMovies(true); 
+            // অ্যাপ ওপেন হলে ১ নাম্বার পেজ লোড হবে
+            loadMovies(1); 
         </script>
     </body>
     </html>
@@ -403,10 +450,14 @@ async def web_ui():
 
 @app.get("/api/list")
 async def list_movies(page: int = 1, q: str = "", uid: int = 0):
-    limit = 12
+    limit = 16  # এক পেজে ১৬টি মুভি দেখাবে
     skip = (page - 1) * limit
     query = {"title": {"$regex": q, "$options": "i"}} if q else {}
     
+    # মোট মুভির সংখ্যা বের করে কতগুলো পেজ হবে তা হিসেব করা
+    total_movies = await db.movies.count_documents(query)
+    total_pages = (total_movies + limit - 1) // limit
+
     unlocked_movie_ids = []
     if uid != 0:
         time_limit = datetime.datetime.utcnow() - datetime.timedelta(hours=24)
@@ -420,7 +471,8 @@ async def list_movies(page: int = 1, q: str = "", uid: int = 0):
         m["created_at"] = str(m.get("created_at", ""))
         m["is_unlocked"] = m_id in unlocked_movie_ids 
         movies.append(m)
-    return movies
+        
+    return {"movies": movies, "total_pages": total_pages}
 
 @app.get("/api/image/{photo_id}")
 async def get_image(photo_id: str):
@@ -445,7 +497,7 @@ async def send_file(d: dict = Body(...)):
             time_cfg = await db.settings.find_one({"id": "del_time"})
             del_minutes = time_cfg['minutes'] if time_cfg else 60
             
-            caption = f"🎥 <b>{m['title']}</b>\n\n⏳ <b>সতর্কতা:</b> কপিরাইট এড়াতে মুভিটি <b>{del_minutes} মিনিট</b> পর অটো-ডিলিট হয়ে যাবে। দয়া করে এখনই ফরওয়ার্ড বা সেভ করে নিন!\n\n📥 Join: @MovieeBD"
+            caption = f"🎥 <b>{m['title']}</b>\n\n⏳ <b>সতর্কতা:</b> কপিরাইট এড়াতে মুভিটি <b>{del_minutes} মিনিট</b> পর অটো-ডিলিট হয়ে যাবে। দয়া করে এখনই ফরওয়ার্ড বা সেভ করে নিন!\n\n📥 Join: @TGLinkBase"
             
             sent_msg = None
             if m.get("file_type") == "video": sent_msg = await bot.send_video(uid, m['file_id'], caption=caption, parse_mode="HTML")
