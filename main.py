@@ -14,7 +14,7 @@ from pydantic import BaseModel
 # --- কনফিগারেশন ---
 TOKEN = os.getenv("BOT_TOKEN")
 MONGO_URL = os.getenv("MONGO_URI")
-ADMIN_ID = int(os.getenv("ADMIN_ID", "0")) # এখানে আপনার আইডি বসানো থাকতে হবে .env ফাইলে
+ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
 APP_URL = os.getenv("APP_URL")
 
 bot = Bot(token=TOKEN)
@@ -44,7 +44,9 @@ async def auto_delete_worker():
             print("Auto-Delete Worker Error:", e)
         await asyncio.sleep(60)
 
-# --- ১. বটের কাজ (অ্যাডমিন কমান্ড) ---
+# ==========================================
+# ১. বটের সব কমান্ড (Commands)
+# ==========================================
 
 @dp.message(Command("start"))
 async def start_cmd(message: types.Message):
@@ -57,14 +59,12 @@ async def start_cmd(message: types.Message):
             "👋 <b>হ্যালো অ্যাডমিন!</b>\n\n"
             "⚙️ <b>কমান্ড:</b>\n"
             "🔸 জোন: <code>/setad</code> | টেলিগ্রাম: <code>/settg</code> | 18+: <code>/set18</code>\n"
-            "🔸 অটো-ডিলিট টাইম: <code>/settime [মিনিট]</code> (যেমন: /settime 60)\n"
+            "🔸 অটো-ডিলিট টাইম: <code>/settime [মিনিট]</code>\n"
             "🔸 ডিলিট: <code>/del</code> | স্ট্যাটাস: <code>/stats</code> | ব্রডকাস্ট: <code>/cast</code>\n\n"
             "📥 <b>মুভি অ্যাড করতে প্রথমে ভিডিও বা ডকুমেন্ট ফাইল পাঠান।</b>"
         )
     else:
-        # সাধারণ ইউজারদের তাদের ID দেখিয়ে দেওয়া হলো, যাতে আপনি অ্যাডমিন আইডি সহজে পান
         text = f"👋 <b>স্বাগতম {message.from_user.first_name}!</b>\n\n[আপনার টেলিগ্রাম আইডি: <code>{message.from_user.id}</code>]\n\nমুভি দেখতে নিচের বাটনে ক্লিক করুন।"
-        
     await message.answer(text, reply_markup=markup, parse_mode="HTML")
 
 @dp.message(Command("settime"))
@@ -75,7 +75,7 @@ async def set_del_time(m: types.Message):
         await db.settings.update_one({"id": "del_time"}, {"$set": {"minutes": minutes}}, upsert=True)
         await m.answer(f"✅ অটো-ডিলিট টাইম সেট করা হয়েছে: <b>{minutes}</b> মিনিট।", parse_mode="HTML")
     except:
-        await m.answer("⚠️ ভুল ফরম্যাট! নিয়ম: <code>/settime 60</code> (৬০ মিনিট মানে ১ ঘন্টা)", parse_mode="HTML")
+        await m.answer("⚠️ ভুল ফরম্যাট! নিয়ম: <code>/settime 60</code>", parse_mode="HTML")
 
 @dp.message(Command("stats"))
 async def stats_cmd(m: types.Message):
@@ -100,34 +100,6 @@ async def broadcast_cmd(m: types.Message):
             await asyncio.sleep(0.05)
         except: pass
     await m.answer(f"✅ সম্পন্ন! মেসেজ পাঠানো হয়েছে: {success} জনকে।")
-
-# --- আপলোড ও ডিলিট ---
-@dp.message(F.document | F.video)
-async def catch_file(m: types.Message):
-    if m.from_user.id != ADMIN_ID: return
-    fid = m.video.file_id if m.video else m.document.file_id
-    ftype = "video" if m.video else "document"
-    admin_temp[m.from_user.id] = {"step": "photo", "file_id": fid, "type": ftype}
-    await m.answer("✅ ফাইল পেয়েছি! এবার মুভির <b>পোস্টার (Photo)</b> সেন্ড করুন।", parse_mode="HTML")
-
-@dp.message(F.photo)
-async def catch_photo(m: types.Message):
-    if m.from_user.id != ADMIN_ID: return
-    uid = m.from_user.id
-    if uid in admin_temp and admin_temp[uid].get("step") == "photo":
-        admin_temp[uid]["photo_id"] = m.photo[-1].file_id
-        admin_temp[uid]["step"] = "title"
-        await m.answer("✅ পোস্টার পেয়েছি! এবার মুভির <b>নাম</b> লিখে পাঠান।", parse_mode="HTML")
-
-@dp.message(F.text)
-async def catch_text(m: types.Message):
-    uid = m.from_user.id
-    if uid != ADMIN_ID or str(m.text).startswith("/"): return
-    if uid in admin_temp and admin_temp[uid].get("step") == "title":
-        title = m.text.strip()
-        await db.movies.insert_one({"title": title, "photo_id": admin_temp[uid]["photo_id"], "file_id": admin_temp[uid]["file_id"], "file_type": admin_temp[uid]["type"], "created_at": datetime.datetime.utcnow()})
-        del admin_temp[uid]
-        await m.answer(f"🎉 <b>{title}</b> অ্যাপে সফলভাবে যুক্ত করা হয়েছে!", parse_mode="HTML")
 
 @dp.message(Command("del"))
 async def del_movie_list(m: types.Message):
@@ -156,7 +128,7 @@ async def set_ad(m: types.Message):
             await db.settings.update_one({"id": "ad_config"}, {"$set": {"zone_id": val}}, upsert=True)
             await m.answer(f"✅ জোন আপডেট হয়েছে: {val}")
         except:
-            await m.answer("⚠️ সঠিক নিয়ম: `/setad 1234567`")
+            await m.answer("⚠️ সঠিক নিয়ম: <code>/setad 1234567</code>", parse_mode="HTML")
 
 @dp.message(Command("settg"))
 async def set_tg(m: types.Message):
@@ -166,7 +138,7 @@ async def set_tg(m: types.Message):
             await db.settings.update_one({"id": "link_tg"}, {"$set": {"url": val}}, upsert=True)
             await m.answer("✅ টেলিগ্রাম লিংক আপডেট হয়েছে।")
         except:
-            await m.answer("⚠️ সঠিক নিয়ম: `/settg https://t.me/...`")
+            await m.answer("⚠️ সঠিক নিয়ম: <code>/settg https://t.me/...</code>", parse_mode="HTML")
 
 @dp.message(Command("set18"))
 async def set_18(m: types.Message):
@@ -176,9 +148,42 @@ async def set_18(m: types.Message):
             await db.settings.update_one({"id": "link_18"}, {"$set": {"url": val}}, upsert=True)
             await m.answer("✅ 18+ লিংক আপডেট হয়েছে।")
         except:
-            await m.answer("⚠️ সঠিক নিয়ম: `/set18 https://t.me/...`")
+            await m.answer("⚠️ সঠিক নিয়ম: <code>/set18 https://t.me/...</code>", parse_mode="HTML")
 
-# --- ২. ওয়েব অ্যাপ UI ---
+# ==========================================
+# ২. ফাইল এবং টেক্সট রিসিভ করা (Upload Flow)
+# ==========================================
+
+@dp.message(F.document | F.video)
+async def catch_file(m: types.Message):
+    if m.from_user.id != ADMIN_ID: return
+    fid = m.video.file_id if m.video else m.document.file_id
+    ftype = "video" if m.video else "document"
+    admin_temp[m.from_user.id] = {"step": "photo", "file_id": fid, "type": ftype}
+    await m.answer("✅ ফাইল পেয়েছি! এবার মুভির <b>পোস্টার (Photo)</b> সেন্ড করুন।", parse_mode="HTML")
+
+@dp.message(F.photo)
+async def catch_photo(m: types.Message):
+    if m.from_user.id != ADMIN_ID: return
+    uid = m.from_user.id
+    if uid in admin_temp and admin_temp[uid].get("step") == "photo":
+        admin_temp[uid]["photo_id"] = m.photo[-1].file_id
+        admin_temp[uid]["step"] = "title"
+        await m.answer("✅ পোস্টার পেয়েছি! এবার মুভির <b>নাম</b> লিখে পাঠান।", parse_mode="HTML")
+
+@dp.message(F.text)
+async def catch_text(m: types.Message):
+    uid = m.from_user.id
+    if uid != ADMIN_ID or str(m.text).startswith("/"): return
+    if uid in admin_temp and admin_temp[uid].get("step") == "title":
+        title = m.text.strip()
+        await db.movies.insert_one({"title": title, "photo_id": admin_temp[uid]["photo_id"], "file_id": admin_temp[uid]["file_id"], "file_type": admin_temp[uid]["type"], "created_at": datetime.datetime.utcnow()})
+        del admin_temp[uid]
+        await m.answer(f"🎉 <b>{title}</b> অ্যাপে সফলভাবে যুক্ত করা হয়েছে!", parse_mode="HTML")
+
+# ==========================================
+# ৩. ওয়েব অ্যাপ UI এবং APIs
+# ==========================================
 
 @app.get("/", response_class=HTMLResponse)
 async def web_ui():
@@ -268,7 +273,6 @@ async def web_ui():
             <p>সার্ভারের সাথে কানেক্ট হচ্ছে...</p>
         </div>
 
-        <!-- Success Modal (FIXED) -->
         <div id="successModal" class="modal">
             <div class="modal-content">
                 <i class="fa-solid fa-circle-check" style="font-size:60px; color:#10b981;"></i>
@@ -352,7 +356,6 @@ async def web_ui():
 
             window.addEventListener('scroll', () => { if(window.innerHeight + window.scrollY >= document.body.offsetHeight - 200) loadMovies(); });
 
-            // FIXED: Modal show logical bug fixed
             function handleMovieClick(id, isUnlocked) {
                 if(isUnlocked) {
                     sendFile(id);
@@ -370,13 +373,10 @@ async def web_ui():
                 }
             }
 
-            // FIXED: Success modal triggers here after file sent
             async function sendFile(id) {
                 await fetch('/api/send', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({userId: uid, movieId: id})});
-                
                 document.getElementById('adScreen').style.display = 'none';
-                document.getElementById('successModal').style.display = 'flex'; // <--- THIS WAS MISSING
-                
+                document.getElementById('successModal').style.display = 'flex';
                 setTimeout(() => { loadMovies(true); }, 1000); 
             }
 
@@ -398,8 +398,6 @@ async def web_ui():
     """
     html_code = html_code.replace("{{ZONE_ID}}", zone_id).replace("{{TG_LINK}}", tg_url).replace("{{LINK_18}}", link_18)
     return html_code
-
-# --- ৩. API এন্ডপয়েন্ট ---
 
 @app.get("/api/list")
 async def list_movies(page: int = 1, q: str = "", uid: int = 0):
@@ -445,7 +443,7 @@ async def send_file(d: dict = Body(...)):
             time_cfg = await db.settings.find_one({"id": "del_time"})
             del_minutes = time_cfg['minutes'] if time_cfg else 60
             
-            caption = f"🎥 <b>{m['title']}</b>\n\n⏳ <b>সতর্কতা:</b> কপিরাইট এড়াতে মুভিটি <b>{del_minutes} মিনিট</b> পর অটো-ডিলিট হয়ে যাবে। দয়া করে এখনই ফরওয়ার্ড বা সেভ করে নিন!\n\n📥 Join: @MovieeBD"
+            caption = f"🎥 <b>{m['title']}</b>\n\n⏳ <b>সতর্কতা:</b> কপিরাইট এড়াতে মুভিটি <b>{del_minutes} মিনিট</b> পর অটো-ডিলিট হয়ে যাবে। দয়া করে এখনই ফরওয়ার্ড বা সেভ করে নিন!\n\n📥 Join: @TGLinkBase"
             
             sent_msg = None
             if m.get("file_type") == "video": sent_msg = await bot.send_video(uid, m['file_id'], caption=caption, parse_mode="HTML")
