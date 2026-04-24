@@ -14,7 +14,7 @@ from pydantic import BaseModel
 # --- কনফিগারেশন ---
 TOKEN = os.getenv("BOT_TOKEN")
 MONGO_URL = os.getenv("MONGO_URI")
-ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
+OWNER_ID = int(os.getenv("ADMIN_ID", "0")) # মেইন ওনার
 APP_URL = os.getenv("APP_URL")
 
 bot = Bot(token=TOKEN)
@@ -27,6 +27,14 @@ client = AsyncIOMotorClient(MONGO_URL)
 db = client['movie_database']
 
 admin_temp = {}
+admin_cache = set([OWNER_ID]) # ক্যাশে অ্যাডমিনদের লিস্ট রাখা হচ্ছে যাতে বট ফাস্ট কাজ করে
+
+# বটের শুরুতে ডাটাবেস থেকে সব সাব-অ্যাডমিনদের লিস্ট লোড করবে
+async def load_admins():
+    admin_cache.clear()
+    admin_cache.add(OWNER_ID)
+    async for admin in db.admins.find():
+        admin_cache.add(admin["user_id"])
 
 # --- ব্যাকগ্রাউন্ড অটো-ডিলিট ওয়ার্কার ---
 async def auto_delete_worker():
@@ -39,11 +47,49 @@ async def auto_delete_worker():
                     await bot.delete_message(chat_id=msg["chat_id"], message_id=msg["message_id"])
                 except Exception: pass
                 await db.auto_delete.delete_one({"_id": msg["_id"]})
-        except Exception as e: pass
+        except Exception: pass
         await asyncio.sleep(60)
 
 # ==========================================
-# ১. বটের সব কমান্ড (Commands)
+# ১. মেইন ওনার (Owner) স্পেশাল কমান্ড
+# ==========================================
+
+@dp.message(Command("addadmin"))
+async def add_admin_cmd(m: types.Message):
+    if m.from_user.id != OWNER_ID: return
+    try:
+        new_admin = int(m.text.split()[1])
+        if new_admin in admin_cache:
+            return await m.answer("⚠️ এই ইউজারটি আগে থেকেই অ্যাডমিন!")
+        await db.admins.insert_one({"user_id": new_admin})
+        admin_cache.add(new_admin)
+        await m.answer(f"✅ নতুন অ্যাডমিন যুক্ত করা হয়েছে: <code>{new_admin}</code>", parse_mode="HTML")
+        try: await bot.send_message(new_admin, "🎉 <b>অভিনন্দন!</b> আপনাকে এই বটের অ্যাডমিন বানানো হয়েছে। আপনি এখন মুভি আপলোড করতে পারবেন।", parse_mode="HTML")
+        except: pass
+    except: await m.answer("⚠️ সঠিক নিয়ম: <code>/addadmin ইউজার_আইডি</code>", parse_mode="HTML")
+
+@dp.message(Command("deladmin"))
+async def del_admin_cmd(m: types.Message):
+    if m.from_user.id != OWNER_ID: return
+    try:
+        del_admin = int(m.text.split()[1])
+        if del_admin == OWNER_ID: return await m.answer("⚠️ আপনি নিজেকে (Owner) ডিলিট করতে পারবেন না!")
+        await db.admins.delete_one({"user_id": del_admin})
+        admin_cache.discard(del_admin)
+        await m.answer(f"✅ অ্যাডমিন রিমুভ করা হয়েছে: <code>{del_admin}</code>", parse_mode="HTML")
+    except: await m.answer("⚠️ সঠিক নিয়ম: <code>/deladmin ইউজার_আইডি</code>", parse_mode="HTML")
+
+@dp.message(Command("adminlist"))
+async def list_admins_cmd(m: types.Message):
+    if m.from_user.id != OWNER_ID: return
+    text = "👥 **বর্তমান অ্যাডমিন লিস্ট:**\n"
+    text += f"👑 Owner: `{OWNER_ID}`\n"
+    for ad in admin_cache:
+        if ad != OWNER_ID: text += f"👮 Admin: `{ad}`\n"
+    await m.answer(text, parse_mode="Markdown")
+
+# ==========================================
+# ২. বটের সাধারণ অ্যাডমিন কমান্ড
 # ==========================================
 
 @dp.message(Command("start"))
@@ -52,22 +98,26 @@ async def start_cmd(message: types.Message):
     kb = [[types.InlineKeyboardButton(text="🎬 ওপেন মুভি অ্যাপ", web_app=types.WebAppInfo(url=APP_URL))]]
     markup = types.InlineKeyboardMarkup(inline_keyboard=kb)
     
-    if message.from_user.id == ADMIN_ID:
+    uid = message.from_user.id
+    if uid in admin_cache:
         text = (
             "👋 <b>হ্যালো অ্যাডমিন!</b>\n\n"
             "⚙️ <b>কমান্ড:</b>\n"
             "🔸 জোন: <code>/setad</code> | টেলিগ্রাম: <code>/settg</code> | 18+: <code>/set18</code>\n"
             "🔸 অটো-ডিলিট টাইম: <code>/settime [মিনিট]</code>\n"
-            "🔸 ডিলিট: <code>/del</code> | স্ট্যাটাস: <code>/stats</code> | ব্রডকাস্ট: <code>/cast</code>\n\n"
-            "📥 <b>মুভি অ্যাড করতে প্রথমে ভিডিও বা ডকুমেন্ট ফাইল পাঠান।</b>"
+            "🔸 ডিলিট: <code>/del</code> | স্ট্যাটাস: <code>/stats</code> | ব্রডকাস্ট: <code>/cast</code>\n"
         )
+        if uid == OWNER_ID:
+            text += "\n👑 <b>ওনার কমান্ড:</b>\n🔸 অ্যাড অ্যাডমিন: <code>/addadmin ID</code>\n🔸 ডিলিট অ্যাডমিন: <code>/deladmin ID</code>\n🔸 অ্যাডমিন লিস্ট: <code>/adminlist</code>\n"
+            
+        text += "\n📥 <b>মুভি অ্যাড করতে প্রথমে ভিডিও বা ডকুমেন্ট ফাইল পাঠান।</b>"
     else:
-        text = f"👋 <b>স্বাগতম {message.from_user.first_name}!</b>\n\n[আপনার টেলিগ্রাম আইডি: <code>{message.from_user.id}</code>]\n\nমুভি দেখতে নিচের বাটনে ক্লিক করুন।"
+        text = f"👋 <b>স্বাগতম {message.from_user.first_name}!</b>\n\n[আপনার টেলিগ্রাম আইডি: <code>{uid}</code>]\n\nমুভি দেখতে নিচের বাটনে ক্লিক করুন।"
     await message.answer(text, reply_markup=markup, parse_mode="HTML")
 
 @dp.message(Command("stats"))
 async def stats_cmd(m: types.Message):
-    if m.from_user.id != ADMIN_ID: return
+    if m.from_user.id not in admin_cache: return
     uc = await db.users.count_documents({})
     mc = await db.movies.count_documents({})
     time_cfg = await db.settings.find_one({"id": "del_time"})
@@ -76,7 +126,7 @@ async def stats_cmd(m: types.Message):
 
 @dp.message(Command("del"))
 async def del_movie_list(m: types.Message):
-    if m.from_user.id != ADMIN_ID: return
+    if m.from_user.id not in admin_cache: return
     movies = await db.movies.find().sort("created_at", -1).limit(20).to_list(length=20)
     if not movies: return await m.answer("কোনো মুভি নেই।")
     builder = InlineKeyboardBuilder()
@@ -86,7 +136,7 @@ async def del_movie_list(m: types.Message):
 
 @dp.callback_query(F.data.startswith("del_"))
 async def del_movie_callback(c: types.CallbackQuery):
-    if c.from_user.id != ADMIN_ID: return
+    if c.from_user.id not in admin_cache: return
     try:
         await db.movies.delete_one({"_id": ObjectId(c.data.split("_")[1])})
         await c.answer("✅ ডিলিট হয়েছে!", show_alert=True)
@@ -95,7 +145,7 @@ async def del_movie_callback(c: types.CallbackQuery):
 
 @dp.message(Command("settime"))
 async def set_del_time(m: types.Message):
-    if m.from_user.id == ADMIN_ID:
+    if m.from_user.id in admin_cache:
         try:
             await db.settings.update_one({"id": "del_time"}, {"$set": {"minutes": int(m.text.split(" ")[1])}}, upsert=True)
             await m.answer(f"✅ অটো-ডিলিট টাইম সেট করা হয়েছে।")
@@ -103,7 +153,7 @@ async def set_del_time(m: types.Message):
 
 @dp.message(Command("setad"))
 async def set_ad(m: types.Message):
-    if m.from_user.id == ADMIN_ID:
+    if m.from_user.id in admin_cache:
         try:
             await db.settings.update_one({"id": "ad_config"}, {"$set": {"zone_id": m.text.split(" ")[1]}}, upsert=True)
             await m.answer("✅ জোন আপডেট হয়েছে।")
@@ -111,7 +161,7 @@ async def set_ad(m: types.Message):
 
 @dp.message(Command("settg"))
 async def set_tg(m: types.Message):
-    if m.from_user.id == ADMIN_ID:
+    if m.from_user.id in admin_cache:
         try:
             await db.settings.update_one({"id": "link_tg"}, {"$set": {"url": m.text.split(" ")[1]}}, upsert=True)
             await m.answer("✅ টেলিগ্রাম লিংক আপডেট হয়েছে।")
@@ -119,19 +169,19 @@ async def set_tg(m: types.Message):
 
 @dp.message(Command("set18"))
 async def set_18(m: types.Message):
-    if m.from_user.id == ADMIN_ID:
+    if m.from_user.id in admin_cache:
         try:
             await db.settings.update_one({"id": "link_18"}, {"$set": {"url": m.text.split(" ")[1]}}, upsert=True)
             await m.answer("✅ 18+ লিংক আপডেট হয়েছে।")
         except: await m.answer("⚠️ সঠিক নিয়ম: <code>/set18 https://t.me/...</code>", parse_mode="HTML")
 
 # ==========================================
-# ২. অ্যাডভান্সড ব্রডকাস্ট এবং ফাইল আপলোড
+# ৩. অ্যাডভান্সড ব্রডকাস্ট এবং ফাইল আপলোড
 # ==========================================
 
 @dp.message(Command("cast"))
 async def broadcast_prep(m: types.Message):
-    if m.from_user.id != ADMIN_ID: return
+    if m.from_user.id not in admin_cache: return
     admin_temp[m.from_user.id] = {"step": "bcast_wait"}
     await m.answer("📢 <b>অ্যাডভান্সড ব্রডকাস্ট:</b>\nযে মেসেজটি (ছবি/ভিডিও/টেক্সট) ব্রডকাস্ট করতে চান, সেটি এখানে পাঠান বা ফরোয়ার্ড করুন।\n\n<i>নোট: বট অটোমেটিক মেসেজের নিচে '🎬 ওপেন মুভি অ্যাপ' বাটন লাগিয়ে সবাইকে পাঠিয়ে দিবে।</i>", parse_mode="HTML")
 
@@ -139,8 +189,8 @@ async def broadcast_prep(m: types.Message):
 async def catch_all_inputs(m: types.Message):
     uid = m.from_user.id
     
-    # অ্যাডভান্সড ব্রডকাস্ট ফ্লো
-    if uid == ADMIN_ID and admin_temp.get(uid, {}).get("step") == "bcast_wait":
+    # ব্রডকাস্ট
+    if uid in admin_cache and admin_temp.get(uid, {}).get("step") == "bcast_wait":
         del admin_temp[uid]
         await m.answer("⏳ ব্রডকাস্ট শুরু হয়েছে...")
         kb = types.InlineKeyboardMarkup(inline_keyboard=[[types.InlineKeyboardButton(text="🎬 ওপেন মুভি অ্যাপ", web_app=types.WebAppInfo(url=APP_URL))]])
@@ -154,32 +204,29 @@ async def catch_all_inputs(m: types.Message):
         await m.answer(f"✅ সম্পন্ন! সর্বমোট <b>{success}</b> জনকে মেসেজ পাঠানো হয়েছে।", parse_mode="HTML")
         return
 
-    # মুভি আপলোড ফ্লো - স্টেপ ১ (ফাইল)
-    if uid == ADMIN_ID and (m.document or m.video):
+    # আপলোড ফ্লো
+    if uid in admin_cache and (m.document or m.video):
         fid = m.video.file_id if m.video else m.document.file_id
         ftype = "video" if m.video else "document"
         admin_temp[uid] = {"step": "photo", "file_id": fid, "type": ftype}
         await m.answer("✅ ফাইল পেয়েছি! এবার মুভির <b>পোস্টার (Photo)</b> সেন্ড করুন।", parse_mode="HTML")
         return
 
-    # মুভি আপলোড ফ্লো - স্টেপ ২ (পোস্টার)
-    if uid == ADMIN_ID and m.photo and admin_temp.get(uid, {}).get("step") == "photo":
+    if uid in admin_cache and m.photo and admin_temp.get(uid, {}).get("step") == "photo":
         admin_temp[uid]["photo_id"] = m.photo[-1].file_id
         admin_temp[uid]["step"] = "title"
         await m.answer("✅ পোস্টার পেয়েছি! এবার মুভির <b>নাম</b> লিখে পাঠান।", parse_mode="HTML")
         return
 
-    # মুভি আপলোড ফ্লো - স্টেপ ৩ (নাম)
-    if uid == ADMIN_ID and m.text and not str(m.text).startswith("/"):
+    if uid in admin_cache and m.text and not str(m.text).startswith("/"):
         if admin_temp.get(uid, {}).get("step") == "title":
             title = m.text.strip()
-            # clicks: 0 অ্যাড করা হয়েছে ট্রেন্ডিং ফিচারের জন্য
             await db.movies.insert_one({"title": title, "photo_id": admin_temp[uid]["photo_id"], "file_id": admin_temp[uid]["file_id"], "file_type": admin_temp[uid]["type"], "clicks": 0, "created_at": datetime.datetime.utcnow()})
             del admin_temp[uid]
             await m.answer(f"🎉 <b>{title}</b> অ্যাপে সফলভাবে যুক্ত করা হয়েছে!", parse_mode="HTML")
 
 # ==========================================
-# ৩. ওয়েব অ্যাপ UI এবং APIs
+# ৪. ওয়েব অ্যাপ UI এবং APIs
 # ==========================================
 
 @app.get("/", response_class=HTMLResponse)
@@ -213,10 +260,8 @@ async def web_ui():
             .search-input { width:100%; padding:14px; border-radius:25px; border:none; outline:none; text-align:center; background:#1e293b; color:#fff; font-size:16px; transition: 0.3s; }
             .search-input:focus { box-shadow: 0 0 10px rgba(248,113,113,0.5); }
             
-            /* Section Titles */
             .section-title { padding: 5px 15px 10px; font-size: 18px; font-weight: bold; color: #f87171; display:flex; align-items:center; gap:8px;}
             
-            /* Trending Slider Styles */
             .trending-container { display: flex; overflow-x: auto; gap: 12px; padding: 0 15px 20px; scroll-behavior: smooth; }
             .trending-container::-webkit-scrollbar { display: none; }
             .trending-card { min-width: 130px; max-width: 130px; background: #1e293b; border-radius: 12px; overflow: hidden; cursor: pointer; flex-shrink: 0; position:relative;}
@@ -277,7 +322,6 @@ async def web_ui():
             <input type="text" id="searchInput" class="search-input" placeholder="মুভি বা ওয়েব সিরিজ খুঁজুন...">
         </div>
 
-        <!-- Trending Section -->
         <div id="trendingWrapper">
             <div class="section-title"><i class="fa-solid fa-fire"></i> ট্রেন্ডিং মুভি</div>
             <div class="trending-container" id="trendingGrid">
@@ -339,7 +383,21 @@ async def web_ui():
                 let html = ""; for(let i=0; i<count; i++) html += `<div class="skeleton"></div>`; return html;
             }
 
-            // ট্রেন্ডিং মুভি লোড করা (Top 10)
+            // ট্রেন্ডিং মুভি অটো-স্ক্রোল ফাংশন
+            function startAutoScroll() {
+                setInterval(() => {
+                    let grid = document.getElementById('trendingGrid');
+                    if(grid) {
+                        let cardWidth = 142; // কার্ডের প্রস্থ + গ্যাপ
+                        if (grid.scrollLeft >= (grid.scrollWidth - grid.clientWidth - 10)) {
+                            grid.scrollTo({ left: 0, behavior: 'smooth' }); // শেষে পৌঁছালে শুরুতে আসবে
+                        } else {
+                            grid.scrollBy({ left: cardWidth, behavior: 'smooth' }); // ১টি করে কার্ড স্ক্রল হবে
+                        }
+                    }
+                }, 3000); // প্রতি ৩ সেকেন্ড পর পর স্ক্রল হবে
+            }
+
             async function loadTrending() {
                 try {
                     const r = await fetch(`/api/trending?uid=${uid}`);
@@ -361,6 +419,9 @@ async def web_ui():
                             <div class="card-footer" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${m.title}</div>
                         </div>`;
                     }).join('');
+                    
+                    // অটো-স্ক্রোল চালু করা হলো
+                    setTimeout(startAutoScroll, 2000);
                 } catch(e) {}
             }
 
@@ -479,7 +540,6 @@ async def trending_movies(uid: int = 0):
             unlocked_movie_ids.append(u["movie_id"])
 
     movies = []
-    # সবচেয়ে বেশি দেখা ১০টি মুভি আনা হচ্ছে (clicks ফিল্ড অনুযায়ী)
     async for m in db.movies.find().sort("clicks", -1).limit(10):
         m_id = str(m["_id"])
         m["_id"] = m_id
@@ -541,7 +601,6 @@ async def send_file(d: dict = Body(...)):
             if m.get("file_type") == "video": sent_msg = await bot.send_video(uid, m['file_id'], caption=caption, parse_mode="HTML")
             else: sent_msg = await bot.send_document(uid, m['file_id'], caption=caption, parse_mode="HTML")
             
-            # ডাটাবেসে Clicks আপডেট করা হচ্ছে (ট্রেন্ডিং এর জন্য)
             await db.movies.update_one({"_id": ObjectId(mid)}, {"$inc": {"clicks": 1}})
             await db.user_unlocks.update_one({"user_id": uid, "movie_id": mid}, {"$set": {"unlocked_at": datetime.datetime.utcnow()}}, upsert=True)
             
@@ -556,11 +615,14 @@ class ReqModel(BaseModel):
 
 @app.post("/api/request")
 async def handle_request(data: ReqModel):
-    try: await bot.send_message(ADMIN_ID, f"🔔 <b>মুভি রিকোয়েস্ট!</b>\n\n👤 ইউজার: {data.uname} (<code>{data.uid}</code>)\n🎬 নাম: <b>{data.movie}</b>", parse_mode="HTML")
+    try: await bot.send_message(OWNER_ID, f"🔔 <b>মুভি রিকোয়েস্ট!</b>\n\n👤 ইউজার: {data.uname} (<code>{data.uid}</code>)\n🎬 নাম: <b>{data.movie}</b>", parse_mode="HTML")
     except: pass
     return {"ok": True}
 
 async def start():
+    # স্টার্ট করার সময় আগে ডাটাবেস থেকে সব অ্যাডমিন লোড করা হচ্ছে
+    await load_admins()
+    
     port = int(os.getenv("PORT", 8000))
     config = uvicorn.Config(app, host="0.0.0.0", port=port, loop="asyncio")
     server = uvicorn.Server(config)
