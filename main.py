@@ -327,16 +327,21 @@ async def web_ui():
     <!DOCTYPE html>
     <html lang="bn">
     <head>
-        <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
         <title>MovieZone BD</title>
         <script src="https://telegram.org/js/telegram-web-app.js"></script>
         <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
         <style>
             * { margin:0; padding:0; box-sizing:border-box; }
-            body { background:#0f172a; font-family: sans-serif; color:#fff; } 
+            html { scroll-behavior: smooth; }
+            body { 
+                background:#0f172a; font-family: sans-serif; color:#fff; 
+                -webkit-font-smoothing: antialiased; 
+                overscroll-behavior-y: none;
+            } 
             
-            /* Header Fixed Typo & Layout */
-            header { display:flex; justify-content:space-between; align-items:center; padding:15px; border-bottom:1px solid #1e293b; position:sticky; top:0; background:rgba(15, 23, 42, 0.95); backdrop-filter: blur(10px); z-index:1000; }
+            /* Header */
+            header { display:flex; justify-content:space-between; align-items:center; padding:15px; border-bottom:1px solid #1e293b; position:sticky; top:0; background:rgba(15, 23, 42, 0.95); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); z-index:1000; }
             .logo { font-size:24px; font-weight:bold; }
             .logo span { background:red; color:#fff; padding:2px 6px; border-radius:5px; margin-left:5px; font-size:16px; }
             .user-info { display:flex; align-items:center; gap:8px; background:#1e293b; padding:6px 14px; border-radius:25px; font-weight:bold; font-size:14px; border: 1px solid #334155; }
@@ -348,32 +353,50 @@ async def web_ui():
             
             .section-title { padding: 5px 15px 10px; font-size: 18px; font-weight: bold; color: #f87171; display:flex; align-items:center; gap:8px;}
             
-            .trending-container { display: flex; overflow-x: auto; gap: 15px; padding: 0 15px 20px; scroll-behavior: smooth; }
+            /* Smooth Horizontal Scroll */
+            .trending-container { 
+                display: flex; overflow-x: auto; gap: 15px; padding: 0 15px 20px; 
+                scroll-behavior: smooth; 
+                -webkit-overflow-scrolling: touch; /* GPU Accelerated smooth scroll */
+            }
             .trending-container::-webkit-scrollbar { display: none; }
-            .trending-card { min-width: 140px; max-width: 140px; background: #1e293b; border-radius: 12px; overflow: hidden; cursor: pointer; flex-shrink: 0; position:relative; transition: transform 0.2s;}
+            .trending-card { 
+                min-width: 140px; max-width: 140px; background: #1e293b; border-radius: 12px; overflow: hidden; cursor: pointer; flex-shrink: 0; position:relative; 
+                transition: transform 0.2s; 
+                transform: translateZ(0); /* Hardware Acceleration */
+                will-change: transform;
+            }
             .trending-card:active { transform: scale(0.95); }
-            .trending-card img { height: 200px; object-fit:cover; width:100%; border-radius:10px; display:block; transition: 0.3s;}
-            .trending-card .post-content { padding:3px; background: linear-gradient(45deg, #ff0000, #ff7300, #fffb00); border-radius: 12px; }
+            .trending-card img { height: 200px; object-fit:cover; width:100%; border-radius:10px; display:block; }
             
             .grid { padding:0 15px 20px; display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; }
-            .card { background:#1e293b; border-radius:12px; overflow:hidden; cursor:pointer; transition: transform 0.2s, box-shadow 0.2s; }
+            .card { 
+                background:#1e293b; border-radius:12px; overflow:hidden; cursor:pointer; 
+                transition: transform 0.2s, box-shadow 0.2s; 
+                transform: translateZ(0); /* Hardware Acceleration */
+                will-change: transform;
+            }
             .card:active { transform: scale(0.95); }
             
+            /* Optimized Glowing Animation */
             .post-content { 
                 position:relative; padding: 3px; border-radius: 12px;
                 background: linear-gradient(45deg, #ff0000, #ff7300, #fffb00, #48ff00, #00ffd5, #002bff, #7a00ff, #ff00c8, #ff0000);
-                background-size: 400%; animation: glowing 8s linear infinite;
+                background-size: 400%; 
+                animation: glowing 8s linear infinite;
+                transform: translateZ(0); /* Offloads rendering to GPU */
+                will-change: background-position;
             }
             @keyframes glowing { 0% { background-position: 0 0; } 50% { background-position: 400% 0; } 100% { background-position: 0 0; } }
 
             .post-content img { width:100%; height:230px; object-fit:cover; display:block; border-radius: 10px; }
             
-            .tag { position:absolute; top:10px; right:10px; padding:5px 8px; border-radius:6px; font-weight:bold; font-size:11px; display:flex; align-items:center; gap:4px; box-shadow: 0 2px 8px rgba(0,0,0,0.7); backdrop-filter: blur(5px); }
-            .tag-locked { background:rgba(0,0,0,0.7); color:#fca5a5; border: 1px solid #f87171; }
-            .tag-unlocked { background:rgba(0,0,0,0.7); color:#6ee7b7; border: 1px solid #10b981; }
+            .tag { position:absolute; top:10px; right:10px; padding:5px 8px; border-radius:6px; font-weight:bold; font-size:11px; display:flex; align-items:center; gap:4px; box-shadow: 0 2px 8px rgba(0,0,0,0.7); background:rgba(0,0,0,0.75); }
+            .tag-locked { color:#fca5a5; border: 1px solid #f87171; }
+            .tag-unlocked { color:#6ee7b7; border: 1px solid #10b981; }
             
             .top-badge { position:absolute; top:10px; left:10px; background:linear-gradient(45deg, #ff0000, #cc0000); color:white; padding:4px 8px; border-radius:6px; font-size:11px; font-weight:bold; box-shadow: 0 2px 8px rgba(0,0,0,0.7); z-index:10;}
-            .view-badge { position:absolute; bottom:10px; left:10px; background:rgba(0,0,0,0.7); color:#fff; padding:4px 8px; border-radius:6px; font-size:12px; font-weight:bold; display:flex; align-items:center; gap:5px; box-shadow: 0 2px 8px rgba(0,0,0,0.7); }
+            .view-badge { position:absolute; bottom:10px; left:10px; background:rgba(0,0,0,0.75); color:#fff; padding:4px 8px; border-radius:6px; font-size:12px; font-weight:bold; display:flex; align-items:center; gap:5px; box-shadow: 0 2px 8px rgba(0,0,0,0.7); }
 
             .card-footer { padding:12px; font-size:14px; font-weight:bold; text-align:center; word-wrap: break-word; color:#f8fafc; line-height:1.4; }
             
@@ -392,8 +415,8 @@ async def web_ui():
             .btn-tg { bottom:95px; background:linear-gradient(45deg, #24A1DE, #1b7ba8); }
             .btn-req { bottom:35px; background:linear-gradient(45deg, #10b981, #059669); }
 
-            /* Modern RGB Timer & Ad Screen */
-            .ad-screen { position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(15, 23, 42, 0.98); display:none; flex-direction:column; align-items:center; justify-content:center; z-index:2000; animation: fadeIn 0.3s ease-out; backdrop-filter: blur(5px);}
+            /* Ad Screen */
+            .ad-screen { position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(15, 23, 42, 0.98); display:none; flex-direction:column; align-items:center; justify-content:center; z-index:2000; animation: fadeIn 0.3s ease-out; backdrop-filter: blur(5px); -webkit-backdrop-filter: blur(5px);}
             .timer-ui { display:flex; flex-direction:column; align-items:center; }
             
             .rgb-timer-container { position: relative; width: 130px; height: 130px; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin-bottom: 25px; background: #0f172a; box-shadow: 0 0 30px rgba(0,0,0,0.8); }
@@ -405,7 +428,7 @@ async def web_ui():
             .btn-next-ad { display:none; background:linear-gradient(45deg, #f87171, #ef4444); color:white; border:none; padding:16px 35px; border-radius:30px; font-size:18px; font-weight:bold; cursor:pointer; box-shadow: 0 5px 20px rgba(248,113,113,0.6); transition: 0.3s;}
             .btn-next-ad:active { transform: scale(0.95); }
             
-            .modal { position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.85); display:none; align-items:center; justify-content:center; z-index:3000; animation: fadeIn 0.3s ease-out; backdrop-filter: blur(5px);}
+            .modal { position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.85); display:none; align-items:center; justify-content:center; z-index:3000; animation: fadeIn 0.3s ease-out; backdrop-filter: blur(5px); -webkit-backdrop-filter: blur(5px);}
             .modal-content { background:#1e293b; width:90%; max-width: 400px; padding:30px 25px; border-radius:20px; text-align:center; box-shadow: 0 10px 30px rgba(0,0,0,0.5); border: 1px solid #334155;}
             @keyframes fadeIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
             
@@ -414,13 +437,11 @@ async def web_ui():
             .btn-submit { background: linear-gradient(45deg, #10b981, #059669); color: white; border: none; padding: 14px 20px; border-radius: 10px; font-weight: bold; width:100%; font-size:16px; cursor:pointer; transition: 0.3s;}
             .btn-submit:active { transform: scale(0.95); }
             
-            /* Success Notice Box */
             .notice-box { background: rgba(248,113,113,0.1); border-left: 4px solid #f87171; padding: 12px 15px; text-align: left; margin: 20px 0; border-radius: 6px; }
             .notice-box p { color: #fca5a5; font-size: 14px; margin:0; line-height: 1.5; }
         </style>
     </head>
     <body>
-        <!-- Header Fixed -->
         <header>
             <div class="logo">MovieZone <span>BD</span></div>
             <div class="user-info"><span id="uName">Guest</span><img id="uPic" src="https://cdn-icons-png.flaticon.com/512/3135/3135715.png"></div>
@@ -447,10 +468,8 @@ async def web_ui():
         <div class="floating-btn btn-tg" onclick="window.open('{{TG_LINK}}')"><i class="fa-brands fa-telegram"></i></div>
         <div class="floating-btn btn-req" onclick="openReqModal()"><i class="fa-solid fa-code-pull-request"></i></div>
 
-        <!-- RGB Ad Screen -->
         <div id="adScreen" class="ad-screen">
             <div class="ad-step-text" id="adStepText">অ্যাড: 1/1</div>
-            
             <div class="timer-ui" id="timerUI">
                 <div class="rgb-timer-container">
                     <div class="rgb-ring"></div>
@@ -458,11 +477,9 @@ async def web_ui():
                 </div>
                 <p style="color: #cbd5e1; font-size: 15px; margin-top:10px;">সার্ভারের সাথে কানেক্ট হচ্ছে...</p>
             </div>
-            
             <button class="btn-next-ad" id="nextAdBtn" onclick="nextAdStep()">পরবর্তী অ্যাড দেখুন <i class="fa-solid fa-arrow-right"></i></button>
         </div>
 
-        <!-- Success Modal Updated -->
         <div id="successModal" class="modal">
             <div class="modal-content">
                 <i class="fa-solid fa-circle-check" style="font-size:70px; color:#10b981; text-shadow: 0 0 20px rgba(16,185,129,0.5);"></i>
@@ -495,8 +512,8 @@ async def web_ui():
             let currentPage = 1; let isLoading = false; let searchQuery = "";
             let uid = tg.initDataUnsafe.user?.id || 0;
             
-            let currentAdStep = 1;
-            let activeMovieId = null;
+            let currentAdStep = 1; let activeMovieId = null;
+            let autoScrollInterval; let isTouching = false;
 
             if(tg.initDataUnsafe && tg.initDataUnsafe.user) {
                 document.getElementById('uName').innerText = tg.initDataUnsafe.user.first_name;
@@ -512,7 +529,9 @@ async def web_ui():
             }
 
             function startAutoScroll() {
-                setInterval(() => {
+                if(autoScrollInterval) clearInterval(autoScrollInterval);
+                autoScrollInterval = setInterval(() => {
+                    if(isTouching) return; // Touch sensor check
                     let grid = document.getElementById('trendingGrid');
                     if(grid) {
                         let cardWidth = 155;
@@ -536,17 +555,25 @@ async def web_ui():
                     }
                     grid.innerHTML = data.map(m => {
                         let tagHtml = m.is_unlocked ? `<div class="tag tag-unlocked"><i class="fa-solid fa-unlock"></i></div>` : `<div class="tag tag-locked"><i class="fa-solid fa-lock"></i></div>`;
+                        // Lazy loading added here
                         return `
                         <div class="trending-card" onclick="handleMovieClick('${m._id}', ${m.is_unlocked})">
                             <div class="post-content">
                                 <div class="top-badge">🔥 TOP</div>
-                                <img src="/api/image/${m.photo_id}" onerror="this.src='https://via.placeholder.com/400x200?text=No+Image'">
+                                <img src="/api/image/${m.photo_id}" loading="lazy" decoding="async" onerror="this.src='https://via.placeholder.com/400x240?text=No+Image'">
                                 ${tagHtml}
                                 <div class="view-badge"><i class="fa-solid fa-eye"></i> ${m.clicks}</div>
                             </div>
                             <div class="card-footer" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${m.title}</div>
                         </div>`;
                     }).join('');
+                    
+                    // Touch sensors for smooth scrolling
+                    grid.addEventListener('touchstart', () => isTouching = true, {passive: true});
+                    grid.addEventListener('touchend', () => { setTimeout(() => isTouching = false, 1000); }, {passive: true});
+                    grid.addEventListener('mouseenter', () => isTouching = true);
+                    grid.addEventListener('mouseleave', () => isTouching = false);
+                    
                     setTimeout(startAutoScroll, 2000);
                 } catch(e) {}
             }
@@ -569,10 +596,11 @@ async def web_ui():
                     } else {
                         grid.innerHTML = data.movies.map(m => {
                             let tagHtml = m.is_unlocked ? `<div class="tag tag-unlocked"><i class="fa-solid fa-unlock"></i></div>` : `<div class="tag tag-locked"><i class="fa-solid fa-lock"></i></div>`;
+                            // Lazy loading added here
                             return `
                             <div class="card" onclick="handleMovieClick('${m._id}', ${m.is_unlocked})">
                                 <div class="post-content">
-                                    <img src="/api/image/${m.photo_id}" onerror="this.src='https://via.placeholder.com/400x200?text=No+Image'">
+                                    <img src="/api/image/${m.photo_id}" loading="lazy" decoding="async" onerror="this.src='https://via.placeholder.com/400x240?text=No+Image'">
                                     ${tagHtml}
                                     <div class="view-badge"><i class="fa-solid fa-eye"></i> ${m.clicks}</div>
                                 </div>
@@ -605,34 +633,22 @@ async def web_ui():
             let timeout = null;
             document.getElementById('searchInput').addEventListener('input', function(e) {
                 clearTimeout(timeout); searchQuery = e.target.value.trim();
-                if(searchQuery !== "") document.getElementById('trendingWrapper').style.display = 'none';
-                else { document.getElementById('trendingWrapper').style.display = 'block'; loadTrending(); }
+                if(searchQuery !== "") { document.getElementById('trendingWrapper').style.display = 'none'; isTouching = true; }
+                else { document.getElementById('trendingWrapper').style.display = 'block'; isTouching = false; loadTrending(); }
                 timeout = setTimeout(() => { loadMovies(1); }, 500); 
             });
 
-            // Multi-Ad Logic
             function handleMovieClick(id, isUnlocked) {
-                if(isUnlocked) {
-                    sendFile(id);
-                } else {
-                    activeMovieId = id;
-                    currentAdStep = 1;
-                    startAdTimer();
-                }
+                if(isUnlocked) { sendFile(id); } else { activeMovieId = id; currentAdStep = 1; startAdTimer(); }
             }
 
             function startAdTimer() {
                 if (typeof window['show_' + ZONE_ID] === 'function') window['show_' + ZONE_ID]();
-                
                 document.getElementById('adScreen').style.display = 'flex';
                 document.getElementById('timerUI').style.display = 'flex';
                 document.getElementById('nextAdBtn').style.display = 'none';
-                
                 document.getElementById('adStepText').innerText = `অ্যাড: ${currentAdStep}/${REQUIRED_ADS}`;
-                
-                let t = 15;
-                document.getElementById('timer').innerText = t;
-                
+                let t = 15; document.getElementById('timer').innerText = t;
                 let iv = setInterval(() => {
                     t--; document.getElementById('timer').innerText = t;
                     if(t <= 0) { 
@@ -641,17 +657,12 @@ async def web_ui():
                             document.getElementById('timerUI').style.display = 'none';
                             document.getElementById('nextAdBtn').style.display = 'block';
                             document.getElementById('nextAdBtn').innerHTML = `পরবর্তী অ্যাড দেখুন (${currentAdStep + 1}/${REQUIRED_ADS}) <i class="fa-solid fa-arrow-right"></i>`;
-                        } else {
-                            sendFile(activeMovieId); 
-                        }
+                        } else { sendFile(activeMovieId); }
                     }
                 }, 1000);
             }
 
-            function nextAdStep() {
-                currentAdStep++;
-                startAdTimer();
-            }
+            function nextAdStep() { currentAdStep++; startAdTimer(); }
 
             async function sendFile(id) {
                 await fetch('/api/send', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({userId: uid, movieId: id})});
@@ -748,7 +759,7 @@ async def send_file(d: dict = Body(...)):
             protect_cfg = await db.settings.find_one({"id": "protect_content"})
             is_protected = protect_cfg['status'] if protect_cfg else True
             
-            caption = f"🎥 <b>{m['title']}</b>\n\n⏳ <b>সতর্কতা:</b> কপিরাইট এড়াতে মুভিটি <b>{del_minutes} মিনিট</b> পর অটো-ডিলিট হয়ে যাবে। দয়া করে এখনই ফরওয়ার্ড বা সেভ করে নিন!\n\n📥 Join: @MovieeBD"
+            caption = f"🎥 <b>{m['title']}</b>\n\n⏳ <b>সতর্কতা:</b> কপিরাইট এড়াতে মুভিটি <b>{del_minutes} মিনিট</b> পর অটো-ডিলিট হয়ে যাবে। দয়া করে এখনই ফরওয়ার্ড বা সেভ করে নিন!\n\n📥 Join: @TGLinkBase"
             
             sent_msg = None
             if m.get("file_type") == "video": 
