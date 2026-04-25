@@ -75,7 +75,7 @@ async def del_admin_cmd(m: types.Message):
     if m.from_user.id != OWNER_ID: return
     try:
         del_admin = int(m.text.split()[1])
-        if del_admin == OWNER_ID: return await m.answer("⚠️ আপনি নিজেকে (Owner) ডিলিট করতে পারবেন অ্যাকাউন্টের!")
+        if del_admin == OWNER_ID: return await m.answer("⚠️ আপনি নিজেকে (Owner) ডিলিট করতে পারবেন না!")
         await db.admins.delete_one({"user_id": del_admin})
         admin_cache.discard(del_admin)
         await m.answer(f"✅ অ্যাডমিন রিমুভ করা হয়েছে: <code>{del_admin}</code>", parse_mode="HTML")
@@ -268,7 +268,6 @@ async def catch_all_inputs(m: types.Message):
         await m.answer("✅ পোস্টার পেয়েছি! এবার মুভির <b>নাম</b> লিখে পাঠান।", parse_mode="HTML")
         return
 
-    # === মুভি ডাটাবেসে সেভ এবং অটো-নোটিফিকেশন সেকশন ===
     if uid in admin_cache and m.text and not str(m.text).startswith("/"):
         if admin_temp.get(uid, {}).get("step") == "title":
             title = m.text.strip()
@@ -276,7 +275,6 @@ async def catch_all_inputs(m: types.Message):
             file_id = admin_temp[uid]["file_id"]
             file_type = admin_temp[uid]["type"]
             
-            # ডাটাবেসে সেভ করা
             await db.movies.insert_one({
                 "title": title, 
                 "photo_id": photo_id, 
@@ -288,20 +286,14 @@ async def catch_all_inputs(m: types.Message):
             del admin_temp[uid]
             await m.answer(f"🎉 <b>{title}</b> অ্যাপে সফলভাবে যুক্ত করা হয়েছে!", parse_mode="HTML")
             
-            # চ্যানেলে নোটিফিকেশন পাঠানো
             if CHANNEL_ID and CHANNEL_ID != "-100XXXXXXXXXX":
                 try:
-                    # চ্যানেল আইডিটি String থেকে Integer এ কনভার্ট করা হলো যাতে এরর না আসে
-                    try:
-                        target_channel = int(CHANNEL_ID)
-                    except ValueError:
-                        target_channel = CHANNEL_ID
+                    try: target_channel = int(CHANNEL_ID)
+                    except ValueError: target_channel = CHANNEL_ID
 
-                    # বটের ইউজারনেম বের করা হচ্ছে
                     bot_info = await bot.get_me()
                     bot_username = bot_info.username
                     
-                    # চ্যানেলে web_app বাটনের বদলে url বাটন ব্যবহার করা হলো
                     kb = [[types.InlineKeyboardButton(text="🎬 মুভিটি দেখতে এখানে ক্লিক করুন", url=f"https://t.me/{bot_username}?start=new")]]
                     markup = types.InlineKeyboardMarkup(inline_keyboard=kb)
                     
@@ -311,15 +303,8 @@ async def catch_all_inputs(m: types.Message):
                         f"👇 <i>মুভিটি দেখতে নিচের বাটনে ক্লিক করে বটে যান এবং অ্যাপটি ওপেন করুন।</i>"
                     )
                     
-                    await bot.send_photo(
-                        chat_id=target_channel, 
-                        photo=photo_id, 
-                        caption=caption, 
-                        parse_mode="HTML", 
-                        reply_markup=markup
-                    )
+                    await bot.send_photo(chat_id=target_channel, photo=photo_id, caption=caption, parse_mode="HTML", reply_markup=markup)
                 except Exception as e:
-                    # এবার চ্যানেলে মেসেজ না গেলে কী কারণে যায়নি সেটা আপনাকে রিপ্লাইতে স্পষ্ট বলে দিবে
                     await m.answer(f"⚠️ মুভি ডাটাবেসে যুক্ত হয়েছে, কিন্তু চ্যানেলে যায়নি!\n<b>কারণ:</b> <code>{str(e)}</code>", parse_mode="HTML")
 
 # ==========================================
@@ -349,26 +334,29 @@ async def web_ui():
         <style>
             * { margin:0; padding:0; box-sizing:border-box; }
             body { background:#0f172a; font-family: sans-serif; color:#fff; } 
-            header { display:flex; justify-content:space-between; align-items:center; padding:15px; border-bottom:1px solid #1e293b; position:sticky; top:0; background:#0f172a; z-index:1000; }
+            
+            /* Header Fixed Typo & Layout */
+            header { display:flex; justify-content:space-between; align-items:center; padding:15px; border-bottom:1px solid #1e293b; position:sticky; top:0; background:rgba(15, 23, 42, 0.95); backdrop-filter: blur(10px); z-index:1000; }
             .logo { font-size:24px; font-weight:bold; }
-            .logo span { background:red; color:#fff; padding:2px 5px; border-radius:5px; margin-left:5px; font-size:16px; }
-            .user-info { display:flex; align-items:center; gap:8px; background:#1e293b; padding:5px 12px; border-radius:20px; font-weight:bold; font-size:14px; }
-            .user-info img { width:26px; height:26px; border-radius:50%; object-fit:cover; }
+            .logo span { background:red; color:#fff; padding:2px 6px; border-radius:5px; margin-left:5px; font-size:16px; }
+            .user-info { display:flex; align-items:center; gap:8px; background:#1e293b; padding:6px 14px; border-radius:25px; font-weight:bold; font-size:14px; border: 1px solid #334155; }
+            .user-info img { width:28px; height:28px; border-radius:50%; object-fit:cover; }
             
             .search-box { padding:15px; }
-            .search-input { width:100%; padding:14px; border-radius:25px; border:none; outline:none; text-align:center; background:#1e293b; color:#fff; font-size:16px; transition: 0.3s; }
-            .search-input:focus { box-shadow: 0 0 10px rgba(248,113,113,0.5); }
+            .search-input { width:100%; padding:14px; border-radius:25px; border:none; outline:none; text-align:center; background:#1e293b; color:#fff; font-size:16px; transition: 0.3s; box-shadow: inset 0 2px 5px rgba(0,0,0,0.3); }
+            .search-input:focus { box-shadow: 0 0 12px rgba(248,113,113,0.6); }
             
             .section-title { padding: 5px 15px 10px; font-size: 18px; font-weight: bold; color: #f87171; display:flex; align-items:center; gap:8px;}
             
-            .trending-container { display: flex; overflow-x: auto; gap: 12px; padding: 0 15px 20px; scroll-behavior: smooth; }
+            .trending-container { display: flex; overflow-x: auto; gap: 15px; padding: 0 15px 20px; scroll-behavior: smooth; }
             .trending-container::-webkit-scrollbar { display: none; }
-            .trending-card { min-width: 130px; max-width: 130px; background: #1e293b; border-radius: 12px; overflow: hidden; cursor: pointer; flex-shrink: 0; position:relative;}
-            .trending-card img { height: 170px; object-fit:cover; width:100%; border-radius:10px; display:block; }
+            .trending-card { min-width: 140px; max-width: 140px; background: #1e293b; border-radius: 12px; overflow: hidden; cursor: pointer; flex-shrink: 0; position:relative; transition: transform 0.2s;}
+            .trending-card:active { transform: scale(0.95); }
+            .trending-card img { height: 200px; object-fit:cover; width:100%; border-radius:10px; display:block; transition: 0.3s;}
             .trending-card .post-content { padding:3px; background: linear-gradient(45deg, #ff0000, #ff7300, #fffb00); border-radius: 12px; }
             
             .grid { padding:0 15px 20px; display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; }
-            .card { background:#1e293b; border-radius:12px; overflow:hidden; cursor:pointer; transition: transform 0.2s; }
+            .card { background:#1e293b; border-radius:12px; overflow:hidden; cursor:pointer; transition: transform 0.2s, box-shadow 0.2s; }
             .card:active { transform: scale(0.95); }
             
             .post-content { 
@@ -378,61 +366,76 @@ async def web_ui():
             }
             @keyframes glowing { 0% { background-position: 0 0; } 50% { background-position: 400% 0; } 100% { background-position: 0 0; } }
 
-            .post-content img { width:100%; height:180px; object-fit:cover; display:block; border-radius: 10px; }
+            .post-content img { width:100%; height:230px; object-fit:cover; display:block; border-radius: 10px; }
             
-            .tag { position:absolute; top:8px; right:8px; padding:4px 6px; border-radius:6px; font-weight:bold; font-size:10px; display:flex; align-items:center; gap:4px; box-shadow: 0 2px 5px rgba(0,0,0,0.5); }
-            .tag-locked { background:rgba(0,0,0,0.85); color:#f87171; border: 1px solid #f87171; }
-            .tag-unlocked { background:rgba(0,0,0,0.85); color:#10b981; border: 1px solid #10b981; }
+            .tag { position:absolute; top:10px; right:10px; padding:5px 8px; border-radius:6px; font-weight:bold; font-size:11px; display:flex; align-items:center; gap:4px; box-shadow: 0 2px 8px rgba(0,0,0,0.7); backdrop-filter: blur(5px); }
+            .tag-locked { background:rgba(0,0,0,0.7); color:#fca5a5; border: 1px solid #f87171; }
+            .tag-unlocked { background:rgba(0,0,0,0.7); color:#6ee7b7; border: 1px solid #10b981; }
             
-            .top-badge { position:absolute; top:8px; left:8px; background:red; color:white; padding:3px 6px; border-radius:6px; font-size:10px; font-weight:bold; box-shadow: 0 2px 5px rgba(0,0,0,0.5); z-index:10;}
-            .view-badge { position:absolute; bottom:8px; left:8px; background:rgba(0,0,0,0.7); color:#fff; padding:3px 6px; border-radius:6px; font-size:11px; font-weight:bold; display:flex; align-items:center; gap:4px; box-shadow: 0 2px 5px rgba(0,0,0,0.5); }
+            .top-badge { position:absolute; top:10px; left:10px; background:linear-gradient(45deg, #ff0000, #cc0000); color:white; padding:4px 8px; border-radius:6px; font-size:11px; font-weight:bold; box-shadow: 0 2px 8px rgba(0,0,0,0.7); z-index:10;}
+            .view-badge { position:absolute; bottom:10px; left:10px; background:rgba(0,0,0,0.7); color:#fff; padding:4px 8px; border-radius:6px; font-size:12px; font-weight:bold; display:flex; align-items:center; gap:5px; box-shadow: 0 2px 8px rgba(0,0,0,0.7); }
 
-            .card-footer { padding:10px; font-size:13px; font-weight:bold; text-align:center; word-wrap: break-word; color:#e2e8f0; line-height:1.4; }
+            .card-footer { padding:12px; font-size:14px; font-weight:bold; text-align:center; word-wrap: break-word; color:#f8fafc; line-height:1.4; }
             
-            .skeleton { background: #1e293b; border-radius: 12px; height: 215px; overflow: hidden; position: relative; }
+            .skeleton { background: #1e293b; border-radius: 12px; height: 260px; overflow: hidden; position: relative; }
             .skeleton::after { content: ""; position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: linear-gradient(90deg, transparent, rgba(255,255,255,0.05), transparent); animation: shimmer 1.5s infinite; }
             @keyframes shimmer { 0% { transform: translateX(-100%); } 100% { transform: translateX(100%); } }
 
             .pagination { display: flex; justify-content: center; align-items: center; gap: 8px; padding: 10px 15px 120px; flex-wrap: wrap; }
-            .page-btn { background: #1e293b; color: #fff; border: 1px solid #334155; padding: 10px 15px; border-radius: 8px; cursor: pointer; font-weight: bold; transition: 0.2s; outline: none; }
-            .page-btn.active { background: #f87171; border-color: #f87171; color: white; }
+            .page-btn { background: #1e293b; color: #fff; border: 1px solid #334155; padding: 10px 16px; border-radius: 8px; cursor: pointer; font-weight: bold; transition: 0.3s; outline: none; }
+            .page-btn.active { background: #f87171; border-color: #f87171; color: white; box-shadow: 0 0 10px rgba(248,113,113,0.4);}
             .page-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
-            .floating-btn { position:fixed; right:20px; color:white; width:50px; height:50px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:20px; font-weight:bold; z-index:500; cursor:pointer; box-shadow: 0 4px 10px rgba(0,0,0,0.5); }
-            .btn-18 { bottom:155px; background:red; border:2px solid #fff; }
-            .btn-tg { bottom:95px; background:#24A1DE; }
-            .btn-req { bottom:35px; background:#10b981; }
+            .floating-btn { position:fixed; right:20px; color:white; width:50px; height:50px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:22px; z-index:500; cursor:pointer; box-shadow: 0 4px 15px rgba(0,0,0,0.5); transition: 0.3s;}
+            .floating-btn:active { transform: scale(0.9); }
+            .btn-18 { bottom:155px; background:linear-gradient(45deg, #ff0000, #990000); border:2px solid #fff; font-weight:bold; font-size: 18px;}
+            .btn-tg { bottom:95px; background:linear-gradient(45deg, #24A1DE, #1b7ba8); }
+            .btn-req { bottom:35px; background:linear-gradient(45deg, #10b981, #059669); }
 
-            /* Ad Screen Updated Styles */
-            .ad-screen { position:fixed; top:0; left:0; width:100%; height:100%; background:#0f172a; display:none; flex-direction:column; align-items:center; justify-content:center; z-index:2000; }
+            /* Modern RGB Timer & Ad Screen */
+            .ad-screen { position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(15, 23, 42, 0.98); display:none; flex-direction:column; align-items:center; justify-content:center; z-index:2000; animation: fadeIn 0.3s ease-out; backdrop-filter: blur(5px);}
             .timer-ui { display:flex; flex-direction:column; align-items:center; }
-            .timer { width:100px; height:100px; border-radius:50%; border:5px solid red; display:flex; align-items:center; justify-content:center; font-size:40px; margin-bottom:15px; color:red; font-weight:bold; }
-            .ad-step-text { font-size:18px; font-weight:bold; color:#fff; margin-bottom: 20px; background:#1e293b; padding:8px 15px; border-radius:20px;}
-            .btn-next-ad { display:none; background:#f87171; color:white; border:none; padding:15px 30px; border-radius:30px; font-size:18px; font-weight:bold; cursor:pointer; box-shadow: 0 4px 15px rgba(248,113,113,0.5); transition: 0.3s;}
+            
+            .rgb-timer-container { position: relative; width: 130px; height: 130px; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin-bottom: 25px; background: #0f172a; box-shadow: 0 0 30px rgba(0,0,0,0.8); }
+            .rgb-ring { position: absolute; width: 100%; height: 100%; border-radius: 50%; border: 6px solid transparent; background: linear-gradient(#0f172a, #0f172a) padding-box, conic-gradient(#ff0000, #ff7300, #fffb00, #48ff00, #00ffd5, #002bff, #7a00ff, #ff00c8, #ff0000) border-box; animation: spinRing 1.5s linear infinite; }
+            .timer-text { position: relative; font-size: 50px; font-weight: bold; color: #fff; z-index: 2; text-shadow: 0 0 15px rgba(255,255,255,0.8); }
+            @keyframes spinRing { 100% { transform: rotate(360deg); } }
+
+            .ad-step-text { font-size:18px; font-weight:bold; color:#fff; margin-bottom: 25px; background:#1e293b; padding:10px 20px; border-radius:25px; border: 1px solid #334155;}
+            .btn-next-ad { display:none; background:linear-gradient(45deg, #f87171, #ef4444); color:white; border:none; padding:16px 35px; border-radius:30px; font-size:18px; font-weight:bold; cursor:pointer; box-shadow: 0 5px 20px rgba(248,113,113,0.6); transition: 0.3s;}
             .btn-next-ad:active { transform: scale(0.95); }
             
-            .modal { position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); display:none; align-items:center; justify-content:center; z-index:3000; }
-            .modal-content { background:#1e293b; width:90%; padding:30px; border-radius:15px; text-align:center; }
-            .req-input { width: 100%; padding: 12px; margin: 15px 0; border-radius: 8px; border: none; background: #0f172a; color: white; outline:none; }
-            .btn-submit { background: #10b981; color: white; border: none; padding: 10px 20px; border-radius: 8px; font-weight: bold; width:100%; font-size:16px;}
+            .modal { position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.85); display:none; align-items:center; justify-content:center; z-index:3000; animation: fadeIn 0.3s ease-out; backdrop-filter: blur(5px);}
+            .modal-content { background:#1e293b; width:90%; max-width: 400px; padding:30px 25px; border-radius:20px; text-align:center; box-shadow: 0 10px 30px rgba(0,0,0,0.5); border: 1px solid #334155;}
+            @keyframes fadeIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
+            
+            .req-input { width: 100%; padding: 15px; margin: 20px 0; border-radius: 10px; border: 1px solid #334155; background: #0f172a; color: white; outline:none; font-size:15px; }
+            .req-input:focus { border-color: #10b981; }
+            .btn-submit { background: linear-gradient(45deg, #10b981, #059669); color: white; border: none; padding: 14px 20px; border-radius: 10px; font-weight: bold; width:100%; font-size:16px; cursor:pointer; transition: 0.3s;}
+            .btn-submit:active { transform: scale(0.95); }
+            
+            /* Success Notice Box */
+            .notice-box { background: rgba(248,113,113,0.1); border-left: 4px solid #f87171; padding: 12px 15px; text-align: left; margin: 20px 0; border-radius: 6px; }
+            .notice-box p { color: #fca5a5; font-size: 14px; margin:0; line-height: 1.5; }
         </style>
     </head>
     <body>
-        <heade
+        <!-- Header Fixed -->
+        <header>
             <div class="logo">MovieZone <span>BD</span></div>
             <div class="user-info"><span id="uName">Guest</span><img id="uPic" src="https://cdn-icons-png.flaticon.com/512/3135/3135715.png"></div>
         </header>
 
         <div class="search-box">
-            <input type="text" id="searchInput" class="search-input" placeholder="মুভি বা ওয়েব সিরিজ খুঁজুন...">
+            <input type="text" id="searchInput" class="search-input" placeholder="🔍 মুভি বা ওয়েব সিরিজ খুঁজুন...">
         </div>
 
         <div id="trendingWrapper">
             <div class="section-title"><i class="fa-solid fa-fire"></i> ট্রেন্ডিং মুভি</div>
             <div class="trending-container" id="trendingGrid">
-                <div class="skeleton" style="min-width:130px; height:180px;"></div>
-                <div class="skeleton" style="min-width:130px; height:180px;"></div>
-                <div class="skeleton" style="min-width:130px; height:180px;"></div>
+                <div class="skeleton" style="min-width:140px; height:240px;"></div>
+                <div class="skeleton" style="min-width:140px; height:240px;"></div>
+                <div class="skeleton" style="min-width:140px; height:240px;"></div>
             </div>
         </div>
 
@@ -444,33 +447,43 @@ async def web_ui():
         <div class="floating-btn btn-tg" onclick="window.open('{{TG_LINK}}')"><i class="fa-brands fa-telegram"></i></div>
         <div class="floating-btn btn-req" onclick="openReqModal()"><i class="fa-solid fa-code-pull-request"></i></div>
 
-        <!-- Ad Screen with Multi-Ad Logic -->
+        <!-- RGB Ad Screen -->
         <div id="adScreen" class="ad-screen">
             <div class="ad-step-text" id="adStepText">অ্যাড: 1/1</div>
             
             <div class="timer-ui" id="timerUI">
-                <div class="timer" id="timer">15</div>
-                <p>সার্ভারের সাথে কানেক্ট হচ্ছে...</p>
+                <div class="rgb-timer-container">
+                    <div class="rgb-ring"></div>
+                    <div class="timer-text" id="timer">15</div>
+                </div>
+                <p style="color: #cbd5e1; font-size: 15px; margin-top:10px;">সার্ভারের সাথে কানেক্ট হচ্ছে...</p>
             </div>
             
             <button class="btn-next-ad" id="nextAdBtn" onclick="nextAdStep()">পরবর্তী অ্যাড দেখুন <i class="fa-solid fa-arrow-right"></i></button>
         </div>
 
+        <!-- Success Modal Updated -->
         <div id="successModal" class="modal">
             <div class="modal-content">
-                <i class="fa-solid fa-circle-check" style="font-size:60px; color:#10b981;"></i>
-                <h2 style="margin:15px 0;">সম্পন্ন হয়েছে!</h2>
-                <p style="margin-bottom: 20px; color:gray; font-size:14px;">বটের ইনবক্স চেক করুন। <br><span style="color:#f87171;">সতর্কতা: কপিরাইট এড়াতে মুভিটি কিছুক্ষণ পর অটোমেটিক ডিলিট হয়ে যাবে।</span></p>
+                <i class="fa-solid fa-circle-check" style="font-size:70px; color:#10b981; text-shadow: 0 0 20px rgba(16,185,129,0.5);"></i>
+                <h2 style="margin:20px 0 10px; color:white;">সম্পন্ন হয়েছে!</h2>
+                <p style="color: #cbd5e1; font-size: 16px;">✅ মুভিটি বটের ইনবক্সে পাঠানো হয়েছে।</p>
+                
+                <div class="notice-box">
+                    <p><i class="fa-solid fa-triangle-exclamation"></i> <b>সতর্কতা:</b> কপিরাইট এড়াতে মুভিটি কিছুক্ষণ পর অটোমেটিক ডিলিট হয়ে যাবে। দয়া করে এখনই বট থেকে সেভ বা ফরোয়ার্ড করে নিন!</p>
+                </div>
+                
                 <button class="btn-submit" onclick="tg.close()">বটে ফিরে যান</button>
             </div>
         </div>
 
         <div id="reqModal" class="modal">
             <div class="modal-content">
-                <h2>মুভি রিকোয়েস্ট করুন</h2>
-                <input type="text" id="reqText" class="req-input" placeholder="মুভির নাম ও রিলিজ সাল লিখুন...">
+                <h2 style="color:white;">মুভি রিকোয়েস্ট</h2>
+                <p style="color:gray; font-size:13px; margin-top:5px;">যে মুভিটি খুঁজছেন তার নাম লিখুন</p>
+                <input type="text" id="reqText" class="req-input" placeholder="উদাঃ Avatar 2022">
                 <button class="btn-submit" onclick="sendReq()">সাবমিট করুন</button>
-                <p style="margin-top:15px; color:gray; cursor:pointer;" onclick="document.getElementById('reqModal').style.display='none'">বাতিল করুন</p>
+                <p style="margin-top:20px; color:#cbd5e1; cursor:pointer; font-weight:bold;" onclick="document.getElementById('reqModal').style.display='none'">বাতিল করুন</p>
             </div>
         </div>
 
@@ -502,14 +515,14 @@ async def web_ui():
                 setInterval(() => {
                     let grid = document.getElementById('trendingGrid');
                     if(grid) {
-                        let cardWidth = 142;
+                        let cardWidth = 155;
                         if (grid.scrollLeft >= (grid.scrollWidth - grid.clientWidth - 10)) {
                             grid.scrollTo({ left: 0, behavior: 'smooth' });
                         } else {
                             grid.scrollBy({ left: cardWidth, behavior: 'smooth' });
                         }
                     }
-                }, 3000);
+                }, 3500);
             }
 
             async function loadTrending() {
@@ -647,7 +660,7 @@ async def web_ui():
                 setTimeout(() => { loadTrending(); loadMovies(currentPage); }, 1000); 
             }
 
-            function openReqModal() { document.getElementById('reqModal').style.display = 'flex'; }
+            function openReqModal() { document.getElementById('reqModal').style.display = 'flex'; document.getElementById('reqText').focus(); }
             async function sendReq() {
                 const text = document.getElementById('reqText').value;
                 if(!text) return alert('মুভির নাম লিখুন!');
@@ -735,7 +748,7 @@ async def send_file(d: dict = Body(...)):
             protect_cfg = await db.settings.find_one({"id": "protect_content"})
             is_protected = protect_cfg['status'] if protect_cfg else True
             
-            caption = f"🎥 <b>{m['title']}</b>\n\n⏳ <b>সতর্কতা:</b> কপিরাইট এড়াতে মুভিটি <b>{del_minutes} মিনিট</b> পর অটো-ডিলিট হয়ে যাবে। দয়া করে এখনই ফরওয়ার্ড বা সেভ করে নিন!\n\n📥 Join: @TGLinkBase"
+            caption = f"🎥 <b>{m['title']}</b>\n\n⏳ <b>সতর্কতা:</b> কপিরাইট এড়াতে মুভিটি <b>{del_minutes} মিনিট</b> পর অটো-ডিলিট হয়ে যাবে। দয়া করে এখনই ফরওয়ার্ড বা সেভ করে নিন!\n\n📥 Join: @MovieeBD"
             
             sent_msg = None
             if m.get("file_type") == "video": 
