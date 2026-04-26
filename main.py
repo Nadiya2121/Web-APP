@@ -32,7 +32,7 @@ TOKEN = os.getenv("BOT_TOKEN")
 MONGO_URL = os.getenv("MONGO_URI")
 OWNER_ID = int(os.getenv("ADMIN_ID", "0"))
 APP_URL = os.getenv("APP_URL")
-CHANNEL_ID = os.getenv("CHANNEL_ID", "-100XXXXXXXXXX") 
+CHANNEL_ID = os.getenv("CHANNEL_ID", "-1003188773719") 
 ADMIN_PASS = os.getenv("ADMIN_PASS", "admin123") 
 
 bot = Bot(token=TOKEN)
