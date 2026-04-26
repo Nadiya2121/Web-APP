@@ -156,7 +156,7 @@ async def start_cmd(message: types.Message, state: FSMContext):
         upsert=True
     )
     
-    kb = [[types.InlineKeyboardButton(text="🎬 BD Viral Link", web_app=types.WebAppInfo(url=APP_URL))]]
+    kb = [[types.InlineKeyboardButton(text="🎬  Watch Now", web_app=types.WebAppInfo(url=APP_URL))]]
     markup = types.InlineKeyboardMarkup(inline_keyboard=kb)
     
     if uid in admin_cache:
