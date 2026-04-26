@@ -25,8 +25,9 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from bson import ObjectId
 from pydantic import BaseModel
 
+
 # ==========================================
-# কনফিগারেশন
+# 1. Configuration & Global Variables
 # ==========================================
 TOKEN = os.getenv("BOT_TOKEN")
 MONGO_URL = os.getenv("MONGO_URI")
@@ -54,46 +55,54 @@ db = client['movie_database']
 admin_cache = set([OWNER_ID]) 
 banned_cache = set() 
 
+
 # ==========================================
-# FSM States (আপলোডের ধাপসমূহ)
+# 2. FSM States (For Uploading Flow)
 # ==========================================
 class AdminStates(StatesGroup):
     waiting_for_bcast = State()
     waiting_for_reply = State()
     waiting_for_photo = State()
     waiting_for_title = State()
-    waiting_for_quality = State() # কোয়ালিটি বা এপিসোড সিলেক্ট করার জন্য নতুন ধাপ
+    waiting_for_quality = State() 
+
 
 # ==========================================
-# ডেটাবেস ইনিশিয়ালাইজেশন ও ক্যাশ লোড
+# 3. Database Initialization & Caching
 # ==========================================
 async def load_admins():
+    """Load all admins from DB to cache on startup"""
     admin_cache.clear()
     admin_cache.add(OWNER_ID)
     async for admin in db.admins.find():
         admin_cache.add(admin["user_id"])
 
 async def load_banned_users():
+    """Load all banned users from DB to cache on startup"""
     banned_cache.clear()
     async for b_user in db.banned.find():
         banned_cache.add(b_user["user_id"])
 
 async def init_db():
+    """Create indexes for faster database search performance"""
     await db.movies.create_index([("title", "text")])
     await db.movies.create_index("title")
     await db.movies.create_index("created_at")
     await db.auto_delete.create_index("delete_at")
     await db.users.create_index("joined_at")
 
+
 # ==========================================
-# সিকিউরিটি ভ্যালিডেশন
+# 4. Security & Authentication Methods
 # ==========================================
 def validate_tg_data(init_data: str) -> bool:
+    """Validates if the request is genuinely from Telegram Web App"""
     try:
         parsed_data = dict(urllib.parse.parse_qsl(init_data))
         hash_val = parsed_data.pop('hash', None)
         auth_date = int(parsed_data.get('auth_date', 0))
         
+        # Check if the data is older than 24 hours (Security)
         if not hash_val or time.time() - auth_date > 86400: 
             return False
             
@@ -106,8 +115,10 @@ def validate_tg_data(init_data: str) -> bool:
         return False
 
 def verify_admin(credentials: HTTPBasicCredentials = Depends(security)):
+    """Verifies the Admin Login for the Web Panel"""
     correct_username = secrets.compare_digest(credentials.username, "admin")
     correct_password = secrets.compare_digest(credentials.password, ADMIN_PASS)
+    
     if not (correct_username and correct_password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, 
@@ -116,37 +127,49 @@ def verify_admin(credentials: HTTPBasicCredentials = Depends(security)):
         )
     return True
 
+
 # ==========================================
-# অটো-ডিলিট ওয়ার্কার
+# 5. Background Tasks (Auto Delete)
 # ==========================================
 async def auto_delete_worker():
+    """Background loop to delete messages after set time"""
     while True:
         try:
             now = datetime.datetime.utcnow()
             expired_msgs = db.auto_delete.find({"delete_at": {"$lte": now}})
+            
             async for msg in expired_msgs:
                 try: 
                     await bot.delete_message(chat_id=msg["chat_id"], message_id=msg["message_id"])
                 except Exception: 
                     pass
+                
                 await db.auto_delete.delete_one({"_id": msg["_id"]})
+                
         except Exception: 
             pass
+            
         await asyncio.sleep(60)
 
+
 # ==========================================
-# ১. বটের কমান্ডস (স্টার্ট, ব্যান, স্ট্যাটাস)
+# 6. Telegram Bot Commands (General)
 # ==========================================
 @dp.message(Command("start"))
 async def start_cmd(message: types.Message, state: FSMContext):
     uid = message.from_user.id
     
+    # Check if user is banned
     if uid in banned_cache: 
-        return await message.answer("🚫 <b>আপনাকে এই বট থেকে স্থায়ীভাবে ব্যান করা হয়েছে।</b>", parse_mode="HTML")
+        return await message.answer(
+            "🚫 <b>আপনাকে এই বট থেকে স্থায়ীভাবে ব্যান করা হয়েছে।</b>", 
+            parse_mode="HTML"
+        )
         
     await state.clear()
     now = datetime.datetime.utcnow()
     
+    # Add User to Database if new
     await db.users.update_one(
         {"user_id": uid}, 
         {
@@ -156,7 +179,9 @@ async def start_cmd(message: types.Message, state: FSMContext):
         upsert=True
     )
     
-    kb = [[types.InlineKeyboardButton(text="🎬  Watch Now", web_app=types.WebAppInfo(url=APP_URL))]]
+    kb = [
+        [types.InlineKeyboardButton(text="🎬 Watch Now", web_app=types.WebAppInfo(url=APP_URL))]
+    ]
     markup = types.InlineKeyboardMarkup(inline_keyboard=kb)
     
     if uid in admin_cache:
@@ -174,10 +199,22 @@ async def start_cmd(message: types.Message, state: FSMContext):
             "📥 <b>মুভি অ্যাড করতে প্রথমে ভিডিও বা ডকুমেন্ট ফাইল পাঠান।</b>"
         )
     else: 
-        text = f"👋 <b>স্বাগতম {message.from_user.first_name}!</b>\n\nমুভি দেখতে নিচের বাটনে ক্লিক করুন।"
+        text = (
+            f"👋 <b>স্বাগতম {message.from_user.first_name}!</b>\n\n"
+            "মুভি দেখতে নিচের বাটনে ক্লিক করুন।"
+        )
         
-    await message.answer(text, reply_markup=markup, parse_mode="HTML", disable_web_page_preview=True)
+    await message.answer(
+        text, 
+        reply_markup=markup, 
+        parse_mode="HTML", 
+        disable_web_page_preview=True
+    )
 
+
+# ==========================================
+# 7. Telegram Bot Commands (Admin Settings)
+# ==========================================
 @dp.message(Command("stats"))
 async def stats_cmd(m: types.Message):
     if m.from_user.id not in admin_cache: 
@@ -191,7 +228,12 @@ async def stats_cmd(m: types.Message):
     new_users_today = await db.users.count_documents({"joined_at": {"$gte": today_start}})
     
     top_pipeline = [
-        {"$group": {"_id": "$title", "clicks": {"$sum": "$clicks"}}},
+        {
+            "$group": {
+                "_id": "$title", 
+                "clicks": {"$sum": "$clicks"}
+            }
+        },
         {"$sort": {"clicks": -1}}, 
         {"$limit": 5}
     ]
@@ -209,6 +251,7 @@ async def stats_cmd(m: types.Message):
         f"🔥 <b>টপ ৫ মুভি/সিরিজ:</b>\n"
         f"{top_movies_text if top_movies_text else 'কোনো মুভি নেই'}"
     )
+    
     await m.answer(text, parse_mode="HTML")
 
 @dp.message(Command("ban"))
@@ -220,8 +263,13 @@ async def ban_user_cmd(m: types.Message):
         if target_uid in admin_cache: 
             return await m.answer("⚠️ অ্যাডমিনকে ব্যান করা যাবে না!")
             
-        await db.banned.update_one({"user_id": target_uid}, {"$set": {"user_id": target_uid}}, upsert=True)
+        await db.banned.update_one(
+            {"user_id": target_uid}, 
+            {"$set": {"user_id": target_uid}}, 
+            upsert=True
+        )
         banned_cache.add(target_uid)
+        
         await m.answer(f"🚫 ইউজার <code>{target_uid}</code> কে ব্যান করা হয়েছে!", parse_mode="HTML")
     except Exception: 
         await m.answer("⚠️ সঠিক নিয়ম: <code>/ban ইউজার_আইডি</code>", parse_mode="HTML")
@@ -234,24 +282,32 @@ async def unban_user_cmd(m: types.Message):
         target_uid = int(m.text.split()[1])
         await db.banned.delete_one({"user_id": target_uid})
         banned_cache.discard(target_uid)
+        
         await m.answer(f"✅ ইউজার <code>{target_uid}</code> আনব্যান হয়েছে!", parse_mode="HTML")
     except Exception: 
         await m.answer("⚠️ সঠিক নিয়ম: <code>/unban ইউজার_আইডি</code>", parse_mode="HTML")
 
-# (বাকি অ্যাডমিন কমান্ডগুলো যেমন setadcount, protect, settime ইত্যাদি আগের মতই থাকবে)
 @dp.message(Command("setadcount"))
 async def set_ad_count_cmd(m: types.Message):
-    if m.from_user.id not in admin_cache: return
+    if m.from_user.id not in admin_cache: 
+        return
     try:
         count = int(m.text.split(" ")[1])
-        if count < 1: count = 1
-        await db.settings.update_one({"id": "ad_count"}, {"$set": {"count": count}}, upsert=True)
+        if count < 1: 
+            count = 1
+        await db.settings.update_one(
+            {"id": "ad_count"}, 
+            {"$set": {"count": count}}, 
+            upsert=True
+        )
         await m.answer(f"✅ অ্যাড দেখার সংখ্যা সেট করা হয়েছে: <b>{count} টি</b>।", parse_mode="HTML")
-    except Exception: pass
+    except Exception: 
+        await m.answer("⚠️ সঠিক নিয়ম: <code>/setadcount 3</code>", parse_mode="HTML")
 
 @dp.message(Command("protect"))
 async def protect_cmd(m: types.Message):
-    if m.from_user.id not in admin_cache: return
+    if m.from_user.id not in admin_cache: 
+        return
     try:
         state = m.text.split(" ")[1].lower()
         if state == "on":
@@ -260,28 +316,34 @@ async def protect_cmd(m: types.Message):
         elif state == "off":
             await db.settings.update_one({"id": "protect_content"}, {"$set": {"status": False}}, upsert=True)
             await m.answer("✅ ফরোয়ার্ড প্রোটেকশন বন্ধ করা হয়েছে।")
-    except Exception: pass
+    except Exception: 
+        await m.answer("⚠️ সঠিক নিয়ম: <code>/protect on</code> অথবা <code>/protect off</code>")
 
 @dp.message(Command("settime"))
 async def set_del_time(m: types.Message):
-    if m.from_user.id not in admin_cache: return
+    if m.from_user.id not in admin_cache: 
+        return
     try:
         mins = int(m.text.split(" ")[1])
         await db.settings.update_one({"id": "del_time"}, {"$set": {"minutes": mins}}, upsert=True)
         await m.answer("✅ অটো-ডিলিট টাইম সেট করা হয়েছে।")
-    except Exception: pass
+    except Exception: 
+        await m.answer("⚠️ সঠিক নিয়ম: <code>/settime 60</code> (মিনিট)", parse_mode="HTML")
 
 @dp.message(Command("setad"))
 async def set_ad(m: types.Message):
-    if m.from_user.id not in admin_cache: return
+    if m.from_user.id not in admin_cache: 
+        return
     try:
         zone = m.text.split(" ")[1]
         await db.settings.update_one({"id": "ad_config"}, {"$set": {"zone_id": zone}}, upsert=True)
         await m.answer("✅ জোন আপডেট হয়েছে।")
-    except Exception: pass
+    except Exception: 
+        await m.answer("⚠️ সঠিক নিয়ম: <code>/setad 1234567</code>")
+
 
 # ==========================================
-# ৩. মুভি আপলোড লজিক (Quality & Episode System)
+# 8. Movie Upload Logic (Quality & Episode Flow)
 # ==========================================
 @dp.message(F.content_type.in_({'video', 'document'}), lambda m: m.from_user.id in admin_cache)
 async def receive_movie_file(m: types.Message, state: FSMContext):
@@ -291,7 +353,11 @@ async def receive_movie_file(m: types.Message, state: FSMContext):
     await state.set_state(AdminStates.waiting_for_photo)
     await state.update_data(file_id=fid, file_type=ftype)
     
-    await m.answer("✅ ফাইল পেয়েছি! এবার মুভির <b>পোস্টার (Photo)</b> সেন্ড করুন।\nবাতিল করতে /start দিন।", parse_mode="HTML")
+    await m.answer(
+        "✅ ফাইল পেয়েছি! এবার মুভির <b>পোস্টার (Photo)</b> সেন্ড করুন।\n"
+        "বাতিল করতে /start দিন।", 
+        parse_mode="HTML"
+    )
 
 @dp.message(AdminStates.waiting_for_photo, F.photo)
 async def receive_movie_photo(m: types.Message, state: FSMContext):
@@ -300,7 +366,7 @@ async def receive_movie_photo(m: types.Message, state: FSMContext):
     
     await m.answer(
         "✅ পোস্টার পেয়েছি! এবার <b>মুভি বা ওয়েব সিরিজের নাম</b> লিখে পাঠান।\n"
-        "<i>(নোট: যদি ওয়েব সিরিজ হয় বা কোয়ালিটি অ্যাড করতে চান, তবে আগের নামটিই হুবহু দিন)</i>", 
+        "<i>(নোট: যদি ওয়েব সিরিজ হয় বা একই মুভির অন্য কোয়ালিটি অ্যাড করতে চান, তবে আগের নামটিই হুবহু দিন)</i>", 
         parse_mode="HTML"
     )
 
@@ -324,6 +390,7 @@ async def receive_movie_quality(m: types.Message, state: FSMContext):
     title = data["title"]
     photo_id = data["photo_id"]
     
+    # Save the movie document
     await db.movies.insert_one({
         "title": title, 
         "quality": quality, 
@@ -336,10 +403,13 @@ async def receive_movie_quality(m: types.Message, state: FSMContext):
     
     await m.answer(f"🎉 <b>{title} [{quality}]</b> অ্যাপে সফলভাবে যুক্ত করা হয়েছে!", parse_mode="HTML")
     
+    # Send Notification to Channel
     if CHANNEL_ID and CHANNEL_ID != "-100XXXXXXXXXX":
         try:
             bot_info = await bot.get_me()
-            kb = [[types.InlineKeyboardButton(text="🎬 মুভিটি দেখতে এখানে ক্লিক করুন", url=f"https://t.me/{bot_info.username}?start=new")]]
+            kb = [
+                [types.InlineKeyboardButton(text="🎬 মুভিটি দেখতে এখানে ক্লিক করুন", url=f"https://t.me/{bot_info.username}?start=new")]
+            ]
             markup = types.InlineKeyboardMarkup(inline_keyboard=kb)
             
             caption = (
@@ -348,16 +418,25 @@ async def receive_movie_quality(m: types.Message, state: FSMContext):
                 f"🏷 <b>কোয়ালিটি/এপিসোড:</b> {quality}\n\n"
                 f"👇 <i>দেখতে নিচের বাটনে ক্লিক করুন।</i>"
             )
-            await bot.send_photo(chat_id=CHANNEL_ID, photo=photo_id, caption=caption, parse_mode="HTML", reply_markup=markup)
-        except Exception: 
-            pass
+            
+            await bot.send_photo(
+                chat_id=CHANNEL_ID, 
+                photo=photo_id, 
+                caption=caption, 
+                parse_mode="HTML", 
+                reply_markup=markup
+            )
+        except Exception as e: 
+            print(f"Error sending channel notification: {e}")
+
 
 # ==========================================
-# ৪. ব্রডকাস্ট এবং রিপ্লাই সিস্টেম
+# 9. Broadcast & User Reply System
 # ==========================================
 @dp.message(Command("cast"))
 async def broadcast_prep(m: types.Message, state: FSMContext):
-    if m.from_user.id not in admin_cache: return
+    if m.from_user.id not in admin_cache: 
+        return
     await state.set_state(AdminStates.waiting_for_bcast)
     await m.answer("📢 যে মেসেজটি ব্রডকাস্ট করতে চান সেটি পাঠান।\nবাতিল করতে /start দিন।")
 
@@ -365,23 +444,31 @@ async def broadcast_prep(m: types.Message, state: FSMContext):
 async def execute_broadcast(m: types.Message, state: FSMContext):
     await state.clear()
     await m.answer("⏳ ব্রডকাস্ট শুরু হয়েছে...")
-    kb = types.InlineKeyboardMarkup(inline_keyboard=[[types.InlineKeyboardButton(text="🎬 ওপেন মুভি অ্যাপ", web_app=types.WebAppInfo(url=APP_URL))]])
+    
+    kb = [[types.InlineKeyboardButton(text="🎬 ওপেন মুভি অ্যাপ", web_app=types.WebAppInfo(url=APP_URL))]]
+    markup = types.InlineKeyboardMarkup(inline_keyboard=kb)
+    
     success = 0
     async for u in db.users.find():
         try:
-            await m.copy_to(chat_id=u['user_id'], reply_markup=kb)
+            await m.copy_to(chat_id=u['user_id'], reply_markup=markup)
             success += 1
-            await asyncio.sleep(0.05)
-        except Exception: pass
+            await asyncio.sleep(0.05) # Rate limit protection
+        except Exception: 
+            pass
+            
     await m.answer(f"✅ সম্পন্ন! সর্বমোট <b>{success}</b> জনকে মেসেজ পাঠানো হয়েছে।", parse_mode="HTML")
 
 @dp.callback_query(F.data.startswith("reply_"))
 async def process_reply_cb(c: types.CallbackQuery, state: FSMContext):
-    if c.from_user.id not in admin_cache: return
+    if c.from_user.id not in admin_cache: 
+        return
     user_id = int(c.data.split("_")[1])
+    
     await state.set_state(AdminStates.waiting_for_reply)
     await state.update_data(target_uid=user_id)
-    await c.message.reply("✍️ <b>ইউজারকে কী রিপ্লাই দিতে চান তা লিখে পাঠান:</b>\n(টেক্সট, ছবি বা ভয়েস মেসেজ পাঠাতে পারেন)", parse_mode="HTML")
+    
+    await c.message.reply("✍️ <b>ইউজারকে কী রিপ্লাই দিতে চান তা লিখে পাঠান:</b>", parse_mode="HTML")
     await c.answer()
 
 @dp.message(AdminStates.waiting_for_reply)
@@ -389,17 +476,20 @@ async def send_reply(m: types.Message, state: FSMContext):
     data = await state.get_data()
     target_uid = data.get("target_uid")
     await state.clear()
+    
     try:
         if m.text: 
             await bot.send_message(target_uid, f"📩 <b>অ্যাডমিন রিপ্লাই:</b>\n\n{m.text}", parse_mode="HTML")
         else: 
             await m.copy_to(target_uid, caption=f"📩 <b>অ্যাডমিন রিপ্লাই:</b>\n\n{m.caption or ''}", parse_mode="HTML")
+            
         await m.answer("✅ ইউজারকে সফলভাবে রিপ্লাই পাঠানো হয়েছে!")
     except Exception: 
         await m.answer("⚠️ রিপ্লাই পাঠানো যায়নি! ইউজার হয়তো বট ব্লক করেছে।")
 
+
 # ==========================================
-# ৫. Web Admin Panel (ড্যাশবোর্ড)
+# 10. Web Admin Panel API & HTML
 # ==========================================
 @app.get("/admin", response_class=HTMLResponse)
 async def web_admin_panel(auth: bool = Depends(verify_admin)):
@@ -415,27 +505,36 @@ async def web_admin_panel(auth: bool = Depends(verify_admin)):
     </head>
     <body class="bg-gray-900 text-white font-sans antialiased">
         <div class="max-w-6xl mx-auto p-5">
+            <!-- Header -->
             <div class="flex justify-between items-center mb-8 border-b border-gray-700 pb-4">
-                <h1 class="text-3xl font-bold text-red-500"><i class="fa-solid fa-shield-halved"></i> MovieZone Admin</h1>
+                <h1 class="text-3xl font-bold text-red-500">
+                    <i class="fa-solid fa-shield-halved"></i> MovieZone Admin
+                </h1>
             </div>
             
+            <!-- Statistics Cards -->
             <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
                 <div class="bg-gray-800 p-6 rounded-xl shadow-lg border border-gray-700">
                     <h3 class="text-gray-400 text-sm font-bold">TOTAL USERS</h3>
                     <p class="text-4xl font-bold text-green-400 mt-2" id="statUsers">...</p>
                 </div>
+                
                 <div class="bg-gray-800 p-6 rounded-xl shadow-lg border border-gray-700">
                     <h3 class="text-gray-400 text-sm font-bold">UNIQUE GROUPS</h3>
                     <p class="text-4xl font-bold text-blue-400 mt-2" id="statMovies">...</p>
                 </div>
+                
                 <div class="bg-gray-800 p-6 rounded-xl shadow-lg border border-gray-700">
                     <h3 class="text-gray-400 text-sm font-bold">NEW USERS TODAY</h3>
                     <p class="text-4xl font-bold text-yellow-400 mt-2" id="statNew">...</p>
                 </div>
             </div>
 
+            <!-- Movie Management Table -->
             <div class="bg-gray-800 rounded-xl shadow-lg border border-gray-700 p-6">
-                <h2 class="text-xl font-bold mb-4 text-gray-200"><i class="fa-solid fa-film text-red-400"></i> Manage Movies (Grouped)</h2>
+                <h2 class="text-xl font-bold mb-4 text-gray-200">
+                    <i class="fa-solid fa-film text-red-400"></i> Manage Movies (Grouped)
+                </h2>
                 <div class="overflow-x-auto">
                     <table class="w-full text-left text-sm whitespace-nowrap">
                         <thead class="bg-gray-700 text-gray-300">
@@ -447,13 +546,16 @@ async def web_admin_panel(auth: bool = Depends(verify_admin)):
                             </tr>
                         </thead>
                         <tbody id="movieTableBody">
-                            <tr><td colspan="4" class="text-center p-8 text-gray-400">Loading...</td></tr>
+                            <tr>
+                                <td colspan="4" class="text-center p-8 text-gray-400">Loading data...</td>
+                            </tr>
                         </tbody>
                     </table>
                 </div>
             </div>
         </div>
 
+        <!-- Admin Logic -->
         <script>
             async function loadAdminData() {
                 try {
@@ -466,30 +568,45 @@ async def web_admin_panel(auth: bool = Depends(verify_admin)):
                     
                     let html = '';
                     data.movies.forEach(m => {
-                        html += `<tr class="border-b border-gray-700 hover:bg-gray-750 transition">
+                        html += `
+                        <tr class="border-b border-gray-700 hover:bg-gray-750 transition">
                             <td class="p-4 font-medium text-base">` + m._id + `</td>
-                            <td class="p-4 text-gray-400 font-bold"><i class="fa-solid fa-eye text-gray-500"></i> ` + m.clicks + `</td>
+                            <td class="p-4 text-gray-400 font-bold">
+                                <i class="fa-solid fa-eye text-gray-500"></i> ` + m.clicks + `
+                            </td>
                             <td class="p-4 text-green-400 font-bold">` + m.file_count + `</td>
                             <td class="p-4 flex gap-4">
-                                <button onclick="editMovie('`+encodeURIComponent(m._id)+`', '`+m._id.replace(/'/g, "\\'")+`')" class="text-blue-400 bg-blue-900 bg-opacity-30 px-3 py-1 rounded"><i class="fa-solid fa-pen-to-square"></i> Edit Name</button>
-                                <button onclick="deleteMovie('`+encodeURIComponent(m._id)+`')" class="text-red-400 bg-red-900 bg-opacity-30 px-3 py-1 rounded"><i class="fa-solid fa-trash"></i> Delete All</button>
+                                <button onclick="editMovie('`+encodeURIComponent(m._id)+`', '`+m._id.replace(/'/g, "\\'")+`')" class="text-blue-400 bg-blue-900 bg-opacity-30 px-3 py-1 rounded">
+                                    <i class="fa-solid fa-pen-to-square"></i> Edit Name
+                                </button>
+                                <button onclick="deleteMovie('`+encodeURIComponent(m._id)+`')" class="text-red-400 bg-red-900 bg-opacity-30 px-3 py-1 rounded">
+                                    <i class="fa-solid fa-trash"></i> Delete All
+                                </button>
                             </td>
                         </tr>`;
                     });
+                    
                     document.getElementById('movieTableBody').innerHTML = html;
                 } catch (e) { 
-                    alert("Error loading data!"); 
+                    alert("Error loading data from the server!"); 
                 }
             }
 
             async function deleteMovie(encodedTitle) {
-                if(!confirm('Are you absolutely sure you want to delete ALL files for this movie?')) return;
-                await fetch('/api/admin/movie/' + encodedTitle, {method: 'DELETE'});
+                if(!confirm('Are you absolutely sure you want to delete ALL files for this movie?')) {
+                    return;
+                }
+                
+                await fetch('/api/admin/movie/' + encodedTitle, {
+                    method: 'DELETE'
+                });
+                
                 loadAdminData();
             }
 
             async function editMovie(encodedTitle, oldTitle) {
                 let newTitle = prompt("Enter new title for all files in this group:", oldTitle);
+                
                 if(newTitle && newTitle.trim() !== "" && newTitle !== oldTitle) {
                     await fetch('/api/admin/movie/' + encodedTitle, {
                         method: 'PUT', 
@@ -500,6 +617,7 @@ async def web_admin_panel(auth: bool = Depends(verify_admin)):
                 }
             }
             
+            // Initial Load
             loadAdminData();
         </script>
     </body>
@@ -515,6 +633,7 @@ async def get_admin_data(auth: bool = Depends(verify_admin)):
     today_start = datetime.datetime(now.year, now.month, now.day)
     new_users = await db.users.count_documents({"joined_at": {"$gte": today_start}})
     
+    # Aggregation to group movies by title for admin view
     pipeline = [
         {
             "$group": {
@@ -538,6 +657,7 @@ async def get_admin_data(auth: bool = Depends(verify_admin)):
 
 @app.delete("/api/admin/movie/{title}")
 async def delete_movie_api(title: str, auth: bool = Depends(verify_admin)):
+    # Deletes ALL files associated with the group title
     await db.movies.delete_many({"title": title})
     return {"ok": True}
 
@@ -548,8 +668,9 @@ async def edit_movie_api(title: str, data: dict = Body(...), auth: bool = Depend
         await db.movies.update_many({"title": title}, {"$set": {"title": new_title}})
     return {"ok": True}
 
+
 # ==========================================
-# ৬. ওয়েব অ্যাপ UI এবং মেইন APIs
+# 11. Main Web App UI (Frontend)
 # ==========================================
 @app.get("/", response_class=HTMLResponse)
 async def web_ui():
@@ -572,7 +693,11 @@ async def web_ui():
         <title>MovieZone BD</title>
         <script src="https://telegram.org/js/telegram-web-app.js"></script>
         <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+        
         <style>
+            /* 
+             * Base Styles & Resets
+             */
             * { 
                 margin: 0; 
                 padding: 0; 
@@ -589,6 +714,9 @@ async def web_ui():
                 overscroll-behavior-y: none;
             } 
             
+            /* 
+             * Header Styles
+             */
             header { 
                 display: flex; 
                 justify-content: space-between; 
@@ -598,7 +726,6 @@ async def web_ui():
                 position: sticky; 
                 top: 0; 
                 background: rgba(15, 23, 42, 0.95); 
-                -webkit-backdrop-filter: blur(10px); 
                 backdrop-filter: blur(10px); 
                 z-index: 1000; 
             }
@@ -632,36 +759,57 @@ async def web_ui():
                 object-fit: cover; 
             }
             
+            /* 
+             * Search Box Styles
+             */
             .search-box { 
                 padding: 15px; 
             }
             .search-input { 
                 width: 100%; 
-                padding: 14px; 
+                padding: 16px; 
                 border-radius: 25px; 
                 border: none; 
                 outline: none; 
                 text-align: center; 
                 background: #1e293b; 
                 color: #fff; 
-                font-size: 16px; 
+                font-size: 18px; 
+                font-weight: bold;
                 transition: 0.3s; 
                 box-shadow: inset 0 2px 5px rgba(0,0,0,0.3); 
             }
+            .search-input::placeholder { 
+                color: #94a3b8; 
+                font-weight: 500; 
+                font-size: 16px; 
+            }
             .search-input:focus { 
-                box-shadow: 0 0 12px rgba(248,113,113,0.6); 
+                box-shadow: 0 0 15px rgba(248,113,113,0.7); 
             }
             
+            /* 
+             * Enhanced Section Titles 
+             */
             .section-title { 
-                padding: 5px 15px 10px; 
-                font-size: 18px; 
-                font-weight: bold; 
-                color: #f87171; 
+                padding: 5px 15px 15px; 
+                font-size: 22px; 
+                font-weight: 900; 
                 display: flex; 
                 align-items: center; 
                 gap: 8px;
+                background: linear-gradient(45deg, #ff416c, #ff4b2b);
+                -webkit-background-clip: text;
+                -webkit-text-fill-color: transparent;
+                text-shadow: 0px 4px 15px rgba(255, 75, 43, 0.4);
+            }
+            .section-title i { 
+                -webkit-text-fill-color: #ff416c; 
             }
             
+            /* 
+             * Trending Horizontal Slider
+             */
             .trending-container { 
                 display: flex; 
                 overflow-x: auto; 
@@ -683,8 +831,6 @@ async def web_ui():
                 flex-shrink: 0; 
                 position: relative; 
                 transition: transform 0.2s; 
-                transform: translateZ(0); 
-                will-change: transform;
             }
             .trending-card:active { 
                 transform: scale(0.95); 
@@ -697,6 +843,9 @@ async def web_ui():
                 display: block; 
             }
             
+            /* 
+             * Movie Grid (Main Content)
+             */
             .grid { 
                 padding: 0 15px 20px; 
                 display: grid; 
@@ -709,27 +858,27 @@ async def web_ui():
                 overflow: hidden; 
                 cursor: pointer; 
                 transition: transform 0.2s, box-shadow 0.2s; 
-                transform: translateZ(0); 
-                will-change: transform;
             }
             .card:active { 
                 transform: scale(0.95); 
             }
             
+            /* Card Post Content & Glowing Effect */
             .post-content { 
                 position: relative; 
                 padding: 3px; 
-                border-radius: 12px;
-                background: linear-gradient(45deg, #ff0000, #ff7300, #fffb00, #48ff00, #00ffd5, #002bff, #7a00ff, #ff00c8, #ff0000);
+                border-radius: 12px; 
+                background: linear-gradient(45deg, #ff0000, #ff7300, #fffb00, #48ff00, #00ffd5, #002bff, #7a00ff, #ff00c8, #ff0000); 
                 background-size: 400%; 
-                animation: glowing 8s linear infinite;
+                animation: glowing 8s linear infinite; 
             }
+            
             @keyframes glowing { 
                 0% { background-position: 0 0; } 
                 50% { background-position: 400% 0; } 
                 100% { background-position: 0 0; } 
             }
-
+            
             .post-content img { 
                 width: 100%; 
                 height: 230px; 
@@ -738,6 +887,7 @@ async def web_ui():
                 border-radius: 10px; 
             }
             
+            /* Card Badges */
             .top-badge { 
                 position: absolute; 
                 top: 10px; 
@@ -748,7 +898,6 @@ async def web_ui():
                 border-radius: 6px; 
                 font-size: 11px; 
                 font-weight: bold; 
-                box-shadow: 0 2px 8px rgba(0,0,0,0.7); 
                 z-index: 10;
             }
             
@@ -765,10 +914,8 @@ async def web_ui():
                 display: flex; 
                 align-items: center; 
                 gap: 5px; 
-                box-shadow: 0 2px 8px rgba(0,0,0,0.7); 
             }
             
-            /* New Episode Badge styling */
             .ep-badge { 
                 position: absolute; 
                 top: 10px; 
@@ -779,7 +926,6 @@ async def web_ui():
                 border-radius: 6px; 
                 font-size: 11px; 
                 font-weight: bold; 
-                box-shadow: 0 2px 8px rgba(0,0,0,0.7); 
                 z-index: 10;
             }
 
@@ -788,14 +934,14 @@ async def web_ui():
                 font-size: 14px; 
                 font-weight: bold; 
                 text-align: center; 
-                word-wrap: break-word; 
                 color: #f8fafc; 
                 line-height: 1.4; 
-                white-space: nowrap;
-                overflow: hidden;
-                text-overflow: ellipsis;
+                white-space: nowrap; 
+                overflow: hidden; 
+                text-overflow: ellipsis; 
             }
             
+            /* Skeleton Loading Effect */
             .skeleton { 
                 background: #1e293b; 
                 border-radius: 12px; 
@@ -818,6 +964,7 @@ async def web_ui():
                 100% { transform: translateX(100%); } 
             }
 
+            /* Pagination */
             .pagination { 
                 display: flex; 
                 justify-content: center; 
@@ -848,6 +995,7 @@ async def web_ui():
                 cursor: not-allowed; 
             }
 
+            /* Floating Buttons */
             .floating-btn { 
                 position: fixed; 
                 right: 20px; 
@@ -864,12 +1012,28 @@ async def web_ui():
                 box-shadow: 0 4px 15px rgba(0,0,0,0.5); 
                 transition: 0.3s;
             }
-            .floating-btn:active { transform: scale(0.9); }
-            .btn-18 { bottom: 155px; background: linear-gradient(45deg, #ff0000, #990000); border: 2px solid #fff; font-weight: bold; font-size: 18px;}
-            .btn-tg { bottom: 95px; background: linear-gradient(45deg, #24A1DE, #1b7ba8); }
-            .btn-req { bottom: 35px; background: linear-gradient(45deg, #10b981, #059669); }
+            .floating-btn:active { 
+                transform: scale(0.9); 
+            }
+            .btn-18 { 
+                bottom: 155px; 
+                background: linear-gradient(45deg, #ff0000, #990000); 
+                border: 2px solid #fff; 
+                font-weight: bold; 
+                font-size: 18px;
+            }
+            .btn-tg { 
+                bottom: 95px; 
+                background: linear-gradient(45deg, #24A1DE, #1b7ba8); 
+            }
+            .btn-req { 
+                bottom: 35px; 
+                background: linear-gradient(45deg, #10b981, #059669); 
+            }
 
-            /* Modal & Quality Picker Styles */
+            /* 
+             * Modals & Texts (Quality Select, Success, Request)
+             */
             .modal { 
                 position: fixed; 
                 top: 0; 
@@ -881,23 +1045,26 @@ async def web_ui():
                 align-items: center; 
                 justify-content: center; 
                 z-index: 3000; 
-                animation: fadeIn 0.3s ease-out; 
                 backdrop-filter: blur(5px);
             }
             .modal-content { 
                 background: #1e293b; 
-                width: 90%; 
+                width: 92%; 
                 max-width: 400px; 
                 padding: 25px; 
                 border-radius: 20px; 
                 text-align: center; 
                 border: 1px solid #334155; 
-                max-height: 80vh; 
+                max-height: 85vh; 
                 overflow-y: auto;
             }
-            @keyframes fadeIn { 
-                from { opacity: 0; transform: scale(0.95); } 
-                to { opacity: 1; transform: scale(1); } 
+            
+            .instruction-text { 
+                color: #fbbf24; 
+                font-size: 15.5px; 
+                font-weight: bold; 
+                margin-bottom: 20px; 
+                line-height: 1.5; 
             }
             
             .quality-btn { 
@@ -906,59 +1073,92 @@ async def web_ui():
                 align-items: center; 
                 background: #0f172a; 
                 border: 1px solid #334155; 
-                padding: 15px; 
+                padding: 16px; 
                 border-radius: 12px; 
-                margin-bottom: 10px; 
+                margin-bottom: 12px; 
                 color: white; 
                 font-weight: bold; 
+                font-size: 16px; 
                 cursor: pointer; 
                 transition: 0.3s; 
                 width: 100%;
             }
-            .quality-btn:active { transform: scale(0.98); }
-            .quality-locked { border-left: 4px solid #f87171; }
-            .quality-unlocked { border-left: 4px solid #10b981; }
+            .quality-btn:active { 
+                transform: scale(0.98); 
+            }
+            .quality-locked { 
+                border-left: 5px solid #ef4444; 
+            }
+            .quality-unlocked { 
+                border-left: 5px solid #10b981; 
+            }
 
             .close-btn { 
                 background: #334155; 
                 color: white; 
-                padding: 10px 20px; 
-                border-radius: 10px; 
+                padding: 12px 20px; 
+                border-radius: 12px; 
                 margin-top: 15px; 
                 border: none; 
                 width: 100%; 
                 font-weight: bold; 
+                font-size: 16px; 
                 cursor: pointer;
             }
 
             .req-input { 
                 width: 100%; 
-                padding: 15px; 
+                padding: 16px; 
                 margin: 20px 0; 
-                border-radius: 10px; 
-                border: 1px solid #334155; 
+                border-radius: 12px; 
+                border: 2px solid #334155; 
                 background: #0f172a; 
                 color: white; 
                 outline: none; 
-                font-size: 15px; 
+                font-size: 16px; 
+                font-weight: bold;
             }
-            .req-input:focus { border-color: #10b981; }
+            .req-input:focus { 
+                border-color: #10b981; 
+            }
             
             .btn-submit { 
                 background: linear-gradient(45deg, #10b981, #059669); 
                 color: white; 
                 border: none; 
-                padding: 14px 20px; 
-                border-radius: 10px; 
+                padding: 15px 20px; 
+                border-radius: 12px; 
                 font-weight: bold; 
                 width: 100%; 
-                font-size: 16px; 
+                font-size: 18px; 
                 cursor: pointer; 
                 transition: 0.3s;
             }
-            .btn-submit:active { transform: scale(0.95); }
+            .btn-submit:active { 
+                transform: scale(0.95); 
+            }
             
-            /* Ad Screen Styling */
+            /* Bright Notice Box for Copyright Warning */
+            .notice-box { 
+                background: linear-gradient(135deg, rgba(248,113,113,0.15), rgba(220,38,38,0.25)); 
+                border-left: 5px solid #ef4444; 
+                padding: 15px; 
+                text-align: left; 
+                margin: 25px 0; 
+                border-radius: 8px; 
+            }
+            .notice-box p { 
+                color: #fecaca; 
+                font-size: 16.5px; 
+                font-weight: bold; 
+                margin: 0; 
+                line-height: 1.6; 
+                text-shadow: 0 1px 3px rgba(0,0,0,0.5); 
+            }
+
+            /* 
+             * Ad Screen Styles 
+             */
             .ad-screen { 
                 position: fixed; 
                 top: 0; 
@@ -972,6 +1172,7 @@ async def web_ui():
                 justify-content: center; 
                 z-index: 4000; 
             }
+            
             .timer-ui { 
                 display: flex; 
                 flex-direction: column; 
@@ -980,16 +1181,17 @@ async def web_ui():
             
             .rgb-timer-container { 
                 position: relative; 
-                width: 130px; 
-                height: 130px; 
+                width: 140px; 
+                height: 140px; 
                 border-radius: 50%; 
                 display: flex; 
                 align-items: center; 
                 justify-content: center; 
-                margin-bottom: 25px; 
+                margin-bottom: 30px; 
                 background: #0f172a; 
-                box-shadow: 0 0 30px rgba(0,0,0,0.8); 
+                box-shadow: 0 0 40px rgba(0,0,0,0.9); 
             }
+            
             .rgb-ring { 
                 position: absolute; 
                 width: 100%; 
@@ -999,25 +1201,30 @@ async def web_ui():
                 background: linear-gradient(#0f172a, #0f172a) padding-box, conic-gradient(#ff0000, #ff7300, #fffb00, #48ff00, #00ffd5, #002bff, #7a00ff, #ff00c8, #ff0000) border-box; 
                 animation: spinRing 1.5s linear infinite; 
             }
+            
             .timer-text { 
                 position: relative; 
-                font-size: 50px; 
+                font-size: 55px; 
                 font-weight: bold; 
                 color: #fff; 
-                z-index: 2;
-                text-shadow: 0 0 15px rgba(255,255,255,0.8);
+                z-index: 2; 
+                text-shadow: 0 0 20px rgba(255,255,255,0.9);
             }
-            @keyframes spinRing { 100% { transform: rotate(360deg); } }
+            
+            @keyframes spinRing { 
+                100% { transform: rotate(360deg); } 
+            }
 
             .ad-step-text { 
-                font-size: 18px; 
+                font-size: 20px; 
                 font-weight: bold; 
                 color: #fff; 
                 margin-bottom: 25px; 
                 background: #1e293b; 
-                padding: 10px 20px; 
-                border-radius: 25px; 
-                border: 1px solid #334155;
+                padding: 12px 25px; 
+                border-radius: 30px; 
+                border: 2px solid #fbbf24; 
+                text-shadow: 0 0 10px rgba(251,191,36,0.5);
             }
             
             .btn-next-ad { 
@@ -1025,18 +1232,23 @@ async def web_ui():
                 background: linear-gradient(45deg, #f87171, #ef4444); 
                 color: white; 
                 border: none; 
-                padding: 16px 35px; 
-                border-radius: 30px; 
-                font-size: 18px; 
+                padding: 18px 40px; 
+                border-radius: 35px; 
+                font-size: 20px; 
                 font-weight: bold; 
                 cursor: pointer; 
-                box-shadow: 0 5px 20px rgba(248,113,113,0.6); 
+                box-shadow: 0 5px 25px rgba(248,113,113,0.7); 
                 transition: 0.3s;
             }
-            .btn-next-ad:active { transform: scale(0.95); }
+            
+            .btn-next-ad:active { 
+                transform: scale(0.95); 
+            }
         </style>
     </head>
     <body>
+        
+        <!-- UI Header -->
         <header>
             <div class="logo">MovieZone <span>BD</span></div>
             <div class="user-info">
@@ -1045,119 +1257,166 @@ async def web_ui():
             </div>
         </header>
 
+        <!-- Search Bar -->
         <div class="search-box">
             <input type="text" id="searchInput" class="search-input" placeholder="🔍 মুভি বা ওয়েব সিরিজ খুঁজুন...">
         </div>
 
+        <!-- Trending Section -->
         <div id="trendingWrapper">
-            <div class="section-title"><i class="fa-solid fa-fire"></i> ট্রেন্ডিং মুভি</div>
+            <div class="section-title">
+                <i class="fa-solid fa-fire"></i> ট্রেন্ডিং মুভি
+            </div>
             <div class="trending-container" id="trendingGrid">
+                <!-- Skeleton Loaders -->
                 <div class="skeleton" style="min-width:140px; height:240px;"></div>
                 <div class="skeleton" style="min-width:140px; height:240px;"></div>
                 <div class="skeleton" style="min-width:140px; height:240px;"></div>
             </div>
         </div>
 
-        <div class="section-title"><i class="fa-solid fa-film"></i> নতুন সব মুভি</div>
+        <!-- Main Movie Grid -->
+        <div class="section-title">
+            <i class="fa-solid fa-film"></i> নতুন সব মুভি
+        </div>
         <div class="grid" id="movieGrid"></div>
         <div class="pagination" id="paginationBox"></div>
 
         <!-- Floating Action Buttons -->
         <div class="floating-btn btn-18" onclick="window.open('{{LINK_18}}')">18+</div>
-        <div class="floating-btn btn-tg" onclick="window.open('{{TG_LINK}}')"><i class="fa-brands fa-telegram"></i></div>
-        <div class="floating-btn btn-req" onclick="openReqModal()"><i class="fa-solid fa-code-pull-request"></i></div>
+        <div class="floating-btn btn-tg" onclick="window.open('{{TG_LINK}}')">
+            <i class="fa-brands fa-telegram"></i>
+        </div>
+        <div class="floating-btn btn-req" onclick="openReqModal()">
+            <i class="fa-solid fa-code-pull-request"></i>
+        </div>
 
-        <!-- Quality Selection Modal -->
+        <!-- ============================================== -->
+        <!-- Modals & Screens                               -->
+        <!-- ============================================== -->
+
+        <!-- 1. Quality Selection Modal -->
         <div id="qualityModal" class="modal">
             <div class="modal-content">
-                <h2 id="modalTitle" style="color:white; margin-bottom: 5px; font-size: 18px;">Movie Title</h2>
-                <p style="color:gray; font-size:13px; margin-bottom: 20px;">আপনি কোনটি দেখতে চান তা নির্বাচন করুন</p>
+                <h2 id="modalTitle" style="color:#38bdf8; margin-bottom: 8px; font-size: 22px; font-weight:900;">
+                    Movie Title
+                </h2>
+                <p class="instruction-text">
+                    👇 আপনি কোনটি দেখতে চান তা নির্বাচন করুন:
+                </p>
                 
                 <div id="qualityList">
-                    <!-- Dynamic Quality Buttons Go Here -->
+                    <!-- Dynamic Quality Buttons Injected Here -->
                 </div>
                 
                 <button class="close-btn" onclick="closeQualityModal()">বন্ধ করুন</button>
             </div>
         </div>
 
-        <!-- Ad Playing Screen -->
+        <!-- 2. Ad Playing Screen -->
         <div id="adScreen" class="ad-screen">
             <div class="ad-step-text" id="adStepText">অ্যাড: 1/1</div>
+            
             <div class="timer-ui" id="timerUI">
                 <div class="rgb-timer-container">
                     <div class="rgb-ring"></div>
                     <div class="timer-text" id="timer">15</div>
                 </div>
-                <p style="color: #cbd5e1; font-size: 15px; margin-top:10px;">সার্ভারের সাথে কানেক্ট হচ্ছে...</p>
+                <p style="color: #fbbf24; font-size: 18px; font-weight: bold; margin-top:15px; text-shadow: 0 0 10px rgba(251,191,36,0.5);">
+                    সার্ভারের সাথে কানেক্ট হচ্ছে...
+                </p>
             </div>
-            <button class="btn-next-ad" id="nextAdBtn" onclick="nextAdStep()">পরবর্তী অ্যাড দেখুন <i class="fa-solid fa-arrow-right"></i></button>
+            
+            <button class="btn-next-ad" id="nextAdBtn" onclick="nextAdStep()">
+                পরবর্তী অ্যাড দেখুন <i class="fa-solid fa-arrow-right"></i>
+            </button>
         </div>
 
-        <!-- Success Message Modal -->
+        <!-- 3. Success Message Modal -->
         <div id="successModal" class="modal">
             <div class="modal-content">
-                <i class="fa-solid fa-circle-check" style="font-size:70px; color:#10b981; text-shadow: 0 0 20px rgba(16,185,129,0.5);"></i>
-                <h2 style="margin:20px 0 10px; color:white;">সম্পন্ন হয়েছে!</h2>
-                <p style="color: #cbd5e1; font-size: 16px;">✅ ফাইলটি বটের ইনবক্সে পাঠানো হয়েছে।</p>
-                <div style="background: rgba(248,113,113,0.1); border-left: 4px solid #f87171; padding: 12px 15px; text-align: left; margin: 20px 0; border-radius: 6px;">
-                    <p style="color: #fca5a5; font-size: 14px; margin:0; line-height: 1.5;">
-                        <i class="fa-solid fa-triangle-exclamation"></i> <b>সতর্কতা:</b> কপিরাইট এড়াতে মুভিটি কিছুক্ষণ পর অটোমেটিক ডিলিট হয়ে যাবে। দয়া করে এখনই বট থেকে সেভ বা ফরোয়ার্ড করে নিন!
+                <i class="fa-solid fa-circle-check" style="font-size:80px; color:#4ade80; text-shadow: 0 0 25px rgba(74,222,128,0.6);"></i>
+                <h2 style="margin:20px 0 10px; color:white; font-size: 26px;">
+                    সম্পন্ন হয়েছে!
+                </h2>
+                <p style="color: #4ade80; font-size: 17px; font-weight: bold;">
+                    ✅ ফাইলটি বটের ইনবক্সে পাঠানো হয়েছে।
+                </p>
+                
+                <div class="notice-box">
+                    <p>
+                        <i class="fa-solid fa-triangle-exclamation" style="color: #fbbf24; font-size: 18px;"></i> 
+                        <b>সতর্কতা:</b> কপিরাইট এড়াতে মুভিটি কিছুক্ষণ পর অটোমেটিক ডিলিট হয়ে যাবে। দয়া করে এখনই বট থেকে সেভ বা ফরোয়ার্ড করে নিন!
                     </p>
                 </div>
+                
                 <button class="btn-submit" onclick="tg.close()">বটে ফিরে যান</button>
             </div>
         </div>
 
-        <!-- Movie Request Modal -->
+        <!-- 4. Movie Request Modal -->
         <div id="reqModal" class="modal">
             <div class="modal-content">
-                <h2 style="color:white;">মুভি রিকোয়েস্ট</h2>
-                <p style="color:gray; font-size:13px; margin-top:5px;">যে মুভিটি খুঁজছেন তার নাম লিখুন</p>
+                <h2 style="color:white; font-size: 24px;">মুভি রিকোয়েস্ট</h2>
+                <p class="instruction-text" style="margin-top: 10px;">
+                    👇 যে মুভিটি খুঁজছেন তার সঠিক নাম লিখুন:
+                </p>
                 
                 <input type="text" id="reqText" class="req-input" placeholder="উদাঃ Avatar 2022">
                 <button class="btn-submit" onclick="sendReq()">সাবমিট করুন</button>
                 
-                <p style="margin-top:20px; color:#cbd5e1; cursor:pointer; font-weight:bold;" onclick="document.getElementById('reqModal').style.display='none'">বাতিল করুন</p>
+                <p style="margin-top:25px; color:#94a3b8; font-size: 16px; cursor:pointer; font-weight:bold;" onclick="document.getElementById('reqModal').style.display='none'">
+                    বাতিল করুন
+                </p>
             </div>
         </div>
 
+        <!-- ============================================== -->
+        <!-- Logic & Scripts                                -->
+        <!-- ============================================== -->
         <script>
+            // Init Telegram Web App
             let tg = window.Telegram.WebApp; 
             tg.expand();
             
+            // Server Configurations Injected
             const ZONE_ID = "{{ZONE_ID}}";
             const REQUIRED_ADS = parseInt("{{AD_COUNT}}");
             const INIT_DATA = tg.initData || "";
             
+            // Application State
             let currentPage = 1; 
             let isLoading = false; 
             let searchQuery = "";
             let uid = tg.initDataUnsafe?.user?.id || 0;
             
+            // Ad Flow State
             let currentAdStep = 1; 
             let activeFileId = null;
             let autoScrollInterval; 
             let isTouching = false;
             let abortController = null;
             
-            let loadedMovies = {}; // To Cache Data for the Modal
+            // Data Cache
+            let loadedMovies = {}; 
 
-            // Update User Profile Info
+            // Load User Data visually
             if(tg.initDataUnsafe && tg.initDataUnsafe.user) {
                 document.getElementById('uName').innerText = tg.initDataUnsafe.user.first_name;
+                
                 if(tg.initDataUnsafe.user.photo_url) {
                     document.getElementById('uPic').src = tg.initDataUnsafe.user.photo_url;
                 }
             }
 
-            // Ad Server Integration Setup
+            // Inject Ad Network Script
             const s = document.createElement('script');
             s.src = '//libtl.com/sdk.js'; 
             s.setAttribute('data-zone', ZONE_ID); 
             s.setAttribute('data-sdk', 'show_' + ZONE_ID);
             document.head.appendChild(s);
 
+            // UI Helper Functions
             function drawSkeletons(count) {
                 let html = ""; 
                 for(let i=0; i<count; i++) {
@@ -1167,12 +1426,18 @@ async def web_ui():
             }
 
             function startAutoScroll() {
-                if(autoScrollInterval) clearInterval(autoScrollInterval);
+                if(autoScrollInterval) {
+                    clearInterval(autoScrollInterval);
+                }
+                
                 autoScrollInterval = setInterval(() => {
                     if(isTouching) return; 
+                    
                     let grid = document.getElementById('trendingGrid');
                     if(grid) {
                         let cardWidth = 155;
+                        
+                        // Scroll logic
                         if (grid.scrollLeft >= (grid.scrollWidth - grid.clientWidth - 10)) {
                             grid.scrollTo({ left: 0, behavior: 'smooth' });
                         } else {
@@ -1182,44 +1447,62 @@ async def web_ui():
                 }, 3500);
             }
 
+            // Data Fetching Functions
             async function loadTrending() {
                 try {
                     const r = await fetch(`/api/trending?uid=${uid}`);
                     const data = await r.json();
                     
+                    // Ban Check
                     if(data.error === "banned") {
-                        document.body.innerHTML = "<h2 style='color:red; text-align:center; font-family:sans-serif; margin-top:50px;'>🚫 You are permanently Banned from using this Bot!</h2>";
+                        document.body.innerHTML = `
+                            <h2 style='color:#ef4444; text-align:center; font-family:sans-serif; margin-top:80px; font-size:24px;'>
+                                🚫 You are permanently Banned!
+                            </h2>`;
                         return;
                     }
                     
                     const grid = document.getElementById('trendingGrid');
+                    
                     if(data.length === 0) {
                         document.getElementById('trendingWrapper').style.display = 'none';
                         return;
                     }
                     
+                    // Render Trending
                     grid.innerHTML = data.map(m => {
-                        loadedMovies[m._id] = m; // Cache the data
+                        loadedMovies[m._id] = m;
                         let epCount = m.files.length;
+                        
                         return `
                         <div class="trending-card" onclick="openQualityModal('${m._id}')">
                             <div class="post-content">
                                 <div class="top-badge">🔥 TOP</div>
-                                <img src="/api/image/${m.photo_id}" loading="lazy" decoding="async" onerror="this.src='https://via.placeholder.com/400x240?text=No+Image'">
-                                <div class="ep-badge"><i class="fa-solid fa-list"></i> ${epCount}</div>
-                                <div class="view-badge"><i class="fa-solid fa-eye"></i> ${m.clicks}</div>
+                                <img src="/api/image/${m.photo_id}" loading="lazy" onerror="this.src='https://via.placeholder.com/400x240?text=No+Image'">
+                                <div class="ep-badge">
+                                    <i class="fa-solid fa-list"></i> ${epCount}
+                                </div>
+                                <div class="view-badge">
+                                    <i class="fa-solid fa-eye"></i> ${m.clicks}
+                                </div>
                             </div>
                             <div class="card-footer">${m._id}</div>
                         </div>`;
                     }).join('');
                     
+                    // Scroll listeners
                     grid.addEventListener('touchstart', () => isTouching = true, {passive: true});
-                    grid.addEventListener('touchend', () => { setTimeout(() => isTouching = false, 1000); }, {passive: true});
+                    grid.addEventListener('touchend', () => { 
+                        setTimeout(() => isTouching = false, 1000); 
+                    }, {passive: true});
+                    
                     grid.addEventListener('mouseenter', () => isTouching = true);
                     grid.addEventListener('mouseleave', () => isTouching = false);
                     
                     setTimeout(startAutoScroll, 2000);
-                } catch(e) {}
+                } catch(e) {
+                    console.error("Trending Error: ", e);
+                }
             }
 
             async function loadMovies(page = 1, signal = null) {
@@ -1229,6 +1512,7 @@ async def web_ui():
                 
                 const grid = document.getElementById('movieGrid');
                 const pBox = document.getElementById('paginationBox');
+                
                 grid.innerHTML = drawSkeletons(16); 
                 pBox.innerHTML = "";
 
@@ -1239,31 +1523,47 @@ async def web_ui():
                     if(data.error === "banned") return;
 
                     if(data.movies && data.movies.length === 0) {
-                        grid.innerHTML = "<p style='grid-column: span 2; text-align:center; color:gray; padding:20px;'>কোনো মুভি পাওয়া যায়নি!</p>";
+                        grid.innerHTML = `
+                            <p style='grid-column: span 2; text-align:center; color:#fbbf24; font-size: 18px; font-weight:bold; padding:40px;'>
+                                🚫 কোনো মুভি পাওয়া যায়নি!
+                            </p>`;
                     } else if (data.movies) {
                         grid.innerHTML = data.movies.map(m => {
-                            loadedMovies[m._id] = m; // Cache the data
+                            loadedMovies[m._id] = m; 
                             let epCount = m.files.length;
+                            
                             return `
                             <div class="card" onclick="openQualityModal('${m._id}')">
                                 <div class="post-content">
-                                    <img src="/api/image/${m.photo_id}" loading="lazy" decoding="async" onerror="this.src='https://via.placeholder.com/400x240?text=No+Image'">
-                                    <div class="ep-badge"><i class="fa-solid fa-list"></i> ${epCount}</div>
-                                    <div class="view-badge"><i class="fa-solid fa-eye"></i> ${m.clicks}</div>
+                                    <img src="/api/image/${m.photo_id}" loading="lazy" onerror="this.src='https://via.placeholder.com/400x240?text=No+Image'">
+                                    <div class="ep-badge">
+                                        <i class="fa-solid fa-list"></i> ${epCount}
+                                    </div>
+                                    <div class="view-badge">
+                                        <i class="fa-solid fa-eye"></i> ${m.clicks}
+                                    </div>
                                 </div>
                                 <div class="card-footer">${m._id}</div>
                             </div>`;
                         }).join('');
+                        
                         renderPagination(data.total_pages);
                     }
-                } catch(e) {}
+                } catch(e) {
+                    console.error("Load Movies Error: ", e);
+                }
+                
                 isLoading = false;
             }
 
             function renderPagination(totalPages) {
                 if (totalPages <= 1) return;
+                
                 let html = "";
-                html += `<button class="page-btn" ${currentPage === 1 ? 'disabled' : ''} onclick="goToPage(${currentPage - 1})"><i class="fa-solid fa-angle-left"></i></button>`;
+                
+                html += `<button class="page-btn" ${currentPage === 1 ? 'disabled' : ''} onclick="goToPage(${currentPage - 1})">
+                            <i class="fa-solid fa-angle-left"></i>
+                         </button>`;
                 
                 let start = Math.max(1, currentPage - 1); 
                 let end = Math.min(totalPages, currentPage + 1);
@@ -1272,24 +1572,34 @@ async def web_ui():
                     html += `<button class="page-btn" onclick="goToPage(1)">1</button>`; 
                     if (start > 2) html += `<span style="color:gray;">...</span>`; 
                 }
+                
                 for (let i = start; i <= end; i++) { 
                     html += `<button class="page-btn ${i === currentPage ? 'active' : ''}" onclick="goToPage(${i})">${i}</button>`; 
                 }
+                
                 if (end < totalPages) { 
                     if (end < totalPages - 1) html += `<span style="color:gray;">...</span>`; 
                     html += `<button class="page-btn" onclick="goToPage(${totalPages})">${totalPages}</button>`; 
                 }
                 
-                html += `<button class="page-btn" ${currentPage === totalPages ? 'disabled' : ''} onclick="goToPage(${currentPage + 1})"><i class="fa-solid fa-angle-right"></i></button>`;
+                html += `<button class="page-btn" ${currentPage === totalPages ? 'disabled' : ''} onclick="goToPage(${currentPage + 1})">
+                            <i class="fa-solid fa-angle-right"></i>
+                         </button>`;
+                         
                 document.getElementById('paginationBox').innerHTML = html;
             }
 
             function goToPage(p) {
                 if (p < 1) return; 
+                
                 loadMovies(p);
-                window.scrollTo({ top: document.getElementById('movieGrid').offsetTop - 100, behavior: 'smooth' });
+                window.scrollTo({ 
+                    top: document.getElementById('movieGrid').offsetTop - 100, 
+                    behavior: 'smooth' 
+                });
             }
 
+            // Search Event Listener with Debounce
             let timeout = null;
             document.getElementById('searchInput').addEventListener('input', function(e) {
                 clearTimeout(timeout); 
@@ -1311,7 +1621,7 @@ async def web_ui():
                 }, 500); 
             });
 
-            // --- Quality / Episode Modal Logic ---
+            // Modal Interactions
             function openQualityModal(title) {
                 const movie = loadedMovies[title];
                 if(!movie) return;
@@ -1319,8 +1629,12 @@ async def web_ui():
                 document.getElementById('modalTitle').innerText = movie._id;
                 
                 let listHtml = movie.files.map(f => {
-                    let icon = f.is_unlocked ? '<i class="fa-solid fa-unlock text-green-400"></i>' : '<i class="fa-solid fa-lock text-red-400"></i>';
+                    let icon = f.is_unlocked 
+                        ? '<i class="fa-solid fa-unlock-keyhole text-green-400" style="font-size:20px;"></i>' 
+                        : '<i class="fa-solid fa-lock text-red-400" style="font-size:20px;"></i>';
+                        
                     let cls = f.is_unlocked ? 'quality-unlocked' : 'quality-locked';
+                    
                     return `
                     <button class="quality-btn ${cls}" onclick="handleQualityClick('${f.id}', ${f.is_unlocked})">
                         <span>${f.quality}</span> 
@@ -1338,6 +1652,7 @@ async def web_ui():
 
             function handleQualityClick(fileId, isUnlocked) {
                 closeQualityModal();
+                
                 if(isUnlocked) { 
                     sendFile(fileId); 
                 } else { 
@@ -1347,13 +1662,18 @@ async def web_ui():
                 }
             }
 
-            // --- Ad and Delivery Logic ---
+            // Ad Serving Logic
             function startAdTimer() {
-                if (typeof window['show_' + ZONE_ID] === 'function') window['show_' + ZONE_ID]();
+                // Call Ad Network
+                if (typeof window['show_' + ZONE_ID] === 'function') {
+                    window['show_' + ZONE_ID]();
+                }
                 
+                // Show Ad UI
                 document.getElementById('adScreen').style.display = 'flex';
                 document.getElementById('timerUI').style.display = 'flex';
                 document.getElementById('nextAdBtn').style.display = 'none';
+                
                 document.getElementById('adStepText').innerText = `অ্যাড: ${currentAdStep}/${REQUIRED_ADS}`;
                 
                 let t = 15; 
@@ -1362,8 +1682,10 @@ async def web_ui():
                 let iv = setInterval(() => {
                     t--; 
                     document.getElementById('timer').innerText = t;
+                    
                     if(t <= 0) { 
                         clearInterval(iv); 
+                        
                         if(currentAdStep < REQUIRED_ADS) {
                             document.getElementById('timerUI').style.display = 'none';
                             document.getElementById('nextAdBtn').style.display = 'block';
@@ -1380,27 +1702,37 @@ async def web_ui():
                 startAdTimer(); 
             }
 
+            // File Delivery API Calls
             async function sendFile(id) {
-                const res = await fetch('/api/send', { 
-                    method: 'POST', 
-                    headers: {'Content-Type': 'application/json'}, 
-                    body: JSON.stringify({userId: uid, movieId: id, initData: INIT_DATA})
-                });
-                
-                const responseData = await res.json();
-                
-                if(!responseData.ok) {
-                    alert("⚠️ Security verification failed or you are banned! Please open via Telegram App.");
-                    return;
+                try {
+                    const res = await fetch('/api/send', { 
+                        method: 'POST', 
+                        headers: {'Content-Type': 'application/json'}, 
+                        body: JSON.stringify({
+                            userId: uid, 
+                            movieId: id, 
+                            initData: INIT_DATA
+                        })
+                    });
+                    
+                    const responseData = await res.json();
+                    
+                    if(!responseData.ok) {
+                        alert("⚠️ Security verification failed! Please open via Telegram App.");
+                        return;
+                    }
+                    
+                    document.getElementById('adScreen').style.display = 'none';
+                    document.getElementById('successModal').style.display = 'flex';
+                    
+                    setTimeout(() => { 
+                        loadTrending(); 
+                        loadMovies(currentPage); 
+                    }, 1000); 
+                    
+                } catch (e) {
+                    console.error(e);
                 }
-                
-                document.getElementById('adScreen').style.display = 'none';
-                document.getElementById('successModal').style.display = 'flex';
-                
-                setTimeout(() => { 
-                    loadTrending(); 
-                    loadMovies(currentPage); 
-                }, 1000); 
             }
 
             function openReqModal() { 
@@ -1412,49 +1744,69 @@ async def web_ui():
                 const text = document.getElementById('reqText').value;
                 if(!text) return alert('মুভির নাম লিখুন!');
                 
-                await fetch('/api/request', { 
-                    method: 'POST', 
-                    headers: {'Content-Type': 'application/json'}, 
-                    body: JSON.stringify({uid: uid, uname: tg.initDataUnsafe.user?.first_name || 'Guest', movie: text, initData: INIT_DATA})
-                });
-                
-                document.getElementById('reqModal').style.display = 'none';
-                document.getElementById('reqText').value = '';
-                alert('রিকোয়েস্ট সফলভাবে পাঠানো হয়েছে!');
+                try {
+                    await fetch('/api/request', { 
+                        method: 'POST', 
+                        headers: {'Content-Type': 'application/json'}, 
+                        body: JSON.stringify({
+                            uid: uid, 
+                            uname: tg.initDataUnsafe.user?.first_name || 'Guest', 
+                            movie: text, 
+                            initData: INIT_DATA
+                        })
+                    });
+                    
+                    document.getElementById('reqModal').style.display = 'none';
+                    document.getElementById('reqText').value = '';
+                    alert('রিকোয়েস্ট সফলভাবে পাঠানো হয়েছে!');
+                    
+                } catch (e) {
+                    console.error(e);
+                }
             }
 
-            // Init Page Data
+            // Init App
             loadTrending();
             loadMovies(1); 
         </script>
     </body>
     </html>
     """
+    
     html_code = html_code.replace("{{ZONE_ID}}", zone_id).replace("{{TG_LINK}}", tg_url).replace("{{LINK_18}}", link_18).replace("{{AD_COUNT}}", str(required_ads))
+    
     return html_code
 
+
+# ==========================================
+# 12. Main Web App APIs (Trending & Lists)
+# ==========================================
 @app.get("/api/trending")
 async def trending_movies(uid: int = 0):
     if uid in banned_cache: 
         return {"error": "banned"}
         
     unlocked_movie_ids = []
+    
     if uid != 0:
         time_limit = datetime.datetime.utcnow() - datetime.timedelta(hours=24)
         async for u in db.user_unlocks.find({"user_id": uid, "unlocked_at": {"$gt": time_limit}}):
             unlocked_movie_ids.append(u["movie_id"])
 
-    # Aggregate top 10 grouped movies
     pipeline = [
-        {"$group": {
-            "_id": "$title",
-            "photo_id": {"$first": "$photo_id"},
-            "clicks": {"$sum": "$clicks"},
-            "files": {"$push": {
-                "id": {"$toString": "$_id"},
-                "quality": {"$ifNull": ["$quality", "Main File"]}
-            }}
-        }},
+        {
+            "$group": {
+                "_id": "$title",
+                "photo_id": {"$first": "$photo_id"},
+                "clicks": {"$sum": "$clicks"},
+                "files": {
+                    "$push": {
+                        "id": {"$toString": "$_id"},
+                        "quality": {"$ifNull": ["$quality", "Main File"]}
+                    }
+                }
+            }
+        },
         {"$sort": {"clicks": -1}},
         {"$limit": 10}
     ]
@@ -1476,6 +1828,7 @@ async def list_movies(page: int = 1, q: str = "", uid: int = 0):
     skip = (page - 1) * limit
     
     unlocked_ids = []
+    
     if uid != 0:
         time_limit = datetime.datetime.utcnow() - datetime.timedelta(hours=24)
         async for u in db.user_unlocks.find({"user_id": uid, "unlocked_at": {"$gt": time_limit}}):
@@ -1485,16 +1838,20 @@ async def list_movies(page: int = 1, q: str = "", uid: int = 0):
     
     pipeline = [
         {"$match": match_stage},
-        {"$group": {
-            "_id": "$title",
-            "photo_id": {"$first": "$photo_id"},
-            "clicks": {"$sum": "$clicks"},
-            "created_at": {"$max": "$created_at"},
-            "files": {"$push": {
-                "id": {"$toString": "$_id"},
-                "quality": {"$ifNull": ["$quality", "Main File"]}
-            }}
-        }},
+        {
+            "$group": {
+                "_id": "$title",
+                "photo_id": {"$first": "$photo_id"},
+                "clicks": {"$sum": "$clicks"},
+                "created_at": {"$max": "$created_at"},
+                "files": {
+                    "$push": {
+                        "id": {"$toString": "$_id"},
+                        "quality": {"$ifNull": ["$quality", "Main File"]}
+                    }
+                }
+            }
+        },
         {"$sort": {"created_at": -1}},
         {"$skip": skip},
         {"$limit": limit}
@@ -1505,6 +1862,7 @@ async def list_movies(page: int = 1, q: str = "", uid: int = 0):
         {"$group": {"_id": "$title"}}, 
         {"$count": "total"}
     ]
+    
     c_res = await db.movies.aggregate(count_pipe).to_list(1)
     total_groups = c_res[0]["total"] if c_res else 0
     total_pages = (total_groups + limit - 1) // limit
@@ -1528,9 +1886,13 @@ async def get_image(photo_id: str):
         else:
             file_info = await bot.get_file(photo_id)
             file_path = file_info.file_path
+            
             await db.file_cache.update_one(
                 {"photo_id": photo_id},
-                {"$set": {"file_path": file_path, "expires_at": now + datetime.timedelta(minutes=50)}},
+                {"$set": {
+                    "file_path": file_path, 
+                    "expires_at": now + datetime.timedelta(minutes=50)
+                }},
                 upsert=True
             )
             
@@ -1546,6 +1908,10 @@ async def get_image(photo_id: str):
     except Exception: 
         return {"error": "not found"}
 
+
+# ==========================================
+# 13. File Sender API & Request API
+# ==========================================
 class SendRequestModel(BaseModel):
     userId: int
     movieId: str
@@ -1577,16 +1943,40 @@ async def send_file(d: SendRequestModel):
             
             sent_msg = None
             if m.get("file_type") == "video": 
-                sent_msg = await bot.send_video(d.userId, m['file_id'], caption=caption, parse_mode="HTML", protect_content=is_protected)
+                sent_msg = await bot.send_video(
+                    d.userId, 
+                    m['file_id'], 
+                    caption=caption, 
+                    parse_mode="HTML", 
+                    protect_content=is_protected
+                )
             else: 
-                sent_msg = await bot.send_document(d.userId, m['file_id'], caption=caption, parse_mode="HTML", protect_content=is_protected)
+                sent_msg = await bot.send_document(
+                    d.userId, 
+                    m['file_id'], 
+                    caption=caption, 
+                    parse_mode="HTML", 
+                    protect_content=is_protected
+                )
             
-            await db.movies.update_one({"_id": ObjectId(d.movieId)}, {"$inc": {"clicks": 1}})
-            await db.user_unlocks.update_one({"user_id": d.userId, "movie_id": d.movieId}, {"$set": {"unlocked_at": datetime.datetime.utcnow()}}, upsert=True)
+            await db.movies.update_one(
+                {"_id": ObjectId(d.movieId)}, 
+                {"$inc": {"clicks": 1}}
+            )
+            
+            await db.user_unlocks.update_one(
+                {"user_id": d.userId, "movie_id": d.movieId}, 
+                {"$set": {"unlocked_at": datetime.datetime.utcnow()}}, 
+                upsert=True
+            )
             
             if sent_msg:
                 delete_at = datetime.datetime.utcnow() + datetime.timedelta(minutes=del_minutes)
-                await db.auto_delete.insert_one({"chat_id": d.userId, "message_id": sent_msg.message_id, "delete_at": delete_at})
+                await db.auto_delete.insert_one({
+                    "chat_id": d.userId, 
+                    "message_id": sent_msg.message_id, 
+                    "delete_at": delete_at
+                })
                 
     except Exception as e: 
         print(f"Error sending file: {e}")
@@ -1603,6 +1993,7 @@ class ReqModel(BaseModel):
 async def handle_request(data: ReqModel):
     if data.uid in banned_cache or not validate_tg_data(data.initData):
         return {"ok": False}
+        
     try: 
         builder = InlineKeyboardBuilder()
         builder.button(text="✍️ রিপ্লাই দিন", callback_data=f"reply_{data.uid}")
@@ -1617,9 +2008,15 @@ async def handle_request(data: ReqModel):
         )
     except Exception: 
         pass
+        
     return {"ok": True}
 
+
+# ==========================================
+# 14. Main Application Startup
+# ==========================================
 async def start():
+    print("Initializing Database & Cache...")
     await init_db()
     await load_admins()
     await load_banned_users()
@@ -1628,9 +2025,13 @@ async def start():
     config = uvicorn.Config(app, host="0.0.0.0", port=port, loop="asyncio")
     server = uvicorn.Server(config)
     
+    print("Starting Background Workers...")
     asyncio.create_task(auto_delete_worker())
     
+    print("Connecting to Telegram Bot API...")
     await bot.delete_webhook(drop_pending_updates=True)
+    
+    print("Server is Running!")
     await asyncio.gather(server.serve(), dp.start_polling(bot))
 
 if __name__ == "__main__": 
