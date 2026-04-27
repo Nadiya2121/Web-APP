@@ -10,7 +10,7 @@ import urllib.parse
 import secrets
 
 # ==========================================
-# 🛑 FIX FOR PYROGRAM EVENT LOOP ERROR
+# 🛑 FIX FOR EVENT LOOP ERROR
 # ==========================================
 try:
     asyncio.get_running_loop()
@@ -33,8 +33,6 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from motor.motor_asyncio import AsyncIOMotorClient
 from bson import ObjectId
 from pydantic import BaseModel
-from pyrogram import Client
-
 
 # ==========================================
 # 1. Configuration & Global Variables
@@ -47,16 +45,10 @@ CHANNEL_ID = os.getenv("CHANNEL_ID", "-1003188773719")
 ADMIN_PASS = os.getenv("ADMIN_PASS", "admin123") 
 BOT_USERNAME = "BDMovieZoneBot" # আপনার বটের ইউজারনেম
 
-# Streaming এর জন্য Pyrogram Credentials
-API_ID = int(os.getenv("API_ID", "20632324"))
-API_HASH = os.getenv("API_HASH", "7472998b241dd149fc2b2167ce045c0e")
-DUMP_CHANNEL_ID = int(os.getenv("DUMP_CHANNEL_ID", "-1003974963331")) 
-
 bot = Bot(token=TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
 app = FastAPI()
 security = HTTPBasic()
-pyro_client = Client("streamer_bot", bot_token=TOKEN, api_id=API_ID, api_hash=API_HASH, in_memory=True)
 
 app.add_middleware(
     CORSMiddleware, 
@@ -191,7 +183,7 @@ async def start_cmd(message: types.Message, state: FSMContext):
                         await db.users.update_one({"user_id": referrer_id}, {"$set": {"vip_until": new_vip}})
                         
                         try:
-                            await bot.send_message(referrer_id, "🎉 <b>অভিনন্দন!</b> আপনার ৫ জন রেফার পূর্ণ হয়েছে। আপনাকে ২৪ ঘণ্টার জন্য <b>VIP</b> দেওয়া হয়েছে! এখন আপনি বিনা অ্যাডে মুভি দেখতে পারবেন।", parse_mode="HTML")
+                            await bot.send_message(referrer_id, "🎉 <b>অভিনন্দন!</b> আপনার ৫ জন রেফার পূর্ণ হয়েছে। আপনাকে ২৪ ঘণ্টার জন্য <b>VIP</b> দেওয়া হয়েছে! এখন আপনি বিনা অ্যাডে মুভি ডাউনলোড করতে পারবেন।", parse_mode="HTML")
                         except: pass
             except Exception: pass
 
@@ -226,13 +218,12 @@ async def start_cmd(message: types.Message, state: FSMContext):
             "📥 <b>মুভি অ্যাড করতে প্রথমে ভিডিও বা ডকুমেন্ট ফাইল পাঠান।</b>"
         )
     else: 
-        text = f"👋 <b>স্বাগতম {message.from_user.first_name}!</b>\n\nমুভি দেখতে নিচের বাটনে ক্লিক করুন।"
+        text = f"👋 <b>স্বাগতম {message.from_user.first_name}!</b>\n\nমুভি পেতে নিচের বাটনে ক্লিক করুন।"
         
     await message.answer(text, reply_markup=markup, parse_mode="HTML", disable_web_page_preview=True)
 
 @dp.message(lambda m: m.chat.type == "private" and m.from_user.id not in admin_cache)
 async def forward_to_admin(m: types.Message):
-    # ইউজার মেসেজ দিলে সেটি অ্যাডমিনের কাছে যাওয়ার জন্য
     try:
         builder = InlineKeyboardBuilder()
         builder.button(text="✍️ রিপ্লাই দিন", callback_data=f"reply_{m.from_user.id}")
@@ -356,7 +347,7 @@ async def add_vip_cmd(m: types.Message):
         await m.answer(f"✅ ইউজার <code>{target_uid}</code> কে সফলভাবে <b>{days} দিনের</b> VIP দেওয়া হয়েছে!", parse_mode="HTML")
         
         try:
-            await bot.send_message(target_uid, f"🎉 <b>অভিনন্দন!</b> অ্যাডমিন আপনাকে <b>{days} দিনের</b> জন্য VIP মেম্বারশিপ দিয়েছেন।\n\nএখন আপনি কোনো অ্যাড ছাড়াই সরাসরি মুভি দেখতে ও প্লে করতে পারবেন। অ্যাপ রিস্টার্ট করুন।", parse_mode="HTML")
+            await bot.send_message(target_uid, f"🎉 <b>অভিনন্দন!</b> অ্যাডমিন আপনাকে <b>{days} দিনের</b> জন্য VIP মেম্বারশিপ দিয়েছেন।\n\nএখন আপনি কোনো অ্যাড ছাড়াই মুভি ডাউনলোড করতে পারবেন এবং আপনার ফাইল কখনো অটো-ডিলিট হবে না!", parse_mode="HTML")
         except Exception: pass
     except Exception: 
         await m.answer("⚠️ সঠিক নিয়ম: <code>/addvip ইউজার_আইডি দিন</code>\nউদাহরণ: <code>/addvip 123456789 30</code>", parse_mode="HTML")
@@ -374,14 +365,14 @@ async def remove_vip_cmd(m: types.Message):
 
 
 # ==========================================
-# 8. Movie Upload Logic (With Stream support)
+# 8. Movie Upload Logic 
 # ==========================================
 @dp.message(F.content_type.in_({'video', 'document'}), lambda m: m.from_user.id in admin_cache)
 async def receive_movie_file(m: types.Message, state: FSMContext):
     fid = m.video.file_id if m.video else m.document.file_id
     ftype = "video" if m.video else "document"
     await state.set_state(AdminStates.waiting_for_photo)
-    await state.update_data(file_id=fid, file_type=ftype, original_msg_id=m.message_id)
+    await state.update_data(file_id=fid, file_type=ftype)
     await m.answer("✅ ফাইল পেয়েছি! এবার মুভির <b>পোস্টার (Photo)</b> সেন্ড করুন।\nবাতিল করতে /start দিন।", parse_mode="HTML")
 
 @dp.message(AdminStates.waiting_for_photo, F.photo)
@@ -405,18 +396,9 @@ async def receive_movie_quality(m: types.Message, state: FSMContext):
     title = data["title"]
     photo_id = data["photo_id"]
     
-    dump_msg_id = None
-    if DUMP_CHANNEL_ID:
-        try:
-            dump_msg = await bot.copy_message(chat_id=DUMP_CHANNEL_ID, from_chat_id=m.chat.id, message_id=data["original_msg_id"])
-            dump_msg_id = dump_msg.message_id
-        except Exception as e:
-            print(f"Dump copy failed: {e}")
-    
     await db.movies.insert_one({
         "title": title, "quality": quality, "photo_id": photo_id, 
-        "file_id": data["file_id"], "file_type": data["file_type"], 
-        "stream_msg_id": dump_msg_id,
+        "file_id": data["file_id"], "file_type": data["file_type"],
         "clicks": 0, "created_at": datetime.datetime.utcnow()
     })
     
@@ -425,9 +407,9 @@ async def receive_movie_quality(m: types.Message, state: FSMContext):
     if CHANNEL_ID and CHANNEL_ID != "-100XXXXXXXXXX":
         try:
             bot_info = await bot.get_me()
-            kb = [[types.InlineKeyboardButton(text="🎬 মুভিটি দেখতে এখানে ক্লিক করুন", url=f"https://t.me/{bot_info.username}?start=new")]]
+            kb = [[types.InlineKeyboardButton(text="🎬 মুভিটি পেতে এখানে ক্লিক করুন", url=f"https://t.me/{bot_info.username}?start=new")]]
             markup = types.InlineKeyboardMarkup(inline_keyboard=kb)
-            caption = f"🎬 <b>নতুন ফাইল যুক্ত হয়েছে!</b>\n\n📌 <b>নাম:</b> {title}\n🏷 <b>কোয়ালিটি/এপিসোড:</b> {quality}\n\n👇 <i>দেখতে নিচের বাটনে ক্লিক করুন।</i>"
+            caption = f"🎬 <b>নতুন ফাইল যুক্ত হয়েছে!</b>\n\n📌 <b>নাম:</b> {title}\n🏷 <b>কোয়ালিটি/এপিসোড:</b> {quality}\n\n👇 <i>ডাউনলোড করতে নিচের বাটনে ক্লিক করুন।</i>"
             await bot.send_photo(chat_id=CHANNEL_ID, photo=photo_id, caption=caption, parse_mode="HTML", reply_markup=markup)
         except Exception: 
             pass
@@ -772,14 +754,6 @@ async def web_ui():
             .btn-next-ad { display: none; background: linear-gradient(45deg, #f87171, #ef4444); color: white; border: none; padding: 18px 40px; border-radius: 35px; font-size: 20px; font-weight: bold; cursor: pointer; box-shadow: 0 5px 25px rgba(248,113,113,0.7); transition: 0.3s; }
             
             .vip-tag { background: linear-gradient(45deg, #fbbf24, #f59e0b); color: #000; font-size: 12px; padding: 3px 8px; border-radius: 12px; font-weight: bold; display: none; margin-left:5px; box-shadow: 0 0 10px rgba(251,191,36,0.5); }
-
-            /* New Full Screen Video Player CSS */
-            .video-screen { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #000; display: none; flex-direction: column; z-index: 5000; }
-            .video-header { display: flex; align-items: center; padding: 15px 20px; background: linear-gradient(to bottom, rgba(0,0,0,0.9), transparent); color: white; gap: 15px; width: 100%; position: absolute; top: 0; z-index: 5010; }
-            .video-header i { font-size: 24px; cursor: pointer; padding: 5px; text-shadow: 0 2px 5px rgba(0,0,0,0.8); }
-            .video-title-bar { flex: 1; font-weight: bold; font-size: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-shadow: 0 2px 5px rgba(0,0,0,0.8); }
-            .player-wrapper { flex: 1; display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; background: #000; }
-            #onlinePlayer { width: 100%; max-height: 100vh; outline: none; }
         </style>
     </head>
     <body onclick="closeMenu(event)">
@@ -831,20 +805,9 @@ async def web_ui():
         <div id="qualityModal" class="modal">
             <div class="modal-content">
                 <h2 id="modalTitle" style="color:#38bdf8; margin-bottom: 8px; font-size: 22px; font-weight:900;">Movie Title</h2>
-                <p class="instruction-text">👇 আপনি কোনটি দেখতে চান তা নির্বাচন করুন:</p>
+                <p class="instruction-text">👇 আপনি কোনটি ডাউনলোড করতে চান তা নির্বাচন করুন:</p>
                 <div id="qualityList"></div>
                 <button class="close-btn" onclick="closeQualityModal()">বন্ধ করুন</button>
-            </div>
-        </div>
-
-        <!-- NEW Full Screen Video Player -->
-        <div id="videoScreen" class="video-screen">
-            <div class="video-header">
-                <i class="fa-solid fa-arrow-left" onclick="closeVideo()"></i>
-                <div class="video-title-bar" id="videoTitleBar">Playing Video...</div>
-            </div>
-            <div class="player-wrapper">
-                <video id="onlinePlayer" controls controlsList="nodownload" preload="auto" playsinline></video>
             </div>
         </div>
 
@@ -862,7 +825,11 @@ async def web_ui():
                 <i class="fa-solid fa-circle-check" style="font-size:80px; color:#4ade80; text-shadow: 0 0 25px rgba(74,222,128,0.6);"></i>
                 <h2 style="margin:20px 0 10px; color:white; font-size: 26px;">সম্পন্ন হয়েছে!</h2>
                 <p style="color: #4ade80; font-size: 17px; font-weight: bold;">✅ ফাইলটি বটের ইনবক্সে পাঠানো হয়েছে।</p>
-                <div class="notice-box"><p><i class="fa-solid fa-triangle-exclamation" style="color: #fbbf24; font-size: 18px;"></i> <b>সতর্কতা:</b> কপিরাইট এড়াতে মুভিটি কিছুক্ষণ পর অটোমেটিক ডিলিট হয়ে যাবে। দয়া করে এখনই বট থেকে সেভ বা ফরোয়ার্ড করে নিন!</p></div>
+                
+                <div class="notice-box" id="successNoticeBox">
+                    <p><i class="fa-solid fa-triangle-exclamation" style="color: #fbbf24; font-size: 18px;"></i> <b>সতর্কতা:</b> কপিরাইট এড়াতে মুভিটি কিছুক্ষণ পর অটোমেটিক ডিলিট হয়ে যাবে। দয়া করে এখনই বট থেকে সেভ বা ফরোয়ার্ড করে নিন!</p>
+                </div>
+                
                 <button class="btn-submit" onclick="tg.close()">বটে ফিরে যান</button>
             </div>
         </div>
@@ -881,20 +848,19 @@ async def web_ui():
         <div id="vipModal" class="modal">
             <div class="modal-content">
                 <i class="fa-solid fa-crown" style="font-size:70px; color:#fbbf24; text-shadow: 0 0 25px rgba(251,191,36,0.6);"></i>
-                <h2 style="margin:15px 0 10px; color:white; font-size: 24px;">VIP প্যাকেজ</h2>
-                <p style="color:#cbd5e1; font-size:15px; margin-bottom:15px; line-height:1.5;">VIP নিলে আপনাকে কোনো বিরক্তিকর অ্যাড দেখতে হবে মোহনীয়। <b>সরাসরি মুভি প্লে করতে পারবেন!</b></p>
+                <h2 style="margin:15px 0 10px; color:white; font-size: 24px;">VIP স্পেশাল ফিচারস</h2>
+                <p style="color:#cbd5e1; font-size:15px; margin-bottom:15px; line-height:1.5;">VIP মেম্বারশিপ নিলে আপনি পাবেন সেরা ৩টি এক্সক্লুসিভ সুবিধা!</p>
                 
                 <div style="background:#0f172a; padding:15px; border-radius:10px; text-align:left; border-left:4px solid #fbbf24; margin-bottom:15px;">
-                    <p style="color:#fbbf24; font-weight:bold; margin-bottom:10px; font-size:17px;">মাসিক প্যাকেজ সমূহ:</p>
-                    <ul style="color:#94a3b8; font-size:15px; line-height:1.8; list-style-type: disc; margin-left: 20px;">
-                        <li><b>১ মাস (৩০ দিন):</b> মাত্র ২০ টাকা</li>
-                        <li><b>২ মাস (৬০ দিন):</b> মাত্র ৩৫ টাকা</li>
-                        <li><b>লাইফটাইম VIP:</b> ১০০ টাকা</li>
+                    <ul style="color:#94a3b8; font-size:14.5px; line-height:1.7; list-style-type: disc; margin-left: 20px;">
+                        <li><b style="color:#4ade80;">জিরো অ্যাডস:</b> কোনো বিরক্তিকর অ্যাড বা টাইমার দেখতে হবে না।</li>
+                        <li><b style="color:#38bdf8;">অটো-ডিলিট বাইপাস:</b> আপনার ফাইল কখনো ডিলিট হবে না। সারাজীবন ইনবক্সে থাকবে!</li>
+                        <li><b style="color:#f472b6;">প্রায়োরিটি রিকোয়েস্ট:</b> আপনার রিকোয়েস্ট করা মুভিগুলো অ্যাডমিন সবার আগে আপলোড করবে।</li>
                     </ul>
                 </div>
 
-                <div style="background:#1e293b; padding:10px; border-radius:10px; text-align:left; border:1px solid #334155; margin-bottom:20px;">
-                    <p style="color:#4ade80; font-size:14px; line-height:1.6;"><b>কীভাবে কিনবেন?</b><br>নিচের বাটনে ক্লিক করে অ্যাডমিনকে মেসেজ দিন। পেমেন্ট করার পর অ্যাডমিন আপনার আইডিতে অটোমেটিক VIP চালু করে দিবে।</p>
+                <div style="background:#1e293b; padding:10px; border-radius:10px; text-align:center; border:1px solid #334155; margin-bottom:20px;">
+                    <p style="color:#fbbf24; font-weight:bold; font-size:15px;">১ মাস: ২০ টাকা | লাইফটাইম: ১০০ টাকা</p>
                 </div>
                 
                 <button class="btn-submit" style="background: linear-gradient(45deg, #fbbf24, #d97706); color:black;" onclick="window.open('https://t.me/{{BOT_USER}}')"><i class="fa-brands fa-telegram"></i> অ্যাডমিনকে মেসেজ দিন</button>
@@ -1119,17 +1085,7 @@ async def web_ui():
                     let icon = isFree ? '<i class="fa-solid fa-paper-plane text-green-400" style="font-size:18px;"></i>' : '<i class="fa-solid fa-lock text-red-400" style="font-size:18px;"></i>';
                     let cls = isFree ? 'quality-unlocked' : 'quality-locked';
                     
-                    let btnHtml = `<div style="display:flex; gap:10px; margin-bottom: 12px; width: 100%;">`;
-                    
-                    btnHtml += `<button class="quality-btn ${cls}" style="margin-bottom:0; flex:1;" onclick="handleQualityClick('${f.id}', ${f.is_unlocked})"><span>${f.quality}</span> ${icon}</button>`;
-                    
-                    if (isUserVip) {
-                        let safeTitle = movie._id.replace(/'/g, "\\'");
-                        btnHtml += `<button class="quality-btn quality-unlocked" style="margin-bottom:0; flex:0.4; background: linear-gradient(45deg, #0ea5e9, #2563eb); border-color:#3b82f6; color:white; justify-content:center; gap:8px;" onclick="playOnlineVideo('${f.id}', '${safeTitle}')"><i class="fa-solid fa-play"></i> Play</button>`;
-                    }
-                    
-                    btnHtml += `</div>`;
-                    return btnHtml;
+                    return `<button class="quality-btn ${cls}" onclick="handleQualityClick('${f.id}', ${f.is_unlocked})"><span>${f.quality}</span> ${icon}</button>`;
                 }).join('');
                 
                 document.getElementById('qualityList').innerHTML = listHtml;
@@ -1144,22 +1100,6 @@ async def web_ui():
                 } else { 
                     activeFileId = fileId; currentAdStep = 1; startAdTimer(); 
                 }
-            }
-            
-            function playOnlineVideo(movieId, movieTitle) {
-                closeQualityModal();
-                const player = document.getElementById('onlinePlayer');
-                document.getElementById('videoTitleBar').innerText = movieTitle;
-                player.src = `/api/stream/${movieId}?uid=${uid}`;
-                document.getElementById('videoScreen').style.display = 'flex';
-                player.play();
-            }
-
-            function closeVideo() {
-                const player = document.getElementById('onlinePlayer');
-                player.pause();
-                player.src = ""; 
-                document.getElementById('videoScreen').style.display = 'none';
             }
 
             function startAdTimer() {
@@ -1192,6 +1132,12 @@ async def web_ui():
                     const responseData = await res.json();
                     if(!responseData.ok) return alert("⚠️ Security verification failed! Please open via Telegram App.");
                     
+                    if (isUserVip) {
+                        document.getElementById('successNoticeBox').innerHTML = `<p style="color:#4ade80;"><i class="fa-solid fa-crown" style="color: #fbbf24;"></i> <b>VIP সুবিধা:</b> এই ফাইলটি আপনার ইনবক্স থেকে কখনো অটো-ডিলিট হবে না। সারাজীবন সেভ থাকবে!</p>`;
+                        document.getElementById('successNoticeBox').style.background = "linear-gradient(135deg, rgba(74,222,128,0.1), rgba(34,197,94,0.15))";
+                        document.getElementById('successNoticeBox').style.borderLeftColor = "#4ade80";
+                    }
+
                     document.getElementById('adScreen').style.display = 'none';
                     document.getElementById('successModal').style.display = 'flex';
                     setTimeout(() => { loadTrending(); loadMovies(currentPage); }, 1000); 
@@ -1326,7 +1272,7 @@ async def get_image(photo_id: str):
 
 
 # ==========================================
-# 14. File Sender & Streaming API
+# 14. File Sender & Request API (VIP Auto-Delete Bypass logic added)
 # ==========================================
 class SendRequestModel(BaseModel):
     userId: int
@@ -1339,6 +1285,12 @@ async def send_file(d: SendRequestModel):
     try:
         m = await db.movies.find_one({"_id": ObjectId(d.movieId)})
         if m:
+            now = datetime.datetime.utcnow()
+            user_data = await db.users.find_one({"user_id": d.userId})
+            is_vip = False
+            if user_data and user_data.get("vip_until", now) > now:
+                is_vip = True
+
             time_cfg = await db.settings.find_one({"id": "del_time"})
             del_minutes = time_cfg['minutes'] if time_cfg else 60
             protect_cfg = await db.settings.find_one({"id": "protect_content"})
@@ -1346,17 +1298,21 @@ async def send_file(d: SendRequestModel):
             q_text = m.get("quality", "")
             title_text = f"{m['title']} [{q_text}]" if q_text else m['title']
             
-            caption = (f"🎥 <b>{title_text}</b>\n\n⏳ <b>সতর্কতা:</b> কপিরাইট এড়াতে মুভিটি <b>{del_minutes} মিনিট</b> পর অটো-ডিলিট হয়ে যাবে। "
-                       f"দয়া করে এখনই ফরওয়ার্ড বা সেভ করে নিন!\n\n📥 Join: @TGLinkBase")
+            if is_vip:
+                caption = (f"🎥 <b>{title_text}</b>\n\n🌟 <b>VIP সুবিধা:</b> এই ফাইলটি আপনার ইনবক্স থেকে কখনো অটো-ডিলিট হবে না।\n\n📥 Join: @TGLinkBase")
+            else:
+                caption = (f"🎥 <b>{title_text}</b>\n\n⏳ <b>সতর্কতা:</b> কপিরাইট এড়াতে মুভিটি <b>{del_minutes} মিনিট</b> পর অটো-ডিলিট হয়ে যাবে। "
+                           f"দয়া করে এখনই ফরওয়ার্ড বা সেভ করে নিন!\n\n📥 Join: @TGLinkBase")
             
             if m.get("file_type") == "video": sent_msg = await bot.send_video(d.userId, m['file_id'], caption=caption, parse_mode="HTML", protect_content=is_protected)
             else: sent_msg = await bot.send_document(d.userId, m['file_id'], caption=caption, parse_mode="HTML", protect_content=is_protected)
             
             await db.movies.update_one({"_id": ObjectId(d.movieId)}, {"$inc": {"clicks": 1}})
-            await db.user_unlocks.update_one({"user_id": d.userId, "movie_id": d.movieId}, {"$set": {"unlocked_at": datetime.datetime.utcnow()}}, upsert=True)
+            await db.user_unlocks.update_one({"user_id": d.userId, "movie_id": d.movieId}, {"$set": {"unlocked_at": now}}, upsert=True)
             
-            if sent_msg:
-                delete_at = datetime.datetime.utcnow() + datetime.timedelta(minutes=del_minutes)
+            # শুধুমাত্র সাধারণ ইউজারদের ফাইল অটো-ডিলিট লুপে ঢুকবে
+            if sent_msg and not is_vip:
+                delete_at = now + datetime.timedelta(minutes=del_minutes)
                 await db.auto_delete.insert_one({"chat_id": d.userId, "message_id": sent_msg.message_id, "delete_at": delete_at})
     except Exception as e: print(f"Error sending file: {e}")
     return {"ok": True}
@@ -1371,59 +1327,19 @@ class ReqModel(BaseModel):
 async def handle_request(data: ReqModel):
     if data.uid in banned_cache or not validate_tg_data(data.initData): return {"ok": False}
     try: 
+        now = datetime.datetime.utcnow()
+        user_data = await db.users.find_one({"user_id": data.uid})
+        is_vip = False
+        if user_data and user_data.get("vip_until", now) > now:
+            is_vip = True
+            
+        vip_text = "🌟 <b>[VIP Member]</b>" if is_vip else "👤 [Free User]"
+        
         builder = InlineKeyboardBuilder()
         builder.button(text="✍️ রিপ্লাই দিন", callback_data=f"reply_{data.uid}")
-        await bot.send_message(OWNER_ID, f"🔔 <b>নতুন মুভি রিকোয়েস্ট!</b>\n\n👤 ইউজার: {data.uname} (<code>{data.uid}</code>)\n🎬 মুভির নাম: <b>{data.movie}</b>", parse_mode="HTML", reply_markup=builder.as_markup())
+        await bot.send_message(OWNER_ID, f"🔔 <b>নতুন মুভি রিকোয়েস্ট!</b>\n\n{vip_text}\nইউজার: {data.uname} (<code>{data.uid}</code>)\n🎬 মুভির নাম: <b>{data.movie}</b>", parse_mode="HTML", reply_markup=builder.as_markup())
     except Exception: pass
     return {"ok": True}
-
-@app.get("/api/stream/{movie_id}")
-async def stream_video_api(request: Request, movie_id: str, uid: int):
-    # শুধুমাত্র VIP ইউজাররাই স্ট্রিম করতে পারবে
-    user = await db.users.find_one({"user_id": uid})
-    now = datetime.datetime.utcnow()
-    if not user or user.get("vip_until", now) < now:
-        raise HTTPException(status_code=403, detail="Only VIP members can stream.")
-        
-    movie = await db.movies.find_one({"_id": ObjectId(movie_id)})
-    if not movie or not movie.get("stream_msg_id"):
-        raise HTTPException(status_code=404, detail="Stream unavailable")
-        
-    msg_id = movie["stream_msg_id"]
-    
-    try:
-        msg = await pyro_client.get_messages(DUMP_CHANNEL_ID, msg_id)
-        media = msg.video or msg.document
-        file_size = media.file_size
-    except Exception:
-        raise HTTPException(status_code=404, detail="File unavailable")
-
-    range_header = request.headers.get("Range", "")
-    start = 0
-    end = file_size - 1
-
-    if range_header:
-        byte_range = range_header.replace("bytes=", "").split("-")
-        start = int(byte_range[0])
-        if byte_range[1]:
-            end = int(byte_range[1])
-
-    limit = end - start + 1
-
-    async def file_generator():
-        async for chunk in pyro_client.stream_media(msg, limit=limit, offset=start):
-            yield chunk
-
-    headers = {
-        "Content-Range": f"bytes {start}-{end}/{file_size}",
-        "Accept-Ranges": "bytes",
-        "Content-Length": str(limit),
-        "Content-Type": "video/mp4",
-        "Cache-Control": "public, max-age=86400" # ক্যাশিং যুক্ত করা হলো যাতে ভিডিও বারবার লোড না নেয়
-    }
-    
-    status_code = 206 if range_header else 200
-    return StreamingResponse(file_generator(), status_code=status_code, headers=headers)
 
 
 # ==========================================
@@ -1441,9 +1357,6 @@ async def start():
     
     print("Starting Background Workers...")
     asyncio.create_task(auto_delete_worker())
-    
-    print("Starting Pyrogram Streamer...")
-    await pyro_client.start() 
     
     print("Connecting to Telegram Bot API...")
     await bot.delete_webhook(drop_pending_updates=True)
