@@ -35,8 +35,6 @@ from bson import ObjectId
 from pydantic import BaseModel
 from pyrogram import Client
 
-# আপনার বাকি সব কোড যেমন আছে তেমনই থাকবে...
-
 
 # ==========================================
 # 1. Configuration & Global Variables
@@ -774,6 +772,14 @@ async def web_ui():
             .btn-next-ad { display: none; background: linear-gradient(45deg, #f87171, #ef4444); color: white; border: none; padding: 18px 40px; border-radius: 35px; font-size: 20px; font-weight: bold; cursor: pointer; box-shadow: 0 5px 25px rgba(248,113,113,0.7); transition: 0.3s; }
             
             .vip-tag { background: linear-gradient(45deg, #fbbf24, #f59e0b); color: #000; font-size: 12px; padding: 3px 8px; border-radius: 12px; font-weight: bold; display: none; margin-left:5px; box-shadow: 0 0 10px rgba(251,191,36,0.5); }
+
+            /* New Full Screen Video Player CSS */
+            .video-screen { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #000; display: none; flex-direction: column; z-index: 5000; }
+            .video-header { display: flex; align-items: center; padding: 15px 20px; background: linear-gradient(to bottom, rgba(0,0,0,0.9), transparent); color: white; gap: 15px; width: 100%; position: absolute; top: 0; z-index: 5010; }
+            .video-header i { font-size: 24px; cursor: pointer; padding: 5px; text-shadow: 0 2px 5px rgba(0,0,0,0.8); }
+            .video-title-bar { flex: 1; font-weight: bold; font-size: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-shadow: 0 2px 5px rgba(0,0,0,0.8); }
+            .player-wrapper { flex: 1; display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; background: #000; }
+            #onlinePlayer { width: 100%; max-height: 100vh; outline: none; }
         </style>
     </head>
     <body onclick="closeMenu(event)">
@@ -831,11 +837,14 @@ async def web_ui():
             </div>
         </div>
 
-        <!-- Video Player Modal -->
-        <div id="videoModal" class="modal" style="z-index: 5000; background: rgba(0,0,0,0.95);">
-            <div class="modal-content" style="max-width: 800px; padding: 15px; background: #000; border: 1px solid #334155; position: relative;">
-                <button onclick="closeVideo()" style="position:absolute; top:-15px; right:-15px; background:#ef4444; color:white; border:none; border-radius:50%; width:35px; height:35px; font-weight:bold; cursor:pointer; box-shadow: 0 0 10px rgba(239,68,68,0.5);"><i class="fa-solid fa-times"></i></button>
-                <video id="onlinePlayer" controls style="width: 100%; border-radius: 8px; max-height:70vh; outline:none;" controlsList="nodownload"></video>
+        <!-- NEW Full Screen Video Player -->
+        <div id="videoScreen" class="video-screen">
+            <div class="video-header">
+                <i class="fa-solid fa-arrow-left" onclick="closeVideo()"></i>
+                <div class="video-title-bar" id="videoTitleBar">Playing Video...</div>
+            </div>
+            <div class="player-wrapper">
+                <video id="onlinePlayer" controls controlsList="nodownload" preload="auto" playsinline></video>
             </div>
         </div>
 
@@ -873,7 +882,7 @@ async def web_ui():
             <div class="modal-content">
                 <i class="fa-solid fa-crown" style="font-size:70px; color:#fbbf24; text-shadow: 0 0 25px rgba(251,191,36,0.6);"></i>
                 <h2 style="margin:15px 0 10px; color:white; font-size: 24px;">VIP প্যাকেজ</h2>
-                <p style="color:#cbd5e1; font-size:15px; margin-bottom:15px; line-height:1.5;">VIP নিলে আপনাকে কোনো বিরক্তিকর অ্যাড দেখতে হবে না। <b>সরাসরি মুভি প্লে করতে পারবেন!</b></p>
+                <p style="color:#cbd5e1; font-size:15px; margin-bottom:15px; line-height:1.5;">VIP নিলে আপনাকে কোনো বিরক্তিকর অ্যাড দেখতে হবে মোহনীয়। <b>সরাসরি মুভি প্লে করতে পারবেন!</b></p>
                 
                 <div style="background:#0f172a; padding:15px; border-radius:10px; text-align:left; border-left:4px solid #fbbf24; margin-bottom:15px;">
                     <p style="color:#fbbf24; font-weight:bold; margin-bottom:10px; font-size:17px;">মাসিক প্যাকেজ সমূহ:</p>
@@ -1001,7 +1010,7 @@ async def web_ui():
                     
                     grid.innerHTML = data.map(m => {
                         loadedMovies[m._id] = m;
-                        return `<div class="trending-card" onclick="openQualityModal('${m._id}')">
+                        return `<div class="trending-card" onclick="openQualityModal('${m._id.replace(/'/g, "\\'")}')">
                             <div class="post-content">
                                 <div class="top-badge">🔥 TOP</div>
                                 <img src="/api/image/${m.photo_id}" loading="lazy" onerror="this.src='https://via.placeholder.com/400x240?text=No+Image'">
@@ -1056,7 +1065,7 @@ async def web_ui():
                     } else if (data.movies) {
                         grid.innerHTML = data.movies.map(m => {
                             loadedMovies[m._id] = m; 
-                            return `<div class="card" onclick="openQualityModal('${m._id}')">
+                            return `<div class="card" onclick="openQualityModal('${m._id.replace(/'/g, "\\'")}')">
                                 <div class="post-content">
                                     <img src="/api/image/${m.photo_id}" loading="lazy" onerror="this.src='https://via.placeholder.com/400x240?text=No+Image'">
                                     <div class="ep-badge"><i class="fa-solid fa-list"></i> ${m.files.length}</div>
@@ -1115,7 +1124,8 @@ async def web_ui():
                     btnHtml += `<button class="quality-btn ${cls}" style="margin-bottom:0; flex:1;" onclick="handleQualityClick('${f.id}', ${f.is_unlocked})"><span>${f.quality}</span> ${icon}</button>`;
                     
                     if (isUserVip) {
-                        btnHtml += `<button class="quality-btn quality-unlocked" style="margin-bottom:0; flex:0.4; background: linear-gradient(45deg, #0ea5e9, #2563eb); border-color:#3b82f6; color:white; justify-content:center; gap:8px;" onclick="playOnlineVideo('${f.id}')"><i class="fa-solid fa-play"></i> Play</button>`;
+                        let safeTitle = movie._id.replace(/'/g, "\\'");
+                        btnHtml += `<button class="quality-btn quality-unlocked" style="margin-bottom:0; flex:0.4; background: linear-gradient(45deg, #0ea5e9, #2563eb); border-color:#3b82f6; color:white; justify-content:center; gap:8px;" onclick="playOnlineVideo('${f.id}', '${safeTitle}')"><i class="fa-solid fa-play"></i> Play</button>`;
                     }
                     
                     btnHtml += `</div>`;
@@ -1136,11 +1146,12 @@ async def web_ui():
                 }
             }
             
-            function playOnlineVideo(movieId) {
+            function playOnlineVideo(movieId, movieTitle) {
                 closeQualityModal();
                 const player = document.getElementById('onlinePlayer');
+                document.getElementById('videoTitleBar').innerText = movieTitle;
                 player.src = `/api/stream/${movieId}?uid=${uid}`;
-                document.getElementById('videoModal').style.display = 'flex';
+                document.getElementById('videoScreen').style.display = 'flex';
                 player.play();
             }
 
@@ -1148,7 +1159,7 @@ async def web_ui():
                 const player = document.getElementById('onlinePlayer');
                 player.pause();
                 player.src = ""; 
-                document.getElementById('videoModal').style.display = 'none';
+                document.getElementById('videoScreen').style.display = 'none';
             }
 
             function startAdTimer() {
@@ -1408,6 +1419,7 @@ async def stream_video_api(request: Request, movie_id: str, uid: int):
         "Accept-Ranges": "bytes",
         "Content-Length": str(limit),
         "Content-Type": "video/mp4",
+        "Cache-Control": "public, max-age=86400" # ক্যাশিং যুক্ত করা হলো যাতে ভিডিও বারবার লোড না নেয়
     }
     
     status_code = 206 if range_header else 200
@@ -1440,4 +1452,5 @@ async def start():
     await asyncio.gather(server.serve(), dp.start_polling(bot))
 
 if __name__ == "__main__": 
-    asyncio.run(start())
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(start())
