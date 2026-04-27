@@ -35,6 +35,7 @@ OWNER_ID = int(os.getenv("ADMIN_ID", "0"))
 APP_URL = os.getenv("APP_URL")
 CHANNEL_ID = os.getenv("CHANNEL_ID", "-1003188773719") 
 ADMIN_PASS = os.getenv("ADMIN_PASS", "admin123") 
+BOT_USERNAME = "CineZoneBDBot" # আপনার বটের ইউজারনেম
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
@@ -145,7 +146,7 @@ async def auto_delete_worker():
 
 
 # ==========================================
-# 6. Telegram Bot Commands (General)
+# 6. Telegram Bot Commands (General & Refer Logic)
 # ==========================================
 @dp.message(Command("start"))
 async def start_cmd(message: types.Message, state: FSMContext):
@@ -156,11 +157,37 @@ async def start_cmd(message: types.Message, state: FSMContext):
     await state.clear()
     now = datetime.datetime.utcnow()
     
-    await db.users.update_one(
-        {"user_id": uid}, 
-        {"$set": {"first_name": message.from_user.first_name}, "$setOnInsert": {"joined_at": now}}, 
-        upsert=True
-    )
+    # Check User & Refer Logic
+    user = await db.users.find_one({"user_id": uid})
+    if not user:
+        args = message.text.split(" ")
+        if len(args) > 1 and args[1].startswith("ref_"):
+            try:
+                referrer_id = int(args[1].split("_")[1])
+                if referrer_id != uid:
+                    await db.users.update_one({"user_id": referrer_id}, {"$inc": {"refer_count": 1}})
+                    # Check if reached 5 refers for VIP
+                    ref_user = await db.users.find_one({"user_id": referrer_id})
+                    if ref_user and ref_user.get("refer_count", 0) % 5 == 0:
+                        current_vip = ref_user.get("vip_until", now)
+                        if current_vip < now: current_vip = now
+                        new_vip = current_vip + datetime.timedelta(days=1)
+                        await db.users.update_one({"user_id": referrer_id}, {"$set": {"vip_until": new_vip}})
+                        
+                        try:
+                            await bot.send_message(referrer_id, "🎉 <b>অভিনন্দন!</b> আপনার ৫ জন রেফার পূর্ণ হয়েছে। আপনাকে ২৪ ঘণ্টার জন্য <b>VIP</b> দেওয়া হয়েছে! এখন আপনি বিনা অ্যাডে মুভি দেখতে পারবেন।", parse_mode="HTML")
+                        except: pass
+            except Exception: pass
+
+        await db.users.insert_one({
+            "user_id": uid,
+            "first_name": message.from_user.first_name,
+            "joined_at": now,
+            "refer_count": 0,
+            "vip_until": now - datetime.timedelta(days=1)
+        })
+    else:
+        await db.users.update_one({"user_id": uid}, {"$set": {"first_name": message.from_user.first_name}})
     
     kb = [[types.InlineKeyboardButton(text="🎬 Watch Now", web_app=types.WebAppInfo(url=APP_URL))]]
     markup = types.InlineKeyboardMarkup(inline_keyboard=kb)
@@ -185,6 +212,15 @@ async def start_cmd(message: types.Message, state: FSMContext):
         text = f"👋 <b>স্বাগতম {message.from_user.first_name}!</b>\n\nমুভি দেখতে নিচের বাটনে ক্লিক করুন।"
         
     await message.answer(text, reply_markup=markup, parse_mode="HTML", disable_web_page_preview=True)
+
+@dp.message(lambda m: m.chat.type == "private" and m.from_user.id not in admin_cache)
+async def forward_to_admin(m: types.Message):
+    # ইউজার মেসেজ দিলে সেটি অ্যাডমিনের কাছে যাওয়ার জন্য
+    try:
+        builder = InlineKeyboardBuilder()
+        builder.button(text="✍️ রিপ্লাই দিন", callback_data=f"reply_{m.from_user.id}")
+        await bot.send_message(OWNER_ID, f"📩 <b>New Message from <a href='tg://user?id={m.from_user.id}'>{m.from_user.first_name}</a></b>:\n\n{m.text or 'Media file'}", parse_mode="HTML", reply_markup=builder.as_markup())
+    except Exception: pass
 
 
 # ==========================================
@@ -218,7 +254,7 @@ async def ban_user_cmd(m: types.Message):
     if m.from_user.id not in admin_cache: return
     try:
         target_uid = int(m.text.split()[1])
-        if target_uid in admin_cache: return await m.answer("⚠️ অ্যাডমিনকে ব্যান করা যাবে্বা না!")
+        if target_uid in admin_cache: return await m.answer("⚠️ অ্যাডমিনকে ব্যান করা যাবে না!")
         await db.banned.update_one({"user_id": target_uid}, {"$set": {"user_id": target_uid}}, upsert=True)
         banned_cache.add(target_uid)
         await m.answer(f"🚫 ইউজার <code>{target_uid}</code> কে ব্যান করা হয়েছে!", parse_mode="HTML")
@@ -283,7 +319,7 @@ async def set_ad(m: types.Message):
 
 
 # ==========================================
-# 8. Movie Upload Logic (Quality & Episode Flow)
+# 8. Movie Upload Logic
 # ==========================================
 @dp.message(F.content_type.in_({'video', 'document'}), lambda m: m.from_user.id in admin_cache)
 async def receive_movie_file(m: types.Message, state: FSMContext):
@@ -554,8 +590,7 @@ async def edit_movie_api(title: str, data: dict = Body(...), auth: bool = Depend
         try:
             clicks_to_add = int(add_clicks)
             await db.movies.update_one({"title": title}, {"$inc": {"clicks": clicks_to_add}})
-        except ValueError:
-            pass
+        except ValueError: pass
             
     return {"ok": True}
 
@@ -593,9 +628,19 @@ async def web_ui():
             header { display: flex; justify-content: space-between; align-items: center; padding: 15px; border-bottom: 1px solid #1e293b; position: sticky; top: 0; background: rgba(15, 23, 42, 0.95); backdrop-filter: blur(10px); z-index: 1000; }
             .logo { font-size: 24px; font-weight: bold; }
             .logo span { background: red; color: #fff; padding: 2px 6px; border-radius: 5px; margin-left: 5px; font-size: 16px; }
+            .header-right { display: flex; align-items: center; gap: 10px; }
             .user-info { display: flex; align-items: center; gap: 8px; background: #1e293b; padding: 6px 14px; border-radius: 25px; font-weight: bold; font-size: 14px; border: 1px solid #334155; }
             .user-info img { width: 28px; height: 28px; border-radius: 50%; object-fit: cover; }
             
+            .menu-btn { background: #1e293b; border: 1px solid #334155; padding: 8px 12px; border-radius: 8px; cursor: pointer; color: white; font-size: 18px; transition: 0.3s; }
+            .menu-btn:active { transform: scale(0.9); }
+            
+            .dropdown-menu { display: none; position: absolute; top: 65px; right: 15px; background: #1e293b; border: 1px solid #334155; border-radius: 12px; overflow: hidden; box-shadow: 0 5px 20px rgba(0,0,0,0.5); z-index: 2000; width: 180px; }
+            .dropdown-menu a { display: block; padding: 12px 15px; color: white; text-decoration: none; font-weight: bold; font-size: 15px; border-bottom: 1px solid #334155; cursor: pointer; transition: 0.2s; }
+            .dropdown-menu a:hover { background: #334155; }
+            .dropdown-menu a:last-child { border-bottom: none; }
+            .dropdown-menu i { width: 20px; text-align: center; margin-right: 8px; }
+
             .search-box { padding: 15px; }
             .search-input { width: 100%; padding: 16px; border-radius: 25px; border: none; outline: none; text-align: center; background: #1e293b; color: #fff; font-size: 18px; font-weight: bold; transition: 0.3s; box-shadow: inset 0 2px 5px rgba(0,0,0,0.3); }
             .search-input::placeholder { color: #94a3b8; font-weight: 500; font-size: 16px; }
@@ -604,18 +649,12 @@ async def web_ui():
             .section-title { padding: 5px 15px 15px; font-size: 22px; font-weight: 900; display: flex; align-items: center; gap: 8px; background: linear-gradient(45deg, #ff416c, #ff4b2b); -webkit-background-clip: text; -webkit-text-fill-color: transparent; text-shadow: 0px 4px 15px rgba(255, 75, 43, 0.4); }
             .section-title i { -webkit-text-fill-color: #ff416c; }
             
-            .trending-container { display: flex; overflow-x: auto; gap: 15px; padding: 0 15px 20px; scroll-behavior: smooth; -webkit-overflow-scrolling: touch; }
-            .trending-container::-webkit-scrollbar { display: none; }
-            .trending-card { min-width: 140px; max-width: 140px; background: #1e293b; border-radius: 12px; overflow: hidden; cursor: pointer; flex-shrink: 0; position: relative; transition: transform 0.2s; }
-            .trending-card:active { transform: scale(0.95); }
-            .trending-card img { height: 200px; object-fit: cover; width: 100%; border-radius: 10px; display: block; }
+            .trending-container, .upcoming-container { display: flex; overflow-x: auto; gap: 15px; padding: 0 15px 20px; scroll-behavior: smooth; -webkit-overflow-scrolling: touch; }
+            .trending-container::-webkit-scrollbar, .upcoming-container::-webkit-scrollbar { display: none; }
+            .trending-card, .upcoming-card { min-width: 140px; max-width: 140px; background: #1e293b; border-radius: 12px; overflow: hidden; cursor: pointer; flex-shrink: 0; position: relative; transition: transform 0.2s; }
+            .trending-card:active, .upcoming-card:active { transform: scale(0.95); }
+            .trending-card img, .upcoming-card img { height: 200px; object-fit: cover; width: 100%; border-radius: 10px; display: block; }
             
-            /* Upcoming Movies Slider */
-            .upcoming-container { display: flex; overflow-x: auto; gap: 15px; padding: 0 15px 20px; scroll-behavior: smooth; -webkit-overflow-scrolling: touch; }
-            .upcoming-container::-webkit-scrollbar { display: none; }
-            .upcoming-card { min-width: 140px; max-width: 140px; background: #1e293b; border-radius: 12px; overflow: hidden; flex-shrink: 0; border: 2px solid #334155; }
-            .upcoming-card img { height: 200px; object-fit: cover; width: 100%; display: block; border-bottom: 2px solid #334155; }
-
             .grid { padding: 0 15px 20px; display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; }
             .card { background: #1e293b; border-radius: 12px; overflow: hidden; cursor: pointer; transition: transform 0.2s, box-shadow 0.2s; }
             .card:active { transform: scale(0.95); }
@@ -628,7 +667,6 @@ async def web_ui():
             .view-badge { position: absolute; bottom: 10px; left: 10px; background: rgba(0,0,0,0.75); color: #fff; padding: 4px 8px; border-radius: 6px; font-size: 12px; font-weight: bold; display: flex; align-items: center; gap: 5px; }
             .ep-badge { position: absolute; top: 10px; right: 10px; background: #10b981; color: white; padding: 4px 8px; border-radius: 6px; font-size: 11px; font-weight: bold; z-index: 10; }
 
-            /* Updated Footer - Title Fully Shown */
             .card-footer { padding: 12px; font-size: 14px; font-weight: bold; text-align: center; color: #f8fafc; line-height: 1.4; white-space: normal; word-wrap: break-word; display: block; }
             
             .skeleton { background: #1e293b; border-radius: 12px; height: 260px; overflow: hidden; position: relative; }
@@ -638,7 +676,6 @@ async def web_ui():
             .pagination { display: flex; justify-content: center; align-items: center; gap: 8px; padding: 10px 15px 120px; flex-wrap: wrap; }
             .page-btn { background: #1e293b; color: #fff; border: 1px solid #334155; padding: 10px 16px; border-radius: 8px; cursor: pointer; font-weight: bold; transition: 0.3s; outline: none; }
             .page-btn.active { background: #f87171; border-color: #f87171; color: white; box-shadow: 0 0 10px rgba(248,113,113,0.4); }
-            .page-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
             .floating-btn { position: fixed; right: 20px; color: white; width: 50px; height: 50px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 22px; z-index: 500; cursor: pointer; box-shadow: 0 4px 15px rgba(0,0,0,0.5); transition: 0.3s; }
             .floating-btn:active { transform: scale(0.9); }
@@ -655,11 +692,11 @@ async def web_ui():
             .quality-unlocked { border-left: 5px solid #10b981; }
             .close-btn { background: #334155; color: white; padding: 12px 20px; border-radius: 12px; margin-top: 15px; border: none; width: 100%; font-weight: bold; font-size: 16px; cursor: pointer; }
             .req-input { width: 100%; padding: 16px; margin: 20px 0; border-radius: 12px; border: 2px solid #334155; background: #0f172a; color: white; outline: none; font-size: 16px; font-weight: bold; }
-            .req-input:focus { border-color: #10b981; }
             .btn-submit { background: linear-gradient(45deg, #10b981, #059669); color: white; border: none; padding: 15px 20px; border-radius: 12px; font-weight: bold; width: 100%; font-size: 18px; cursor: pointer; transition: 0.3s; }
             .btn-submit:active { transform: scale(0.95); }
             .notice-box { background: linear-gradient(135deg, rgba(248,113,113,0.15), rgba(220,38,38,0.25)); border-left: 5px solid #ef4444; padding: 15px; text-align: left; margin: 25px 0; border-radius: 8px; }
             .notice-box p { color: #fecaca; font-size: 16.5px; font-weight: bold; margin: 0; line-height: 1.6; text-shadow: 0 1px 3px rgba(0,0,0,0.5); }
+            .refer-box { background: #0f172a; padding: 15px; border-radius: 10px; border: 1px dashed #3b82f6; margin: 15px 0; font-size: 14px; word-break: break-all; color: #93c5fd; }
 
             .ad-screen { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(15, 23, 42, 0.98); display: none; flex-direction: column; align-items: center; justify-content: center; z-index: 4000; }
             .timer-ui { display: flex; flex-direction: column; align-items: center; }
@@ -669,14 +706,28 @@ async def web_ui():
             @keyframes spinRing { 100% { transform: rotate(360deg); } }
             .ad-step-text { font-size: 20px; font-weight: bold; color: #fff; margin-bottom: 25px; background: #1e293b; padding: 12px 25px; border-radius: 30px; border: 2px solid #fbbf24; text-shadow: 0 0 10px rgba(251,191,36,0.5); }
             .btn-next-ad { display: none; background: linear-gradient(45deg, #f87171, #ef4444); color: white; border: none; padding: 18px 40px; border-radius: 35px; font-size: 20px; font-weight: bold; cursor: pointer; box-shadow: 0 5px 25px rgba(248,113,113,0.7); transition: 0.3s; }
-            .btn-next-ad:active { transform: scale(0.95); }
+            
+            /* VIP Tag animation */
+            .vip-tag { background: linear-gradient(45deg, #fbbf24, #f59e0b); color: #000; font-size: 12px; padding: 3px 8px; border-radius: 12px; font-weight: bold; display: none; margin-left:5px; box-shadow: 0 0 10px rgba(251,191,36,0.5); }
         </style>
     </head>
-    <body>
+    <body onclick="closeMenu(event)">
         <header>
             <div class="logo">MovieZone <span>BD</span></div>
-            <div class="user-info"><span id="uName">Guest</span><img id="uPic" src="https://cdn-icons-png.flaticon.com/512/3135/3135715.png"></div>
+            <div class="header-right">
+                <div class="user-info">
+                    <span id="uName">Guest</span>
+                    <span id="vipBadge" class="vip-tag"><i class="fa-solid fa-crown"></i> VIP</span>
+                    <img id="uPic" src="https://cdn-icons-png.flaticon.com/512/3135/3135715.png">
+                </div>
+                <div class="menu-btn" onclick="toggleMenu(event)"><i class="fa-solid fa-bars"></i></div>
+            </div>
         </header>
+        
+        <div id="dropdownMenu" class="dropdown-menu">
+            <a onclick="openVipModal()"><i class="fa-solid fa-crown text-yellow-400"></i> VIP প্যাকেজ</a>
+            <a onclick="openReferModal()"><i class="fa-solid fa-share-nodes text-blue-400"></i> রেফার ও ইনকাম</a>
+        </div>
 
         <div class="search-box">
             <input type="text" id="searchInput" class="search-input" placeholder="🔍 মুভি বা ওয়েব সিরিজ খুঁজুন...">
@@ -743,6 +794,39 @@ async def web_ui():
                 <p style="margin-top:25px; color:#94a3b8; font-size: 16px; cursor:pointer; font-weight:bold;" onclick="document.getElementById('reqModal').style.display='none'">বাতিল করুন</p>
             </div>
         </div>
+        
+        <!-- VIP Modal -->
+        <div id="vipModal" class="modal">
+            <div class="modal-content">
+                <i class="fa-solid fa-crown" style="font-size:70px; color:#fbbf24; text-shadow: 0 0 25px rgba(251,191,36,0.6);"></i>
+                <h2 style="margin:15px 0 10px; color:white; font-size: 24px;">VIP প্যাকেজ</h2>
+                <p style="color:#cbd5e1; font-size:15px; margin-bottom:15px; line-height:1.5;">VIP নিলে আপনাকে কোনো বিরক্তিকর অ্যাড দেখতে হবে না। <b>সরাসরি মুভি প্লে হবে!</b></p>
+                
+                <div style="background:#0f172a; padding:15px; border-radius:10px; text-align:left; border-left:4px solid #fbbf24; margin-bottom:20px;">
+                    <p style="color:#fbbf24; font-weight:bold; margin-bottom:5px;">কীভাবে VIP নিবেন?</p>
+                    <p style="color:#94a3b8; font-size:14px; line-height:1.6;">১. আপনার রেফার লিংক দিয়ে ৫ জনকে ইনভাইট করলে <b>২৪ ঘণ্টার জন্য ফ্রী VIP</b> পাবেন।<br>২. অথবা সরাসরি কিনে নিতে আমাদের বটের আইডিতে মেসেজ দিন।</p>
+                </div>
+                
+                <button class="btn-submit" style="background: linear-gradient(45deg, #fbbf24, #d97706); color:black;" onclick="window.open('https://t.me/{{BOT_USER}}')"><i class="fa-brands fa-telegram"></i> অ্যাডমিনকে মেসেজ দিন</button>
+                <button class="close-btn" onclick="document.getElementById('vipModal').style.display='none'">বন্ধ করুন</button>
+            </div>
+        </div>
+
+        <!-- Refer Modal -->
+        <div id="referModal" class="modal">
+            <div class="modal-content">
+                <i class="fa-solid fa-share-nodes" style="font-size:60px; color:#38bdf8; text-shadow: 0 0 25px rgba(56,189,248,0.6);"></i>
+                <h2 style="margin:15px 0 10px; color:white; font-size: 24px;">রেফার করুন এবং ফ্রী VIP!</h2>
+                <p style="color:#cbd5e1; font-size:15px; margin-bottom:15px; line-height:1.5;">আপনার বন্ধুদের ইনভাইট করুন। প্রতি ৫ জন নতুন বন্ধু আপনার লিংকে ক্লিক করে বট স্টার্ট করলেই আপনি পাবেন <b>২৪ ঘণ্টার VIP একদম ফ্রি!</b></p>
+                
+                <h3 style="color:#4ade80; font-size:18px; margin-top:10px;">আপনার মোট রেফার: <span id="refCountNum" style="font-size:24px; font-weight:900;">0</span> জন</h3>
+                
+                <div class="refer-box" id="refLinkText">Loading link...</div>
+                
+                <button class="btn-submit" style="background: linear-gradient(45deg, #3b82f6, #1d4ed8);" onclick="copyReferLink()"><i class="fa-regular fa-copy"></i> লিংক কপি করুন</button>
+                <button class="close-btn" onclick="document.getElementById('referModal').style.display='none'">বন্ধ করুন</button>
+            </div>
+        </div>
 
         <script>
             let tg = window.Telegram.WebApp; 
@@ -750,10 +834,14 @@ async def web_ui():
             const ZONE_ID = "{{ZONE_ID}}";
             const REQUIRED_ADS = parseInt("{{AD_COUNT}}");
             const INIT_DATA = tg.initData || "";
+            const BOT_UNAME = "{{BOT_USER}}";
             let currentPage = 1; let isLoading = false; let searchQuery = "";
             let uid = tg.initDataUnsafe?.user?.id || 0;
             let currentAdStep = 1; let activeFileId = null; let autoScrollInterval; let isTouching = false; let abortController = null;
             let loadedMovies = {}; 
+            
+            let isUserVip = false;
+            let userReferCount = 0;
 
             function formatViews(num) {
                 if (num >= 1000000) return (num / 1000000).toFixed(1).replace(/\.0$/, '') + 'M';
@@ -769,6 +857,39 @@ async def web_ui():
             const s = document.createElement('script');
             s.src = '//libtl.com/sdk.js'; s.setAttribute('data-zone', ZONE_ID); s.setAttribute('data-sdk', 'show_' + ZONE_ID);
             document.head.appendChild(s);
+
+            // Fetch User Details (VIP & Refer)
+            async function fetchUserInfo() {
+                try {
+                    const res = await fetch('/api/user/' + uid);
+                    const data = await res.json();
+                    isUserVip = data.vip;
+                    userReferCount = data.refer_count;
+                    
+                    if(isUserVip) document.getElementById('vipBadge').style.display = 'inline-block';
+                    document.getElementById('refCountNum').innerText = userReferCount;
+                    document.getElementById('refLinkText').innerText = `https://t.me/${BOT_UNAME}?start=ref_${uid}`;
+                } catch(e) {}
+            }
+
+            function toggleMenu(e) {
+                e.stopPropagation();
+                const menu = document.getElementById('dropdownMenu');
+                menu.style.display = (menu.style.display === 'block') ? 'none' : 'block';
+            }
+            function closeMenu() {
+                document.getElementById('dropdownMenu').style.display = 'none';
+            }
+            
+            function openVipModal() { document.getElementById('vipModal').style.display = 'flex'; closeMenu(); }
+            function openReferModal() { document.getElementById('referModal').style.display = 'flex'; closeMenu(); }
+            
+            function copyReferLink() {
+                const link = document.getElementById('refLinkText').innerText;
+                navigator.clipboard.writeText(link).then(() => {
+                    tg.showAlert("✅ আপনার রেফার লিংক সফলভাবে কপি হয়েছে! এখন বন্ধুদের শেয়ার করুন।");
+                });
+            }
 
             function drawSkeletons(count) { return Array(count).fill('<div class="skeleton"></div>').join(''); }
 
@@ -899,8 +1020,10 @@ async def web_ui():
                 if(!movie) return;
                 document.getElementById('modalTitle').innerText = movie._id;
                 let listHtml = movie.files.map(f => {
-                    let icon = f.is_unlocked ? '<i class="fa-solid fa-unlock-keyhole text-green-400" style="font-size:20px;"></i>' : '<i class="fa-solid fa-lock text-red-400" style="font-size:20px;"></i>';
-                    let cls = f.is_unlocked ? 'quality-unlocked' : 'quality-locked';
+                    // VIP ইউজারদের সব ফাইল আনলক করা দেখাবে
+                    let isFree = f.is_unlocked || isUserVip;
+                    let icon = isFree ? '<i class="fa-solid fa-unlock-keyhole text-green-400" style="font-size:20px;"></i>' : '<i class="fa-solid fa-lock text-red-400" style="font-size:20px;"></i>';
+                    let cls = isFree ? 'quality-unlocked' : 'quality-locked';
                     return `<button class="quality-btn ${cls}" onclick="handleQualityClick('${f.id}', ${f.is_unlocked})"><span>${f.quality}</span> ${icon}</button>`;
                 }).join('');
                 document.getElementById('qualityList').innerHTML = listHtml;
@@ -910,7 +1033,11 @@ async def web_ui():
 
             function handleQualityClick(fileId, isUnlocked) {
                 closeQualityModal();
-                if(isUnlocked) { sendFile(fileId); } else { activeFileId = fileId; currentAdStep = 1; startAdTimer(); }
+                if(isUnlocked || isUserVip) { 
+                    sendFile(fileId); 
+                } else { 
+                    activeFileId = fileId; currentAdStep = 1; startAdTimer(); 
+                }
             }
 
             function startAdTimer() {
@@ -965,6 +1092,7 @@ async def web_ui():
             }
 
             // Init App
+            fetchUserInfo();
             loadTrending();
             loadUpcoming();
             loadMovies(1); 
@@ -972,13 +1100,28 @@ async def web_ui():
     </body>
     </html>
     """
-    html_code = html_code.replace("{{ZONE_ID}}", zone_id).replace("{{TG_LINK}}", tg_url).replace("{{LINK_18}}", link_18).replace("{{AD_COUNT}}", str(required_ads))
+    html_code = html_code.replace("{{ZONE_ID}}", zone_id).replace("{{TG_LINK}}", tg_url).replace("{{LINK_18}}", link_18).replace("{{AD_COUNT}}", str(required_ads)).replace("{{BOT_USER}}", BOT_USERNAME)
     return html_code
 
 
 # ==========================================
 # 13. Main Web App APIs
 # ==========================================
+@app.get("/api/user/{uid}")
+async def get_user_info(uid: int):
+    user = await db.users.find_one({"user_id": uid})
+    if not user: return {"vip": False, "refer_count": 0}
+    
+    vip_until = user.get("vip_until")
+    is_vip = False
+    if vip_until and vip_until > datetime.datetime.utcnow():
+        is_vip = True
+        
+    return {
+        "vip": is_vip,
+        "refer_count": user.get("refer_count", 0)
+    }
+
 @app.get("/api/trending")
 async def trending_movies(uid: int = 0):
     if uid in banned_cache: return {"error": "banned"}
