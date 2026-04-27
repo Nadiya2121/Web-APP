@@ -936,9 +936,9 @@ async def web_ui():
                 text-align: center; 
                 color: #f8fafc; 
                 line-height: 1.4; 
-                white-space: nowrap; 
-                overflow: hidden; 
-                text-overflow: ellipsis; 
+                white-space: normal; 
+                word-wrap: break-word; 
+                display: block; 
             }
             
             /* Skeleton Loading Effect */
