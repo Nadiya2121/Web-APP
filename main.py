@@ -9,6 +9,15 @@ import hashlib
 import urllib.parse
 import secrets
 
+# ==========================================
+# 🛑 FIX FOR PYROGRAM EVENT LOOP ERROR
+# ==========================================
+try:
+    asyncio.get_running_loop()
+except RuntimeError:
+    asyncio.set_event_loop(asyncio.new_event_loop())
+# ==========================================
+
 from fastapi import FastAPI, Body, Request, Depends, HTTPException, status
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -25,6 +34,8 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from bson import ObjectId
 from pydantic import BaseModel
 from pyrogram import Client
+
+# আপনার বাকি সব কোড যেমন আছে তেমনই থাকবে...
 
 
 # ==========================================
