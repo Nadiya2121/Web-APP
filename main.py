@@ -190,6 +190,11 @@ async def start_cmd(message: types.Message, state: FSMContext):
 # ==========================================
 # 7. Telegram Bot Commands (Admin Settings)
 # ==========================================
+def format_views(n):
+    if n >= 1000000: return f"{n/1000000:.1f}M".replace(".0M", "M")
+    if n >= 1000: return f"{n/1000:.1f}K".replace(".0K", "K")
+    return str(n)
+
 @dp.message(Command("stats"))
 async def stats_cmd(m: types.Message):
     if m.from_user.id not in admin_cache: return
@@ -202,7 +207,7 @@ async def stats_cmd(m: types.Message):
     top_pipeline = [{"$group": {"_id": "$title", "clicks": {"$sum": "$clicks"}}}, {"$sort": {"clicks": -1}}, {"$limit": 5}]
     top_movies = await db.movies.aggregate(top_pipeline).to_list(5)
     
-    top_movies_text = "".join(f"{idx}. {mv['_id'][:20]}... - <b>{mv['clicks']} views</b>\n" for idx, mv in enumerate(top_movies, 1))
+    top_movies_text = "".join(f"{idx}. {mv['_id'][:20]}... - <b>{format_views(mv['clicks'])} views</b>\n" for idx, mv in enumerate(top_movies, 1))
     
     text = (f"📊 <b>অ্যাডভান্সড স্ট্যাটাস:</b>\n\n👥 মোট ইউজার: <code>{uc}</code>\n🟢 আজকের নতুন ইউজার: <code>{new_users_today}</code>\n"
             f"🎬 মোট ফাইল আপলোড: <code>{mc}</code>\n\n🔥 <b>টপ ৫ মুভি/সিরিজ:</b>\n{top_movies_text if top_movies_text else 'কোনো মুভি নেই'}")
@@ -213,7 +218,7 @@ async def ban_user_cmd(m: types.Message):
     if m.from_user.id not in admin_cache: return
     try:
         target_uid = int(m.text.split()[1])
-        if target_uid in admin_cache: return await m.answer("⚠️ অ্যাডমিনকে ব্যান করা যাবে না!")
+        if target_uid in admin_cache: return await m.answer("⚠️ অ্যাডমিনকে ব্যান করা যাবে্বা না!")
         await db.banned.update_one({"user_id": target_uid}, {"$set": {"user_id": target_uid}}, upsert=True)
         banned_cache.add(target_uid)
         await m.answer(f"🚫 ইউজার <code>{target_uid}</code> কে ব্যান করা হয়েছে!", parse_mode="HTML")
@@ -463,6 +468,12 @@ async def web_admin_panel(auth: bool = Depends(verify_admin)):
             </div>
         </div>
         <script>
+            function formatViews(num) {
+                if (num >= 1000000) return (num / 1000000).toFixed(1).replace(/\\.0$/, '') + 'M';
+                if (num >= 1000) return (num / 1000).toFixed(1).replace(/\\.0$/, '') + 'K';
+                return num.toString();
+            }
+
             async function loadAdminData() {
                 try {
                     const res = await fetch('/api/admin/data');
@@ -474,7 +485,7 @@ async def web_admin_panel(auth: bool = Depends(verify_admin)):
                     data.movies.forEach(m => {
                         html += `<tr class="border-b border-gray-700 hover:bg-gray-750 transition">
                             <td class="p-4 font-medium text-base">` + m._id + `</td>
-                            <td class="p-4 text-gray-400 font-bold"><i class="fa-solid fa-eye text-gray-500"></i> ` + m.clicks + `</td>
+                            <td class="p-4 text-gray-400 font-bold"><i class="fa-solid fa-eye text-gray-500"></i> ` + formatViews(m.clicks) + `</td>
                             <td class="p-4 text-green-400 font-bold">` + m.file_count + `</td>
                             <td class="p-4 flex gap-2">
                                 <button onclick="addViews('`+encodeURIComponent(m._id)+`')" class="text-yellow-400 bg-yellow-900 bg-opacity-30 px-3 py-1 rounded"><i class="fa-solid fa-fire"></i> Boost</button>
@@ -744,6 +755,12 @@ async def web_ui():
             let currentAdStep = 1; let activeFileId = null; let autoScrollInterval; let isTouching = false; let abortController = null;
             let loadedMovies = {}; 
 
+            function formatViews(num) {
+                if (num >= 1000000) return (num / 1000000).toFixed(1).replace(/\.0$/, '') + 'M';
+                if (num >= 1000) return (num / 1000).toFixed(1).replace(/\.0$/, '') + 'K';
+                return num.toString();
+            }
+
             if(tg.initDataUnsafe && tg.initDataUnsafe.user) {
                 document.getElementById('uName').innerText = tg.initDataUnsafe.user.first_name;
                 if(tg.initDataUnsafe.user.photo_url) document.getElementById('uPic').src = tg.initDataUnsafe.user.photo_url;
@@ -783,7 +800,7 @@ async def web_ui():
                                 <div class="top-badge">🔥 TOP</div>
                                 <img src="/api/image/${m.photo_id}" loading="lazy" onerror="this.src='https://via.placeholder.com/400x240?text=No+Image'">
                                 <div class="ep-badge"><i class="fa-solid fa-list"></i> ${m.files.length}</div>
-                                <div class="view-badge"><i class="fa-solid fa-eye"></i> ${m.clicks}</div>
+                                <div class="view-badge"><i class="fa-solid fa-eye"></i> ${formatViews(m.clicks)}</div>
                             </div>
                             <div class="card-footer">${m._id}</div>
                         </div>`;
@@ -837,7 +854,7 @@ async def web_ui():
                                 <div class="post-content">
                                     <img src="/api/image/${m.photo_id}" loading="lazy" onerror="this.src='https://via.placeholder.com/400x240?text=No+Image'">
                                     <div class="ep-badge"><i class="fa-solid fa-list"></i> ${m.files.length}</div>
-                                    <div class="view-badge"><i class="fa-solid fa-eye"></i> ${m.clicks}</div>
+                                    <div class="view-badge"><i class="fa-solid fa-eye"></i> ${formatViews(m.clicks)}</div>
                                 </div>
                                 <div class="card-footer">${m._id}</div>
                             </div>`;
