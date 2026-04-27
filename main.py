@@ -286,7 +286,7 @@ async def receive_movie_file(m: types.Message, state: FSMContext):
     ftype = "video" if m.video else "document"
     await state.set_state(AdminStates.waiting_for_photo)
     await state.update_data(file_id=fid, file_type=ftype)
-    await m.answer("✅ ফাইল পেয়েছি! এবার মুভির <b>পোস্টার (Photo)</b> সেন্ড করুন।\nবাতিল করতে /start দিন。", parse_mode="HTML")
+    await m.answer("✅ ফাইল পেয়েছি! এবার মুভির <b>পোস্টার (Photo)</b> সেন্ড করুন।\nবাতিল করতে /start দিন।", parse_mode="HTML")
 
 @dp.message(AdminStates.waiting_for_photo, F.photo)
 async def receive_movie_photo(m: types.Message, state: FSMContext):
@@ -476,7 +476,8 @@ async def web_admin_panel(auth: bool = Depends(verify_admin)):
                             <td class="p-4 font-medium text-base">` + m._id + `</td>
                             <td class="p-4 text-gray-400 font-bold"><i class="fa-solid fa-eye text-gray-500"></i> ` + m.clicks + `</td>
                             <td class="p-4 text-green-400 font-bold">` + m.file_count + `</td>
-                            <td class="p-4 flex gap-4">
+                            <td class="p-4 flex gap-2">
+                                <button onclick="addViews('`+encodeURIComponent(m._id)+`')" class="text-yellow-400 bg-yellow-900 bg-opacity-30 px-3 py-1 rounded"><i class="fa-solid fa-fire"></i> Boost</button>
                                 <button onclick="editMovie('`+encodeURIComponent(m._id)+`', '`+m._id.replace(/'/g, "\\'")+`')" class="text-blue-400 bg-blue-900 bg-opacity-30 px-3 py-1 rounded">Edit</button>
                                 <button onclick="deleteMovie('`+encodeURIComponent(m._id)+`')" class="text-red-400 bg-red-900 bg-opacity-30 px-3 py-1 rounded">Delete</button>
                             </td>
@@ -495,6 +496,15 @@ async def web_admin_panel(auth: bool = Depends(verify_admin)):
                 if(newTitle && newTitle.trim() !== "" && newTitle !== oldTitle) {
                     await fetch('/api/admin/movie/' + encodedTitle, {
                         method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({title: newTitle.trim()})
+                    });
+                    loadAdminData();
+                }
+            }
+            async function addViews(encodedTitle) {
+                let amount = prompt("এই মুভির ভিউ কত বাড়াতে চান? (যেমন: 1000 বা 5000):", "1000");
+                if(amount && amount.trim() !== "" && !isNaN(amount)) {
+                    await fetch('/api/admin/movie/' + encodedTitle, {
+                        method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({add_clicks: parseInt(amount)})
                     });
                     loadAdminData();
                 }
@@ -528,6 +538,14 @@ async def delete_movie_api(title: str, auth: bool = Depends(verify_admin)):
 async def edit_movie_api(title: str, data: dict = Body(...), auth: bool = Depends(verify_admin)):
     if new_title := data.get("title"): 
         await db.movies.update_many({"title": title}, {"$set": {"title": new_title}})
+        
+    if add_clicks := data.get("add_clicks"):
+        try:
+            clicks_to_add = int(add_clicks)
+            await db.movies.update_one({"title": title}, {"$inc": {"clicks": clicks_to_add}})
+        except ValueError:
+            pass
+            
     return {"ok": True}
 
 
