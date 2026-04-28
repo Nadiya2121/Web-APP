@@ -100,6 +100,7 @@ async def init_db():
     await db.users.create_index("joined_at")
     await db.reviews.create_index("movie_title")
     await db.payments.create_index("trx_id", unique=True)
+    await db.requests.create_index("movie") # Added for Upvote System
 
 
 # ==========================================
@@ -536,6 +537,16 @@ async def receive_movie_quality(m: types.Message, state: FSMContext):
     
     await m.answer(f"🎉 <b>{title} [{quality}]</b> অ্যাপে সফলভাবে যুক্ত করা হয়েছে!", parse_mode="HTML")
     
+    # --- FEATURE 1: Custom Notification System based on Requests ---
+    req = await db.requests.find_one({"movie": {"$regex": f"^{title}$", "$options": "i"}})
+    if req:
+        for v_id in req.get("voters", []):
+            try:
+                await bot.send_message(v_id, f"🔔 <b>কাস্টম নোটিফিকেশন:</b>\n\n🎉 সুখবর! আপনার রিকোয়েস্ট করা/ভোট দেওয়া মুভি <b>{title}</b> অ্যাপে আপলোড করা হয়েছে! এখনই অ্যাপ ওপেন করে দেখে নিন।", parse_mode="HTML")
+            except Exception: pass
+        await db.requests.delete_one({"_id": req["_id"]})
+    # -------------------------------------------------------------
+    
     if CHANNEL_ID and CHANNEL_ID != "-100XXXXXXXXXX":
         try:
             bot_info = await bot.get_me()
@@ -895,6 +906,12 @@ async def web_ui():
             
             /* --- NEW CSS FOR FEATURES --- */
             .coin-tag { background: #3b82f6; color: white; font-size: 12px; padding: 3px 8px; border-radius: 12px; font-weight: bold; margin-left:5px; display: inline-block; }
+            .badge-tag { background: #6366f1; color: white; font-size: 11px; padding: 2px 6px; border-radius: 8px; font-weight: bold; margin-left:4px; display: inline-block; margin-top: 4px; border:1px solid #818cf8;}
+            .lb-item { display: flex; justify-content: space-between; background: #0f172a; padding: 12px; border-radius: 8px; margin-bottom: 8px; border: 1px solid #334155; align-items: center;}
+            .lb-rank { font-size: 18px; font-weight: 900; color: #fbbf24; width: 30px;}
+            .req-item { background: #0f172a; padding: 12px; border-radius: 8px; margin-bottom: 8px; border: 1px solid #334155; display: flex; justify-content: space-between; align-items: center;}
+            .vote-btn { background: #3b82f6; color: white; border: none; padding: 6px 12px; border-radius: 6px; font-weight: bold; cursor: pointer; transition: 0.2s;}
+            .vote-btn:disabled { background: #475569; cursor: not-allowed; color:#94a3b8;}
             
             /* Review UI */
             .review-section { margin-top: 25px; padding-top: 20px; border-top: 1px solid #334155; text-align: left; }
@@ -918,11 +935,14 @@ async def web_ui():
         <header>
             <div class="logo">MovieZone <span>BD</span></div>
             <div class="header-right">
-                <div class="user-info">
-                    <span id="uName">Guest</span>
-                    <span id="vipBadge" class="vip-tag"><i class="fa-solid fa-crown"></i> VIP</span>
-                    <span class="coin-tag"><i class="fa-solid fa-coins"></i> <span id="coinCount">0</span></span>
-                    <img id="uPic" src="https://cdn-icons-png.flaticon.com/512/3135/3135715.png">
+                <div style="display: flex; flex-direction: column; align-items: flex-end;">
+                    <div class="user-info">
+                        <span id="uName">Guest</span>
+                        <span id="vipBadge" class="vip-tag"><i class="fa-solid fa-crown"></i> VIP</span>
+                        <span class="coin-tag"><i class="fa-solid fa-coins"></i> <span id="coinCount">0</span></span>
+                        <img id="uPic" src="https://cdn-icons-png.flaticon.com/512/3135/3135715.png">
+                    </div>
+                    <div id="badgesContainer"></div>
                 </div>
                 <div class="menu-btn" onclick="toggleMenu(event)"><i class="fa-solid fa-bars"></i></div>
             </div>
@@ -933,6 +953,8 @@ async def web_ui():
             <a onclick="openCheckinModal()"><i class="fa-solid fa-gift text-pink-400"></i> ডেইলি চেক-ইন 🪙</a>
             <a onclick="openVipModal()"><i class="fa-solid fa-crown text-yellow-400"></i> VIP প্যাকেজ কিনুন</a>
             <a onclick="openReferModal()"><i class="fa-solid fa-share-nodes text-blue-400"></i> রেফার ও ইনকাম</a>
+            <a onclick="openLeaderboard()"><i class="fa-solid fa-trophy text-yellow-400"></i> লিডারবোর্ড 🏆</a>
+            <a onclick="openReqModal()"><i class="fa-solid fa-code-pull-request text-green-400"></i> রিকোয়েস্ট ও ভোট 🗳️</a>
         </div>
 
         <div class="search-box">
@@ -1002,7 +1024,8 @@ async def web_ui():
                     <p style="color:gray; font-size:13px; margin-top:5px;">আপনার বর্তমান ব্যালেন্স</p>
                 </div>
                 
-                <button class="btn-submit" style="background: linear-gradient(45deg, #3b82f6, #2563eb); margin-bottom: 15px;" onclick="claimCheckin()">আজকের ১০ কয়েন সংগ্রহ করুন</button>
+                <button class="btn-submit" style="background: linear-gradient(45deg, #3b82f6, #2563eb); margin-bottom: 10px;" onclick="claimCheckin()">আজকের ১০ কয়েন সংগ্রহ করুন</button>
+                <button class="btn-submit" style="background: linear-gradient(45deg, #8b5cf6, #6d28d9); margin-bottom: 10px;" onclick="watchAdForCoins()"><i class="fa-solid fa-video"></i> অ্যাড দেখে ৫ কয়েন আয় করুন</button>
                 <button class="btn-submit" style="background: linear-gradient(45deg, #f59e0b, #d97706); color:black;" onclick="convertCoins()"><i class="fa-solid fa-crown"></i> কয়েন দিয়ে VIP কিনুন (50)</button>
                 <button class="close-btn" onclick="document.getElementById('checkinModal').style.display='none'">বন্ধ করুন</button>
             </div>
@@ -1040,7 +1063,7 @@ async def web_ui():
             </div>
         </div>
 
-        <!-- Refer & Original Modals -->
+        <!-- Refer Modal -->
         <div id="referModal" class="modal">
             <div class="modal-content">
                 <i class="fa-solid fa-share-nodes" style="font-size:60px; color:#38bdf8;"></i>
@@ -1050,6 +1073,17 @@ async def web_ui():
                 <div class="refer-box" id="refLinkText">Loading link...</div>
                 <button class="btn-submit" style="background: linear-gradient(45deg, #3b82f6, #1d4ed8);" onclick="copyReferLink()"><i class="fa-regular fa-copy"></i> লিংক কপি করুন</button>
                 <button class="close-btn" onclick="document.getElementById('referModal').style.display='none'">বন্ধ করুন</button>
+            </div>
+        </div>
+        
+        <!-- Leaderboard Modal -->
+        <div id="leaderboardModal" class="modal">
+            <div class="modal-content">
+                <h2 style="color:#fbbf24; font-size: 24px; margin-bottom:15px;"><i class="fa-solid fa-trophy"></i> টপ লিডারবোর্ড</h2>
+                <div id="lbList" style="max-height: 50vh; overflow-y:auto; text-align:left; padding-right:5px;">
+                    <!-- Loading leaderboard -->
+                </div>
+                <button class="close-btn" onclick="document.getElementById('leaderboardModal').style.display='none'">বন্ধ করুন</button>
             </div>
         </div>
 
@@ -1074,13 +1108,19 @@ async def web_ui():
             </div>
         </div>
 
+        <!-- Request Board & Vote Modal -->
         <div id="reqModal" class="modal">
-            <div class="modal-content">
-                <h2 style="color:white; font-size: 24px;">মুভি রিকোয়েস্ট</h2>
-                <p class="instruction-text" style="margin-top: 10px;">👇 যে মুভিটি খুঁজছেন তার সঠিক নাম লিখুন:</p>
-                <input type="text" id="reqText" class="req-input" placeholder="উদাঃ Avatar 2022">
-                <button class="btn-submit" onclick="sendReq()">সাবমিট করুন</button>
-                <p style="margin-top:25px; color:#94a3b8; font-size: 16px; cursor:pointer; font-weight:bold;" onclick="document.getElementById('reqModal').style.display='none'">বাতিল করুন</p>
+            <div class="modal-content" style="max-height: 90vh;">
+                <h2 style="color:white; font-size: 24px;">মুভি রিকোয়েস্ট ও ভোট 🗳️</h2>
+                <div style="display:flex; gap:10px; margin-top:15px;">
+                    <input type="text" id="reqText" class="req-input" style="margin:0;" placeholder="নতুন মুভির নাম...">
+                    <button class="btn-submit" style="width:auto; padding:0 20px;" onclick="sendReq()"><i class="fa-solid fa-plus"></i></button>
+                </div>
+                <p style="text-align:left; color:#94a3b8; font-size:14px; margin-top:15px; font-weight:bold;">ট্রেন্ডিং রিকোয়েস্ট:</p>
+                <div id="reqList" style="max-height: 40vh; overflow-y:auto; margin-top:10px; text-align:left; padding-right:5px;">
+                    <!-- Loading requests -->
+                </div>
+                <button class="close-btn" onclick="document.getElementById('reqModal').style.display='none'">বন্ধ করুন</button>
             </div>
         </div>
 
@@ -1101,6 +1141,7 @@ async def web_ui():
             let currentPage = 1; let isLoading = false; let searchQuery = "";
             let uid = tg.initDataUnsafe?.user?.id || 0;
             let currentAdStep = 1; let activeFileId = null; let autoScrollInterval; let isTouching = false; let abortController = null;
+            let isRewardAd = false;
             
             const BKASH_NO = "{{BKASH_NO}}";
             const NAGAD_NO = "{{NAGAD_NO}}";
@@ -1142,6 +1183,10 @@ async def web_ui():
                     }
                     document.getElementById('refCountNum').innerText = userReferCount;
                     document.getElementById('refLinkText').innerText = `https://t.me/${BOT_UNAME}?start=ref_${uid}`;
+                    
+                    if(data.badges && data.badges.length > 0) {
+                        document.getElementById('badgesContainer').innerHTML = data.badges.map(b => '<span class="badge-tag">'+b+'</span>').join('');
+                    }
                 } catch(e) {}
             }
 
@@ -1158,6 +1203,27 @@ async def web_ui():
             function openReferModal() { document.getElementById('referModal').style.display = 'flex'; closeMenu(); }
             function copyReferLink() {
                 navigator.clipboard.writeText(document.getElementById('refLinkText').innerText).then(() => { tg.showAlert("✅ রেফার লিংক কপি হয়েছে!"); });
+            }
+            
+            async function openLeaderboard() {
+                closeMenu();
+                document.getElementById('leaderboardModal').style.display = 'flex';
+                const lbList = document.getElementById('lbList');
+                lbList.innerHTML = "<p style='color:gray; text-align:center;'>Loading...</p>";
+                try {
+                    const res = await fetch('/api/leaderboard');
+                    const data = await res.json();
+                    if(data.length===0) return lbList.innerHTML = "<p style='color:gray; text-align:center;'>কোনো ডাটা পাওয়া যায়নি।</p>";
+                    lbList.innerHTML = data.map((u, i) => `
+                        <div class="lb-item">
+                            <div style="display:flex; align-items:center; gap:10px;">
+                                <span class="lb-rank">#${i+1}</span>
+                                <span style="color:white; font-weight:bold;">${u.name}</span>
+                            </div>
+                            <span style="color:#4ade80; font-weight:bold;"><i class="fa-solid fa-users"></i> ${u.refers}</span>
+                        </div>
+                    `).join('');
+                } catch(e) {}
             }
 
             // --- REVIEWS LOGIC ---
@@ -1215,6 +1281,37 @@ async def web_ui():
                     const data = await res.json();
                     if(data.ok) { tg.showAlert("✅ সফল! ৫০ কয়েন কেটে নেওয়া হয়েছে এবং আপনার ১ দিনের VIP চালু হয়েছে।"); fetchUserInfo(); }
                     else tg.showAlert(data.msg || "আপনার পর্যাপ্ত কয়েন নেই! (৫০ প্রয়োজন)");
+                } catch(e) {}
+            }
+            
+            function watchAdForCoins() {
+                document.getElementById('checkinModal').style.display = 'none';
+                isRewardAd = true;
+                if (typeof window['show_' + ZONE_ID] === 'function') window['show_' + ZONE_ID]();
+                document.getElementById('adScreen').style.display = 'flex';
+                document.getElementById('timerUI').style.display = 'flex';
+                document.getElementById('nextAdBtn').style.display = 'none';
+                document.getElementById('adStepText').innerText = `অ্যাড দেখে আয় করুন`;
+                let t = 15; document.getElementById('timer').innerText = t;
+                let iv = setInterval(() => {
+                    t--; document.getElementById('timer').innerText = t;
+                    if(t <= 0) { 
+                        clearInterval(iv); 
+                        claimAdReward();
+                    }
+                }, 1000);
+            }
+            
+            async function claimAdReward() {
+                isRewardAd = false;
+                document.getElementById('adScreen').style.display = 'none';
+                try {
+                    const res = await fetch('/api/reward_ad', { 
+                        method: 'POST', headers: {'Content-Type': 'application/json'}, 
+                        body: JSON.stringify({uid: uid, initData: INIT_DATA})
+                    });
+                    const data = await res.json();
+                    if(data.ok) { tg.showAlert("🎉 অভিনন্দন! আপনি অ্যাড দেখে ৫ কয়েন পেয়েছেন!"); fetchUserInfo(); }
                 } catch(e) {}
             }
 
@@ -1379,7 +1476,7 @@ async def web_ui():
 
             function handleQualityClick(fileId, isUnlocked) {
                 closeQualityModal();
-                if(isUnlocked || isUserVip) { sendFile(fileId); } else { activeFileId = fileId; currentAdStep = 1; startAdTimer(); }
+                if(isUnlocked || isUserVip) { sendFile(fileId); } else { activeFileId = fileId; currentAdStep = 1; isRewardAd = false; startAdTimer(); }
             }
 
             function startAdTimer() {
@@ -1421,10 +1518,50 @@ async def web_ui():
                     document.getElementById('adScreen').style.display = 'none';
                     document.getElementById('successModal').style.display = 'flex';
                     setTimeout(() => { loadTrending(); loadMovies(currentPage); }, 1000); 
+                    fetchUserInfo(); // Badges might change due to unlocks count
                 } catch (e) {}
             }
-
-            function openReqModal() { document.getElementById('reqModal').style.display = 'flex'; document.getElementById('reqText').focus(); }
+            
+            // --- REQUEST & UPVOTE LOGIC ---
+            function openReqModal() { 
+                closeMenu();
+                document.getElementById('reqModal').style.display = 'flex'; 
+                document.getElementById('reqText').focus(); 
+                loadRequests();
+            }
+            
+            async function loadRequests() {
+                const reqList = document.getElementById('reqList');
+                reqList.innerHTML = "<p style='color:gray; text-align:center;'>Loading...</p>";
+                try {
+                    const res = await fetch('/api/requests');
+                    const data = await res.json();
+                    if(data.length===0) return reqList.innerHTML = "<p style='color:gray; text-align:center;'>কোনো রিকোয়েস্ট নেই।</p>";
+                    reqList.innerHTML = data.map(r => {
+                        let hasVoted = r.voters.includes(uid);
+                        let btnCls = hasVoted ? "background:#475569;" : "background:#3b82f6;";
+                        return `
+                        <div class="req-item">
+                            <span style="color:white; font-weight:bold; flex:1;">${r.movie}</span>
+                            <button class="vote-btn" style="${btnCls}" ${hasVoted?'disabled':''} onclick="voteRequest('${r.id}')">
+                                <i class="fa-solid fa-caret-up"></i> ${r.votes}
+                            </button>
+                        </div>
+                        `;
+                    }).join('');
+                } catch(e) {}
+            }
+            
+            async function voteRequest(id) {
+                try {
+                    await fetch('/api/requests/vote', { 
+                        method: 'POST', headers: {'Content-Type': 'application/json'}, 
+                        body: JSON.stringify({uid: uid, req_id: id, initData: INIT_DATA})
+                    });
+                    loadRequests();
+                } catch (e) {}
+            }
+            
             async function sendReq() {
                 const text = document.getElementById('reqText').value;
                 if(!text) return alert('মুভির নাম লিখুন!');
@@ -1433,9 +1570,9 @@ async def web_ui():
                         method: 'POST', headers: {'Content-Type': 'application/json'}, 
                         body: JSON.stringify({uid: uid, uname: tg.initDataUnsafe.user?.first_name || 'Guest', movie: text, initData: INIT_DATA})
                     });
-                    document.getElementById('reqModal').style.display = 'none';
                     document.getElementById('reqText').value = '';
-                    alert('রিকোয়েস্ট সফলভাবে পাঠানো হয়েছে!');
+                    tg.showAlert('রিকোয়েস্ট বা ভোট সফলভাবে যোগ করা হয়েছে!');
+                    loadRequests();
                 } catch (e) {}
             }
 
@@ -1454,7 +1591,7 @@ async def web_ui():
 @app.get("/api/user/{uid}")
 async def get_user_info(uid: int):
     user = await db.users.find_one({"user_id": uid})
-    if not user: return {"vip": False, "refer_count": 0, "vip_expiry": None, "coins": 0}
+    if not user: return {"vip": False, "refer_count": 0, "vip_expiry": None, "coins": 0, "badges": []}
     
     vip_until = user.get("vip_until")
     now = datetime.datetime.utcnow()
@@ -1465,11 +1602,23 @@ async def get_user_info(uid: int):
         is_vip = True
         vip_expiry_str = vip_until.strftime("%d %b %Y")
         
+    # --- FEATURE 4: Badges Logic ---
+    badges = []
+    refer_count = user.get("refer_count", 0)
+    unlocks = await db.user_unlocks.count_documents({"user_id": uid})
+    reviews_count = await db.reviews.count_documents({"user_id": uid})
+    
+    if refer_count >= 5: badges.append("🤝 Top Referrer")
+    if unlocks >= 5: badges.append("🍿 Binge Watcher")
+    if reviews_count >= 3: badges.append("✍️ Top Critic")
+    # -------------------------------
+        
     return {
         "vip": is_vip,
-        "refer_count": user.get("refer_count", 0),
+        "refer_count": refer_count,
         "vip_expiry": vip_expiry_str,
-        "coins": user.get("coins", 0)
+        "coins": user.get("coins", 0),
+        "badges": badges
     }
 
 # --- REVIEWS API ---
@@ -1686,6 +1835,42 @@ async def send_file(d: SendRequestModel):
     except Exception: pass
     return {"ok": True}
 
+# --- NEW FEATURES APIs (Leaderboard, Watch Ads, Request Board) ---
+@app.get("/api/leaderboard")
+async def get_leaderboard():
+    users = await db.users.find().sort("refer_count", -1).limit(10).to_list(10)
+    return [{"name": u.get("first_name", "User"), "refers": u.get("refer_count", 0)} for u in users]
+
+class AdRewardModel(BaseModel):
+    uid: int
+    initData: str
+
+@app.post("/api/reward_ad")
+async def reward_ad(data: AdRewardModel):
+    if not validate_tg_data(data.initData): return {"ok": False}
+    await db.users.update_one({"user_id": data.uid}, {"$inc": {"coins": 5}})
+    return {"ok": True}
+
+@app.get("/api/requests")
+async def get_requests():
+    reqs = await db.requests.find().sort("votes", -1).limit(20).to_list(20)
+    return [{"id": str(r["_id"]), "movie": r["movie"], "votes": r["votes"], "voters": r.get("voters", [])} for r in reqs]
+
+class VoteModel(BaseModel):
+    uid: int
+    req_id: str
+    initData: str
+
+@app.post("/api/requests/vote")
+async def vote_request(data: VoteModel):
+    if not validate_tg_data(data.initData): return {"ok": False}
+    req = await db.requests.find_one({"_id": ObjectId(data.req_id)})
+    if not req: return {"ok": False}
+    if data.uid in req.get("voters", []): return {"ok": False, "msg": "Already voted"}
+    
+    await db.requests.update_one({"_id": ObjectId(data.req_id)}, {"$inc": {"votes": 1}, "$push": {"voters": data.uid}})
+    return {"ok": True}
+
 class ReqModel(BaseModel):
     uid: int
     uname: str
@@ -1695,18 +1880,32 @@ class ReqModel(BaseModel):
 @app.post("/api/request")
 async def handle_request(data: ReqModel):
     if data.uid in banned_cache or not validate_tg_data(data.initData): return {"ok": False}
-    try: 
-        now = datetime.datetime.utcnow()
-        user_data = await db.users.find_one({"user_id": data.uid})
-        is_vip = False
-        if user_data and user_data.get("vip_until", now) > now: is_vip = True
-            
-        vip_text = "🌟 <b>[VIP Member]</b>" if is_vip else "👤 [Free User]"
+    
+    # Check if movie already requested to combine logic
+    existing = await db.requests.find_one({"movie": {"$regex": f"^{data.movie}$", "$options": "i"}})
+    if existing:
+        if data.uid not in existing.get("voters", []):
+            await db.requests.update_one({"_id": existing["_id"]}, {"$inc": {"votes": 1}, "$push": {"voters": data.uid}})
+    else:
+        await db.requests.insert_one({
+            "user_id": data.uid, "uname": data.uname, "movie": data.movie,
+            "votes": 1, "voters": [data.uid], "created_at": datetime.datetime.utcnow()
+        })
         
-        builder = InlineKeyboardBuilder()
-        builder.button(text="✍️ রিপ্লাই দিন", callback_data=f"reply_{data.uid}")
-        await bot.send_message(OWNER_ID, f"🔔 <b>নতুন মুভি রিকোয়েস্ট!</b>\n\n{vip_text}\nইউজার: {data.uname} (<code>{data.uid}</code>)\n🎬 মুভির নাম: <b>{data.movie}</b>", parse_mode="HTML", reply_markup=builder.as_markup())
-    except Exception: pass
+        # Send notification to Admin
+        try: 
+            now = datetime.datetime.utcnow()
+            user_data = await db.users.find_one({"user_id": data.uid})
+            is_vip = False
+            if user_data and user_data.get("vip_until", now) > now: is_vip = True
+                
+            vip_text = "🌟 <b>[VIP Member]</b>" if is_vip else "👤 [Free User]"
+            
+            builder = InlineKeyboardBuilder()
+            builder.button(text="✍️ রিপ্লাই দিন", callback_data=f"reply_{data.uid}")
+            await bot.send_message(OWNER_ID, f"🔔 <b>নতুন মুভি রিকোয়েস্ট!</b>\n\n{vip_text}\nইউজার: {data.uname} (<code>{data.uid}</code>)\n🎬 মুভির নাম: <b>{data.movie}</b>", parse_mode="HTML", reply_markup=builder.as_markup())
+        except Exception: pass
+    
     return {"ok": True}
 
 # ==========================================
@@ -1734,3 +1933,4 @@ async def start():
 if __name__ == "__main__": 
     loop = asyncio.get_event_loop()
     loop.run_until_complete(start())
+```
