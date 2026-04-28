@@ -204,16 +204,18 @@ async def start_cmd(message: types.Message, state: FSMContext):
         text = (
             "👋 <b>হ্যালো অ্যাডমিন!</b>\n\n"
             "⚙️ <b>কমান্ড:</b>\n"
+            "🔸 অ্যাডমিন প্যানেল: <code>/addadmin ID</code> | <code>/deladmin ID</code> | <code>/adminlist</code>\n"
             "🔸 অ্যাড জোন: <code>/setad ID</code> | অ্যাড সংখ্যা: <code>/setadcount সংখ্যা</code>\n"
             "🔸 টেলিগ্রাম: <code>/settg লিংক</code> | 18+: <code>/set18 লিংক</code>\n"
             "🔸 প্রোটেকশন: <code>/protect on</code> বা <code>/protect off</code>\n"
             "🔸 অটো-ডিলিট টাইম: <code>/settime [মিনিট]</code>\n"
             "🔸 স্ট্যাটাস: <code>/stats</code> | ব্রডকাস্ট: <code>/cast</code>\n"
+            "🔸 মুভি ডিলিট: <code>/delmovie মুভির নাম</code>\n"
             "🔸 ব্যান: <code>/ban ID</code> | আনব্যান: <code>/unban ID</code>\n"
             "🔸 VIP দিন: <code>/addvip ID দিন</code> | VIP বাতিল: <code>/removevip ID</code>\n"
             "🔸 আপকামিং মুভি অ্যাড: <code>/addupcoming</code>\n"
             "🔸 আপকামিং ডিলিট: <code>/delupcoming</code>\n\n"
-            f"🌐 <b>অ্যাডমিন প্যানেল:</b> <a href='{APP_URL}/admin'>এখানে ক্লিক করুন</a>\n"
+            f"🌐 <b>ওয়েব অ্যাডমিন প্যানেল:</b> <a href='{APP_URL}/admin'>এখানে ক্লিক করুন</a>\n"
             "<i>লগিন: admin / admin123</i>\n\n"
             "📥 <b>মুভি অ্যাড করতে প্রথমে ভিডিও বা ডকুমেন্ট ফাইল পাঠান।</b>"
         )
@@ -232,12 +234,59 @@ async def forward_to_admin(m: types.Message):
 
 
 # ==========================================
-# 7. Telegram Bot Commands (Admin Settings & VIP)
+# 7. Telegram Bot Commands (Admin Settings, Manage & VIP)
 # ==========================================
 def format_views(n):
     if n >= 1000000: return f"{n/1000000:.1f}M".replace(".0M", "M")
     if n >= 1000: return f"{n/1000:.1f}K".replace(".0K", "K")
     return str(n)
+
+@dp.message(Command("addadmin"))
+async def add_admin_cmd(m: types.Message):
+    if m.from_user.id != OWNER_ID: return await m.answer("⚠️ শুধুমাত্র মেইন Owner অ্যাডমিন অ্যাড করতে পারবে!")
+    try:
+        target_uid = int(m.text.split()[1])
+        await db.admins.update_one({"user_id": target_uid}, {"$set": {"user_id": target_uid}}, upsert=True)
+        admin_cache.add(target_uid)
+        await m.answer(f"✅ ইউজার <code>{target_uid}</code> কে সফলভাবে অ্যাডমিন বানানো হয়েছে!", parse_mode="HTML")
+    except Exception: 
+        await m.answer("⚠️ সঠিক নিয়ম: <code>/addadmin ইউজার_আইডি</code>", parse_mode="HTML")
+
+@dp.message(Command("deladmin"))
+async def del_admin_cmd(m: types.Message):
+    if m.from_user.id != OWNER_ID: return await m.answer("⚠️ শুধুমাত্র মেইন Owner অ্যাডমিন রিমুভ করতে পারবে!")
+    try:
+        target_uid = int(m.text.split()[1])
+        if target_uid == OWNER_ID: return await m.answer("⚠️ Main Owner কে ডিলিট করা সম্ভব নয়!")
+        await db.admins.delete_one({"user_id": target_uid})
+        admin_cache.discard(target_uid)
+        await m.answer(f"❌ ইউজার <code>{target_uid}</code> কে অ্যাডমিন লিস্ট থেকে রিমুভ করা হয়েছে!", parse_mode="HTML")
+    except Exception: 
+        await m.answer("⚠️ সঠিক নিয়ম: <code>/deladmin ইউজার_আইডি</code>", parse_mode="HTML")
+
+@dp.message(Command("adminlist"))
+async def list_admin_cmd(m: types.Message):
+    if m.from_user.id not in admin_cache: return
+    text = f"👑 <b>মেইন Owner:</b>\n▪️ <code>{OWNER_ID}</code>\n\n👮‍♂️ <b>অন্যান্য অ্যাডমিনগণ:</b>\n"
+    count = 0
+    async for a in db.admins.find():
+        text += f"▪️ <code>{a['user_id']}</code>\n"
+        count += 1
+    if count == 0: text += "<i>কেউ নেই</i>"
+    await m.answer(text, parse_mode="HTML")
+
+@dp.message(Command("delmovie"))
+async def del_movie_cmd(m: types.Message):
+    if m.from_user.id not in admin_cache: return
+    try:
+        title = m.text.split(" ", 1)[1].strip()
+        result = await db.movies.delete_many({"title": title})
+        if result.deleted_count > 0:
+            await m.answer(f"✅ '<b>{title}</b>' নামের {result.deleted_count} টি ফাইল সফলভাবে ডিলিট হয়েছে!", parse_mode="HTML")
+        else:
+            await m.answer("⚠️ এই নামের কোনো মুভি ডাটাবেসে পাওয়া যায়নি। (নাম হুবহু মিলতে হবে)")
+    except Exception: 
+        await m.answer("⚠️ সঠিক নিয়ম: <code>/delmovie মুভির সম্পূর্ণ নাম</code>", parse_mode="HTML")
 
 @dp.message(Command("stats"))
 async def stats_cmd(m: types.Message):
@@ -347,7 +396,7 @@ async def add_vip_cmd(m: types.Message):
         await m.answer(f"✅ ইউজার <code>{target_uid}</code> কে সফলভাবে <b>{days} দিনের</b> VIP দেওয়া হয়েছে!", parse_mode="HTML")
         
         try:
-            await bot.send_message(target_uid, f"🎉 <b>অভিনন্দন!</b> অ্যাডমিন আপনাকে <b>{days} দিনের</b> জন্য VIP মেম্বারশিপ দিয়েছেন।\n\nএখন আপনি কোনো অ্যাড ছাড়াই মুভি ডাউনলোড করতে পারবেন এবং আপনার ফাইল কখনো অটো-ডিলিট হবে না!", parse_mode="HTML")
+            await bot.send_message(target_uid, f"🎉 <b>অভিনন্দন!</b> অ্যাডমিন আপনাকে <b>{days} দিনের</b> জন্য VIP মেম্বারশিপ দিয়েছেন।\n\nএখন আপনি কোনো অ্যাড ছাড়াই মুভি ডাউনলোড করতে পারবেন এবং আপনার ফাইল কখনো অটো-ডিলিট হবে খন না!", parse_mode="HTML")
         except Exception: pass
     except Exception: 
         await m.answer("⚠️ সঠিক নিয়ম: <code>/addvip ইউজার_আইডি দিন</code>\nউদাহরণ: <code>/addvip 123456789 30</code>", parse_mode="HTML")
@@ -770,6 +819,7 @@ async def web_ui():
         </header>
         
         <div id="dropdownMenu" class="dropdown-menu">
+            <a onclick="goHome()"><i class="fa-solid fa-house text-green-400"></i> হোম পেইজ</a>
             <a onclick="openVipModal()"><i class="fa-solid fa-crown text-yellow-400"></i> VIP প্যাকেজ</a>
             <a onclick="openReferModal()"><i class="fa-solid fa-share-nodes text-blue-400"></i> রেফার ও ইনকাম</a>
         </div>
@@ -939,6 +989,17 @@ async def web_ui():
             }
             function closeMenu() {
                 document.getElementById('dropdownMenu').style.display = 'none';
+            }
+            
+            function goHome() {
+                document.getElementById('searchInput').value = "";
+                searchQuery = "";
+                document.getElementById('trendingWrapper').style.display = 'block';
+                loadUpcoming();
+                loadTrending();
+                loadMovies(1);
+                closeMenu();
+                window.scrollTo({ top: 0, behavior: 'smooth' });
             }
             
             function openVipModal() { document.getElementById('vipModal').style.display = 'flex'; closeMenu(); }
