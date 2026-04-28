@@ -379,6 +379,26 @@ async def set_ad(m: types.Message):
     except Exception: 
         await m.answer("⚠️ সঠিক নিয়ম: <code>/setad 1234567</code>")
 
+@dp.message(Command("settg"))
+async def set_tg_link(m: types.Message):
+    if m.from_user.id not in admin_cache: return
+    try:
+        link = m.text.split(" ")[1]
+        await db.settings.update_one({"id": "link_tg"}, {"$set": {"url": link}}, upsert=True)
+        await m.answer(f"✅ টেলিগ্রাম লিংক সেট করা হয়েছে: <b>{link}</b>", parse_mode="HTML")
+    except Exception: 
+        await m.answer("⚠️ সঠিক নিয়ম: <code>/settg https://t.me/YourChannel</code>", parse_mode="HTML")
+
+@dp.message(Command("set18"))
+async def set_18_link(m: types.Message):
+    if m.from_user.id not in admin_cache: return
+    try:
+        link = m.text.split(" ")[1]
+        await db.settings.update_one({"id": "link_18"}, {"$set": {"url": link}}, upsert=True)
+        await m.answer(f"✅ 18+ লিংক সেট করা হয়েছে: <b>{link}</b>", parse_mode="HTML")
+    except Exception: 
+        await m.answer("⚠️ সঠিক নিয়ম: <code>/set18 https://t.me/YourChannel</code>", parse_mode="HTML")
+
 @dp.message(Command("setbkash"))
 async def set_bkash(m: types.Message):
     if m.from_user.id not in admin_cache: return
@@ -419,7 +439,7 @@ async def add_vip_cmd(m: types.Message):
         await m.answer(f"✅ ইউজার <code>{target_uid}</code> কে সফলভাবে <b>{days} দিনের</b> VIP দেওয়া হয়েছে!", parse_mode="HTML")
         
         try:
-            await bot.send_message(target_uid, f"🎉 <b>অভিনন্দন!</b> অ্যাডমিন আপনাকে <b>{days} দিনের</b> জন্য VIP মেম্বারশিপ দিয়েছেন।\n\nএখন আপনি কোনো অ্যাড ছাড়াই মুভি ডাউনলোড করতে পারবেন এবং আপনার ফাইল কখনো অটো-ডিলিট হবে না!", parse_mode="HTML")
+            await bot.send_message(target_uid, f"🎉 <b>অভিনন্দন!</b> অ্যাডমিন আপনাকে <b>{days} দিনের</b> জন্য VIP মেম্বারশিপ দিয়েছেন।\n\nএখন আপনি কোনো অ্যাড ছাড়াই মুভি ডাউনলোড করতে পারবেন এবং আপনার ফাইল কখনো অটো-ডিলিট হবে কাশী হবে না!", parse_mode="HTML")
         except Exception: pass
     except Exception: 
         await m.answer("⚠️ সঠিক নিয়ম: <code>/addvip ইউজার_আইডি দিন</code>\nউদাহরণ: <code>/addvip 123456789 30</code>", parse_mode="HTML")
