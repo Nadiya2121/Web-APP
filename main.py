@@ -440,7 +440,7 @@ async def add_vip_cmd(m: types.Message):
         await m.answer(f"✅ ইউজার <code>{target_uid}</code> কে সফলভাবে <b>{days} দিনের</b> VIP দেওয়া হয়েছে!", parse_mode="HTML")
         
         try:
-            await bot.send_message(target_uid, f"🎉 <b>অভিনন্দন!</b> অ্যাডমিন আপনাকে <b>{days} দিনের</b> জন্য VIP মেম্বারশিপ দিয়েছেন।\n\nএখন আপনি কোনো অ্যাড ছাড়াই মুভি ডাউনলোড করতে পারবেন এবং আপনার ফাইল কখনো অটো-ডিলিট হবে না!", parse_mode="HTML")
+            await bot.send_message(target_uid, f"🎉 <b>অভিনন্দন!</b> অ্যাডমিন আপনাকে <b>{days} দিনের</b> জন্য VIP মেম্বারশিপ দিয়েছেন।\n\nএখন আপনি কোনো অ্যাড ছাড়াই মুভি ডাউনলোড করতে পারবেন এবং আপনার ফাইল কখনো অটো-ডিলিট হবে কাশী হবে না!", parse_mode="HTML")
         except Exception: pass
     except Exception: 
         await m.answer("⚠️ সঠিক নিয়ম: <code>/addvip ইউজার_আইডি দিন</code>\nউদাহরণ: <code>/addvip 123456789 30</code>", parse_mode="HTML")
@@ -496,7 +496,6 @@ async def handle_trx_approval(c: types.CallbackQuery):
         try: await bot.send_message(user_id, f"❌ <b>দুঃখিত!</b> আপনার পেমেন্ট (TrxID: {payment['trx_id']}) বাতিল করা হয়েছে। তথ্যে ভুল থাকলে সাপোর্ট অ্যাডমিনের সাথে যোগাযোগ করুন।", parse_mode="HTML")
         except: pass
 
-# --- NEW: Request Approve/Reject Notification Logic ---
 @dp.callback_query(F.data.startswith("req_"))
 async def handle_request_approval(c: types.CallbackQuery):
     if c.from_user.id not in admin_cache: return
@@ -564,7 +563,6 @@ async def receive_movie_quality(m: types.Message, state: FSMContext):
     
     await m.answer(f"🎉 <b>{title} [{quality}]</b> অ্যাপে সফলভাবে যুক্ত করা হয়েছে!", parse_mode="HTML")
     
-    # --- FEATURE 1: Custom Notification System based on Requests ---
     req = await db.requests.find_one({"movie": {"$regex": f"^{title}$", "$options": "i"}})
     if req:
         for v_id in req.get("voters", []):
@@ -572,11 +570,9 @@ async def receive_movie_quality(m: types.Message, state: FSMContext):
                 await bot.send_message(v_id, f"🔔 <b>কাস্টম নোটিফিকেশন:</b>\n\n🎉 সুখবর! আপনার রিকোয়েস্ট করা/ভোট দেওয়া মুভি <b>{title}</b> অ্যাপে আপলোড করা হয়েছে! এখনই অ্যাপ ওপেন করে দেখে নিন।", parse_mode="HTML")
             except Exception: pass
         await db.requests.delete_one({"_id": req["_id"]})
-    # -------------------------------------------------------------
     
     if CHANNEL_ID and CHANNEL_ID != "-100XXXXXXXXXX":
         try:
-            # Delete old post logic
             old_post = await db.channel_posts.find_one({"title": title})
             if old_post:
                 try:
@@ -591,7 +587,6 @@ async def receive_movie_quality(m: types.Message, state: FSMContext):
             
             sent_msg = await bot.send_photo(chat_id=CHANNEL_ID, photo=photo_id, caption=caption, parse_mode="HTML", reply_markup=markup)
             
-            # Save new post id to prevent duplicate posts
             await db.channel_posts.update_one(
                 {"title": title},
                 {"$set": {"message_id": sent_msg.message_id}},
@@ -697,7 +692,7 @@ async def web_admin_panel(auth: bool = Depends(verify_admin)):
         <script src="https://cdn.tailwindcss.com"></script>
         <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     </head>
-    <body class="bg-gray-900 text-white font-sans antialiased">
+    <body class="bg-gray-900 text-white font-sans antialiased relative">
         <div class="max-w-6xl mx-auto p-5">
             <div class="flex justify-between items-center mb-8 border-b border-gray-700 pb-4">
                 <h1 class="text-3xl font-bold text-red-500"><i class="fa-solid fa-shield-halved"></i> MovieZone Admin</h1>
@@ -717,7 +712,7 @@ async def web_admin_panel(auth: bool = Depends(verify_admin)):
                 </div>
             </div>
             <div class="bg-gray-800 rounded-xl shadow-lg border border-gray-700 p-6">
-                <h2 class="text-xl font-bold mb-4 text-gray-200"><i class="fa-solid fa-film text-red-400"></i> Manage Movies</h2>
+                <h2 class="text-xl font-bold mb-4 text-gray-200"><i class="fa-solid fa-film text-red-400"></i> Manage Movies & Streams</h2>
                 <div class="overflow-x-auto">
                     <table class="w-full text-left text-sm whitespace-nowrap">
                         <thead class="bg-gray-700 text-gray-300">
@@ -735,6 +730,33 @@ async def web_admin_panel(auth: bool = Depends(verify_admin)):
                 </div>
             </div>
         </div>
+
+        <!-- NEW: Custom Admin Edit Modal -->
+        <div id="adminEditModal" class="fixed inset-0 bg-black bg-opacity-80 hidden flex items-center justify-center z-50">
+            <div class="bg-gray-800 p-6 rounded-xl border border-gray-700 w-full max-w-md relative">
+                <button onclick="closeAdminEdit()" class="absolute top-3 right-4 text-gray-400 hover:text-red-500 text-2xl">&times;</button>
+                <h3 class="text-xl font-bold mb-4 text-white"><i class="fa-solid fa-pen-to-square text-blue-400"></i> Edit Movie & Links</h3>
+                <input type="hidden" id="editOldTitle">
+                
+                <div class="mb-3">
+                    <label class="block text-gray-400 text-sm mb-1 font-bold">Movie Title (সব ফাইলের নাম বদলাবে)</label>
+                    <input type="text" id="editNewTitle" class="w-full bg-gray-900 border border-gray-600 rounded p-2 text-white outline-none focus:border-blue-500">
+                </div>
+                
+                <div class="mb-3">
+                    <label class="block text-gray-400 text-sm mb-1 font-bold">🎬 Stream Link (Iframe / DoodStream / MP4)</label>
+                    <input type="text" id="editStreamLink" class="w-full bg-gray-900 border border-gray-600 rounded p-2 text-white outline-none focus:border-green-500" placeholder="https://doodstream.com/e/...">
+                </div>
+                
+                <div class="mb-5">
+                    <label class="block text-gray-400 text-sm mb-1 font-bold">🔗 Direct Ad Link (Adsterra / External)</label>
+                    <input type="text" id="editAdLink" class="w-full bg-gray-900 border border-gray-600 rounded p-2 text-white outline-none focus:border-pink-500" placeholder="https://adsterra.com/...">
+                </div>
+                
+                <button onclick="saveAdminEdit()" class="w-full bg-blue-600 text-white rounded p-3 font-bold hover:bg-blue-500 transition text-lg shadow-lg">Save Changes</button>
+            </div>
+        </div>
+
         <script>
             function formatViews(num) {
                 if (num >= 1000000) return (num / 1000000).toFixed(1).replace(/\\.0$/, '') + 'M';
@@ -751,13 +773,14 @@ async def web_admin_panel(auth: bool = Depends(verify_admin)):
                     document.getElementById('statNew').innerText = data.new_users_today;
                     let html = '';
                     data.movies.forEach(m => {
+                        let hasStream = m.stream_link ? '<i class="fa-solid fa-circle-play text-green-400 ml-2" title="Stream Linked"></i>' : '';
                         html += `<tr class="border-b border-gray-700 hover:bg-gray-750 transition">
-                            <td class="p-4 font-medium text-base">` + m._id + `</td>
+                            <td class="p-4 font-medium text-base">` + m._id + hasStream + `</td>
                             <td class="p-4 text-gray-400 font-bold"><i class="fa-solid fa-eye text-gray-500"></i> ` + formatViews(m.clicks) + `</td>
                             <td class="p-4 text-green-400 font-bold">` + m.file_count + `</td>
                             <td class="p-4 flex gap-2">
                                 <button onclick="addViews('`+encodeURIComponent(m._id)+`')" class="text-yellow-400 bg-yellow-900 bg-opacity-30 px-3 py-1 rounded"><i class="fa-solid fa-fire"></i> Boost</button>
-                                <button onclick="editMovie('`+encodeURIComponent(m._id)+`', '`+m._id.replace(/'/g, "\\'")+`')" class="text-blue-400 bg-blue-900 bg-opacity-30 px-3 py-1 rounded">Edit</button>
+                                <button onclick="openAdminEdit('`+encodeURIComponent(m._id)+`', '`+m._id.replace(/'/g, "\\'")+`', '`+(m.stream_link || '')+`', '`+(m.ad_link || '')+`')" class="text-blue-400 bg-blue-900 bg-opacity-30 px-3 py-1 rounded">Edit</button>
                                 <button onclick="deleteMovie('`+encodeURIComponent(m._id)+`')" class="text-red-400 bg-red-900 bg-opacity-30 px-3 py-1 rounded">Delete</button>
                             </td>
                         </tr>`;
@@ -765,20 +788,40 @@ async def web_admin_panel(auth: bool = Depends(verify_admin)):
                     document.getElementById('movieTableBody').innerHTML = html;
                 } catch (e) { alert("Error loading data from the server!"); }
             }
+            
+            function openAdminEdit(encodedTitle, oldTitle, streamLink, adLink) {
+                document.getElementById('editOldTitle').value = encodedTitle;
+                document.getElementById('editNewTitle').value = oldTitle;
+                document.getElementById('editStreamLink').value = streamLink && streamLink !== 'undefined' ? streamLink : '';
+                document.getElementById('editAdLink').value = adLink && adLink !== 'undefined' ? adLink : '';
+                document.getElementById('adminEditModal').classList.remove('hidden');
+            }
+            
+            function closeAdminEdit() {
+                document.getElementById('adminEditModal').classList.add('hidden');
+            }
+            
+            async function saveAdminEdit() {
+                let encodedTitle = document.getElementById('editOldTitle').value;
+                let newTitle = document.getElementById('editNewTitle').value.trim();
+                let streamLink = document.getElementById('editStreamLink').value.trim();
+                let adLink = document.getElementById('editAdLink').value.trim();
+                
+                await fetch('/api/admin/movie/' + encodedTitle, {
+                    method: 'PUT', 
+                    headers: {'Content-Type': 'application/json'}, 
+                    body: JSON.stringify({title_new: newTitle, stream_link: streamLink, ad_link: adLink})
+                });
+                closeAdminEdit();
+                loadAdminData();
+            }
+
             async function deleteMovie(encodedTitle) {
                 if(!confirm('Are you absolutely sure you want to delete ALL files for this movie?')) return;
                 await fetch('/api/admin/movie/' + encodedTitle, {method: 'DELETE'});
                 loadAdminData();
             }
-            async function editMovie(encodedTitle, oldTitle) {
-                let newTitle = prompt("Enter new title for all files in this group:", oldTitle);
-                if(newTitle && newTitle.trim() !== "" && newTitle !== oldTitle) {
-                    await fetch('/api/admin/movie/' + encodedTitle, {
-                        method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({title: newTitle.trim()})
-                    });
-                    loadAdminData();
-                }
-            }
+
             async function addViews(encodedTitle) {
                 let amount = prompt("এই মুভির ভিউ কত বাড়াতে চান? (যেমন: 1000 বা 5000):", "1000");
                 if(amount && amount.trim() !== "" && !isNaN(amount)) {
@@ -802,7 +845,14 @@ async def get_admin_data(auth: bool = Depends(verify_admin)):
     today_start = datetime.datetime(now.year, now.month, now.day)
     new_users = await db.users.count_documents({"joined_at": {"$gte": today_start}})
     pipeline = [
-        {"$group": {"_id": "$title", "clicks": {"$sum": "$clicks"}, "file_count": {"$sum": 1}, "created_at": {"$max": "$created_at"}}},
+        {"$group": {
+            "_id": "$title", 
+            "clicks": {"$sum": "$clicks"}, 
+            "file_count": {"$sum": 1}, 
+            "created_at": {"$max": "$created_at"},
+            "stream_link": {"$first": "$stream_link"},
+            "ad_link": {"$first": "$ad_link"}
+        }},
         {"$sort": {"created_at": -1}}, {"$limit": 50}
     ]
     movies = await db.movies.aggregate(pipeline).to_list(50)
@@ -815,13 +865,22 @@ async def delete_movie_api(title: str, auth: bool = Depends(verify_admin)):
 
 @app.put("/api/admin/movie/{title}")
 async def edit_movie_api(title: str, data: dict = Body(...), auth: bool = Depends(verify_admin)):
-    if new_title := data.get("title"): 
-        await db.movies.update_many({"title": title}, {"$set": {"title": new_title}})
+    update_data = {}
+    
+    if new_title := data.get("title_new"): 
+        update_data["title"] = new_title
+    if "stream_link" in data:
+        update_data["stream_link"] = data["stream_link"]
+    if "ad_link" in data:
+        update_data["ad_link"] = data["ad_link"]
+        
+    if update_data:
+        await db.movies.update_many({"title": title}, {"$set": update_data})
         
     if add_clicks := data.get("add_clicks"):
         try:
             clicks_to_add = int(add_clicks)
-            await db.movies.update_one({"title": title}, {"$inc": {"clicks": clicks_to_add}})
+            await db.movies.update_many({"title": update_data.get("title", title)}, {"$inc": {"clicks": clicks_to_add}})
         except ValueError: pass
             
     return {"ok": True}
@@ -928,10 +987,18 @@ async def web_ui():
             .close-icon:active { transform: scale(0.9); }
 
             .instruction-text { color: #fbbf24; font-size: 15.5px; font-weight: bold; margin-bottom: 20px; line-height: 1.5; }
+            
+            /* Legacy Quality btn kept for safety */
             .quality-btn { display: flex; justify-content: space-between; align-items: center; background: #0f172a; border: 1px solid #334155; padding: 16px; border-radius: 12px; margin-bottom: 12px; color: white; font-weight: bold; font-size: 16px; cursor: pointer; transition: 0.3s; width: 100%; }
             .quality-btn:active { transform: scale(0.98); }
             .quality-locked { border-left: 5px solid #ef4444; }
             .quality-unlocked { border-left: 5px solid #10b981; }
+            
+            /* --- NEW: RGB Button System --- */
+            .rgb-border { position: relative; border: none; background: linear-gradient(45deg, #ff0000, #ff7300, #fffb00, #48ff00, #00ffd5, #002bff, #7a00ff, #ff00c8, #ff0000); background-size: 400%; animation: glowing 8s linear infinite; padding: 3px; border-radius: 14px; margin-bottom: 12px; cursor: pointer; transition: 0.3s; width: 100%; box-shadow: 0 0 15px rgba(255,0,0,0.3); }
+            .rgb-border:active { transform: scale(0.98); }
+            .rgb-inner { display: flex; justify-content: space-between; align-items: center; background: #0f172a; padding: 16px; border-radius: 12px; width: 100%; color: white; font-weight: bold; font-size: 16px; }
+
             .close-btn { background: #334155; color: white; padding: 12px 20px; border-radius: 12px; margin-top: 15px; border: none; width: 100%; font-weight: bold; font-size: 16px; cursor: pointer; }
             .req-input { width: 100%; padding: 16px; margin: 20px 0; border-radius: 12px; border: 2px solid #334155; background: #0f172a; color: white; outline: none; font-size: 16px; font-weight: bold; }
             .btn-submit { background: linear-gradient(45deg, #10b981, #059669); color: white; border: none; padding: 15px 20px; border-radius: 12px; font-weight: bold; width: 100%; font-size: 18px; cursor: pointer; transition: 0.3s; }
@@ -978,7 +1045,6 @@ async def web_ui():
             .pkg-label:hover { background: #334155; }
             .pkg-label input { margin-right: 10px; transform: scale(1.2); }
 
-            /* --- NEW: Feature CSS --- */
             /* Chat CSS */
             .chat-container { height: 350px; overflow-y: auto; background: #0f172a; border-radius: 10px; border: 1px solid #334155; padding: 10px; margin-top: 15px; text-align: left; display: flex; flex-direction: column; gap: 8px; }
             .chat-msg { background: #1e293b; padding: 8px 12px; border-radius: 12px; font-size: 14px; width: fit-content; max-width: 85%; word-break: break-word; }
@@ -1063,7 +1129,8 @@ async def web_ui():
             <div class="modal-content">
                 <div class="close-icon" onclick="closeQualityModal()"><i class="fa-solid fa-xmark"></i></div>
                 <h2 id="modalTitle" style="color:#38bdf8; margin-bottom: 8px; font-size: 22px; font-weight:900;">Movie Title</h2>
-                <p class="instruction-text">👇 আপনি কোনটি ডাউনলোড করতে চান তা নির্বাচন করুন:</p>
+                <p class="instruction-text">👇 আপনি কোনটি প্লে বা ডাউনলোড করতে চান তা নির্বাচন করুন:</p>
+                
                 <div id="qualityList"></div>
                 
                 <!-- Rating & Review Section -->
@@ -1083,6 +1150,40 @@ async def web_ui():
                         <!-- Reviews will load here -->
                     </div>
                 </div>
+            </div>
+        </div>
+        
+        <!-- --- NEW: Stream Task Modal --- -->
+        <div id="streamTaskModal" class="modal">
+            <div class="modal-content">
+                <div class="close-icon" onclick="document.getElementById('streamTaskModal').style.display='none'"><i class="fa-solid fa-xmark"></i></div>
+                <h2 style="color:#fbbf24; font-size: 22px; margin-bottom:10px;"><i class="fa-solid fa-film"></i> অনলাইন স্ট্রিমিং</h2>
+                <p style="color:#cbd5e1; font-size:15px; margin-bottom:15px;">ভিডিওটি প্লে করার আগে নিচের লিংকে ক্লিক করে <b>১০ সেকেন্ড</b> অপেক্ষা করুন। এরপর ব্যাক করে এসে ভিডিও প্লে করুন।</p>
+                
+                <div class="rgb-border" id="streamAdLinkBtn" onclick="openStreamAd()">
+                    <div class="rgb-inner" style="justify-content:center; gap:10px; background:#1e293b; color:#fbbf24;">
+                        🔗 Click Here (Ad)
+                    </div>
+                </div>
+                
+                <div id="streamTimerBox" style="display:none;">
+                    <div class="rgb-timer-container" style="width:100px; height:100px; margin: 0 auto 15px;">
+                        <div class="rgb-ring"></div>
+                        <div class="timer-text" id="streamTimerText" style="font-size:35px;">10</div>
+                    </div>
+                </div>
+                
+                <button id="playStreamBtn" class="btn-submit" style="display:none; background: linear-gradient(45deg, #10b981, #059669); font-size: 20px; padding: 18px;" onclick="startPlayer()">
+                    <i class="fa-solid fa-circle-play"></i> Play Movie
+                </button>
+            </div>
+        </div>
+
+        <!-- --- NEW: Video Player Modal --- -->
+        <div id="playerModal" class="modal" style="background: #000;">
+            <div class="close-icon" onclick="closePlayer()" style="top:20px; right:20px; z-index:9999; background: rgba(255,0,0,0.8);"><i class="fa-solid fa-xmark"></i></div>
+            <div style="width:100%; height:100%; display:flex; align-items:center; justify-content:center;">
+                <iframe id="moviePlayerFrame" src="" style="width:100%; height:80vh; border:none; border-radius:10px;" allowfullscreen></iframe>
             </div>
         </div>
 
@@ -1176,7 +1277,7 @@ async def web_ui():
             </div>
         </div>
 
-        <!-- --- NEW: Chat Modal --- -->
+        <!-- Global Chat Modal -->
         <div id="chatModal" class="modal">
             <div class="modal-content" style="max-height: 90vh; display:flex; flex-direction:column;">
                 <div class="close-icon" onclick="closeChat()"><i class="fa-solid fa-xmark"></i></div>
@@ -1190,7 +1291,7 @@ async def web_ui():
             </div>
         </div>
 
-        <!-- --- NEW: Spin to Win Modal --- -->
+        <!-- Spin to Win Modal -->
         <div id="spinModal" class="modal">
             <div class="modal-content">
                 <div class="close-icon" onclick="document.getElementById('spinModal').style.display='none'"><i class="fa-solid fa-xmark"></i></div>
@@ -1210,7 +1311,7 @@ async def web_ui():
             </div>
         </div>
 
-        <!-- --- NEW: Daily Missions Modal --- -->
+        <!-- Daily Missions Modal -->
         <div id="tasksModal" class="modal">
             <div class="modal-content">
                 <div class="close-icon" onclick="document.getElementById('tasksModal').style.display='none'"><i class="fa-solid fa-xmark"></i></div>
@@ -1281,6 +1382,9 @@ async def web_ui():
             let currentRating = 0;
             let currentMovieTitle = "";
             let selectedPayMethod = "";
+            
+            let activeStreamLink = "";
+            let activeAdLink = "";
 
             function formatViews(num) {
                 if (num >= 1000000) return (num / 1000000).toFixed(1).replace(/\.0$/, '') + 'M';
@@ -1588,12 +1692,26 @@ async def web_ui():
                 currentMovieTitle = title;
                 document.getElementById('modalTitle').innerText = title;
                 
+                // NEW: RGB Border UI Applied
                 let listHtml = movie.files.map(f => {
                     let isFree = f.is_unlocked || isUserVip;
                     let icon = isFree ? '<i class="fa-solid fa-paper-plane text-green-400" style="font-size:18px;"></i>' : '<i class="fa-solid fa-lock text-red-400" style="font-size:18px;"></i>';
-                    let cls = isFree ? 'quality-unlocked' : 'quality-locked';
-                    return `<button class="quality-btn ${cls}" onclick="handleQualityClick('${f.id}', ${f.is_unlocked})"><span>${f.quality}</span> ${icon}</button>`;
+                    let cls = isFree ? 'border-left: 5px solid #10b981;' : 'border-left: 5px solid #ef4444;';
+                    return `
+                    <div class="rgb-border" onclick="handleQualityClick('${f.id}', ${f.is_unlocked})">
+                        <div class="rgb-inner" style="${cls}"><span><i class="fa-solid fa-download"></i> ${f.quality}</span> ${icon}</div>
+                    </div>`;
                 }).join('');
+                
+                // NEW: Check if Stream Link Exists and Add "Watch Online" Button
+                if (movie.stream_link) {
+                    listHtml += `
+                    <div class="rgb-border" style="margin-top:20px; animation-duration: 4s;" onclick="handleStreamClick('${title.replace(/'/g, "\\'")}')">
+                        <div class="rgb-inner" style="justify-content:center; gap:10px; font-size:18px; color:#fbbf24; background:#1e293b;">
+                            <i class="fa-solid fa-play"></i> Watch Online
+                        </div>
+                    </div>`;
+                }
                 
                 document.getElementById('qualityList').innerHTML = listHtml;
                 document.getElementById('qualityModal').style.display = 'flex';
@@ -1601,6 +1719,7 @@ async def web_ui():
                 setRating(0);
                 loadReviews(title);
             }
+            
             function closeQualityModal() { document.getElementById('qualityModal').style.display = 'none'; }
 
             function handleQualityClick(fileId, isUnlocked) {
@@ -1628,6 +1747,50 @@ async def web_ui():
                 }, 1000);
             }
             function nextAdStep() { currentAdStep++; startAdTimer(); }
+            
+            // --- NEW: Streaming Flow JS Logic ---
+            function handleStreamClick(title) {
+                const movie = loadedMovies[title];
+                if(!movie) return;
+                activeStreamLink = movie.stream_link;
+                activeAdLink = movie.ad_link || "https://google.com"; // Fallback URL
+                
+                document.getElementById('qualityModal').style.display = 'none';
+                document.getElementById('streamTaskModal').style.display = 'flex';
+                
+                document.getElementById('streamAdLinkBtn').style.display = 'block';
+                document.getElementById('streamTimerBox').style.display = 'none';
+                document.getElementById('playStreamBtn').style.display = 'none';
+            }
+            
+            function openStreamAd() {
+                // Open Adsterra or Direct Link in browser
+                window.open(activeAdLink, '_blank');
+                
+                document.getElementById('streamAdLinkBtn').style.display = 'none';
+                document.getElementById('streamTimerBox').style.display = 'block';
+                
+                let t = 10; document.getElementById('streamTimerText').innerText = t;
+                let iv = setInterval(() => {
+                    t--; document.getElementById('streamTimerText').innerText = t;
+                    if(t <= 0) { 
+                        clearInterval(iv); 
+                        document.getElementById('streamTimerBox').style.display = 'none';
+                        document.getElementById('playStreamBtn').style.display = 'block';
+                    }
+                }, 1000);
+            }
+            
+            function startPlayer() {
+                document.getElementById('streamTaskModal').style.display = 'none';
+                document.getElementById('playerModal').style.display = 'flex';
+                document.getElementById('moviePlayerFrame').src = activeStreamLink;
+            }
+            
+            function closePlayer() {
+                document.getElementById('playerModal').style.display = 'none';
+                document.getElementById('moviePlayerFrame').src = ""; // Stop video playback
+            }
 
             async function sendFile(id) {
                 try {
@@ -1647,7 +1810,7 @@ async def web_ui():
                     document.getElementById('adScreen').style.display = 'none';
                     document.getElementById('successModal').style.display = 'flex';
                     setTimeout(() => { loadTrending(); loadMovies(currentPage); }, 1000); 
-                    fetchUserInfo(); // Badges might change due to unlocks count
+                    fetchUserInfo(); 
                 } catch (e) {}
             }
             
@@ -1705,7 +1868,7 @@ async def web_ui():
                 } catch (e) {}
             }
 
-            // --- NEW: Global Chat Logic (HTTP Polling - 100% Working on all Hosts) ---
+            // --- Chat Logic ---
             let chatInterval = null;
 
             async function fetchChatMessages() {
@@ -1725,7 +1888,6 @@ async def web_ui():
                         `;
                     });
                     
-                    // To keep scroll at bottom naturally
                     const isScrolledToBottom = chatBox.scrollHeight - chatBox.clientHeight <= chatBox.scrollTop + 10;
                     chatBox.innerHTML = html;
                     if(isScrolledToBottom) chatBox.scrollTop = chatBox.scrollHeight;
@@ -1738,7 +1900,6 @@ async def web_ui():
                 document.getElementById('chatModal').style.display = 'flex';
                 document.getElementById('chatBox').innerHTML = "<p style='color:gray; text-align:center;'>Loading chat...</p>";
                 fetchChatMessages();
-                // Check for new messages every 3 seconds
                 chatInterval = setInterval(fetchChatMessages, 3000);
             }
             
@@ -1755,7 +1916,6 @@ async def web_ui():
                 input.value = "";
                 const chatBox = document.getElementById('chatBox');
                 
-                // Show message instantly for the user (Optimistic UI)
                 const div = document.createElement('div');
                 div.className = `chat-msg mine`;
                 div.innerHTML = text;
@@ -1771,7 +1931,7 @@ async def web_ui():
                 } catch(e) {}
             }
 
-            // --- NEW: Spin To Win Logic ---
+            // --- Spin To Win Logic ---
             const spinRewards = [5, 0, 10, 0, 50, 0];
             const spinColors = ["#fecaca", "#fde68a", "#bbf7d0", "#bfdbfe", "#e9d5ff", "#fecdd3"];
             let currentRotation = 0;
@@ -1808,7 +1968,6 @@ async def web_ui():
                 document.getElementById('spinModal').style.display = 'none';
                 isSpinAd = true; isRewardAd = false;
                 
-                // Show Ad First
                 if (typeof window['show_' + ZONE_ID] === 'function') window['show_' + ZONE_ID]();
                 document.getElementById('adScreen').style.display = 'flex';
                 document.getElementById('timerUI').style.display = 'flex';
@@ -1830,14 +1989,12 @@ async def web_ui():
                 document.getElementById('spinModal').style.display = 'flex';
                 document.getElementById('spinBtn').disabled = true;
                 
-                // Random outcome
                 const winIndex = Math.floor(Math.random() * 6);
                 const reward = spinRewards[winIndex];
                 
-                // Calculate Rotation
                 const sliceAngle = 360 / 6;
                 const targetAngle = (360 - (winIndex * sliceAngle)) - (sliceAngle / 2);
-                currentRotation += 360 * 5; // 5 full spins
+                currentRotation += 360 * 5; 
                 const finalRotation = currentRotation + targetAngle;
                 
                 document.getElementById('spinWheel').style.transform = `rotate(${finalRotation}deg)`;
@@ -1860,7 +2017,7 @@ async def web_ui():
                 }, 4100);
             }
 
-            // --- NEW: Daily Tasks Logic ---
+            // --- Daily Tasks Logic ---
             async function openTasksModal() {
                 closeMenu();
                 document.getElementById('tasksModal').style.display = 'flex';
@@ -1935,7 +2092,6 @@ async def get_user_info(uid: int):
         is_vip = True
         vip_expiry_str = vip_until.strftime("%d %b %Y")
         
-    # --- FEATURE 4: Badges Logic ---
     badges = []
     refer_count = user.get("refer_count", 0)
     unlocks = await db.user_unlocks.count_documents({"user_id": uid})
@@ -1944,7 +2100,6 @@ async def get_user_info(uid: int):
     if refer_count >= 5: badges.append("🤝 Top Referrer")
     if unlocks >= 5: badges.append("🍿 Binge Watcher")
     if reviews_count >= 3: badges.append("✍️ Top Critic")
-    # -------------------------------
         
     return {
         "vip": is_vip,
@@ -1954,7 +2109,6 @@ async def get_user_info(uid: int):
         "badges": badges
     }
 
-# --- DAILY TASKS UPDATE HELPER ---
 async def update_daily_task(uid: int, task_type: str):
     now_date = datetime.datetime.utcnow().strftime("%Y-%m-%d")
     user = await db.users.find_one({"user_id": uid})
@@ -1968,7 +2122,6 @@ async def update_daily_task(uid: int, task_type: str):
         tasks[task_type] += 1
         await db.users.update_one({"user_id": uid}, {"$set": {"tasks": tasks}})
 
-# --- REVIEWS API ---
 class ReviewModel(BaseModel):
     uid: int
     name: str
@@ -1989,11 +2142,9 @@ async def add_review(data: ReviewModel):
         "user_id": data.uid, "name": data.name, "movie_title": data.title,
         "rating": data.rating, "comment": data.comment, "created_at": datetime.datetime.utcnow()
     })
-    # Update Daily Task
     await update_daily_task(data.uid, "reviews")
     return {"ok": True}
 
-# --- CHECK-IN API ---
 class CheckinModel(BaseModel):
     uid: int
     action: str
@@ -2025,7 +2176,6 @@ async def handle_checkin(data: CheckinModel):
         await db.users.update_one({"user_id": data.uid}, {"$inc": {"coins": -50}, "$set": {"vip_until": new_vip}})
         return {"ok": True}
 
-# --- PAYMENT API (WITH PACKAGES) ---
 class PaymentModel(BaseModel):
     uid: int
     method: str
@@ -2068,7 +2218,7 @@ async def submit_payment(data: PaymentModel):
     
     return {"ok": True}
 
-# --- EXISTING MOVIE APIs ---
+# --- EXISTING MOVIE APIs (UPDATED FOR STREAM LINKS) ---
 @app.get("/api/trending")
 async def trending_movies(uid: int = 0):
     if uid in banned_cache: return {"error": "banned"}
@@ -2079,7 +2229,14 @@ async def trending_movies(uid: int = 0):
             unlocked_movie_ids.append(u["movie_id"])
 
     pipeline = [
-        {"$group": {"_id": "$title", "photo_id": {"$first": "$photo_id"}, "clicks": {"$sum": "$clicks"}, "files": {"$push": {"id": {"$toString": "$_id"}, "quality": {"$ifNull": ["$quality", "Main File"]}}}}},
+        {"$group": {
+            "_id": "$title", 
+            "photo_id": {"$first": "$photo_id"}, 
+            "clicks": {"$sum": "$clicks"}, 
+            "stream_link": {"$first": "$stream_link"},
+            "ad_link": {"$first": "$ad_link"},
+            "files": {"$push": {"id": {"$toString": "$_id"}, "quality": {"$ifNull": ["$quality", "Main File"]}}}
+        }},
         {"$sort": {"clicks": -1}}, {"$limit": 10}
     ]
     movies = await db.movies.aggregate(pipeline).to_list(10)
@@ -2109,7 +2266,15 @@ async def list_movies(page: int = 1, q: str = "", uid: int = 0):
     match_stage = {"title": {"$regex": q, "$options": "i"}} if q else {}
     pipeline = [
         {"$match": match_stage},
-        {"$group": {"_id": "$title", "photo_id": {"$first": "$photo_id"}, "clicks": {"$sum": "$clicks"}, "created_at": {"$max": "$created_at"}, "files": {"$push": {"id": {"$toString": "$_id"}, "quality": {"$ifNull": ["$quality", "Main File"]}}}}},
+        {"$group": {
+            "_id": "$title", 
+            "photo_id": {"$first": "$photo_id"}, 
+            "clicks": {"$sum": "$clicks"}, 
+            "created_at": {"$max": "$created_at"}, 
+            "stream_link": {"$first": "$stream_link"},
+            "ad_link": {"$first": "$ad_link"},
+            "files": {"$push": {"id": {"$toString": "$_id"}, "quality": {"$ifNull": ["$quality", "Main File"]}}}
+        }},
         {"$sort": {"created_at": -1}}, {"$skip": skip}, {"$limit": limit}
     ]
     count_pipe = [{"$match": match_stage}, {"$group": {"_id": "$title"}}, {"$count": "total"}]
@@ -2184,7 +2349,6 @@ async def send_file(d: SendRequestModel):
     except Exception: pass
     return {"ok": True}
 
-# --- NEW FEATURES APIs (Leaderboard, Watch Ads, Request Board) ---
 @app.get("/api/leaderboard")
 async def get_leaderboard():
     users = await db.users.find().sort("refer_count", -1).limit(10).to_list(10)
@@ -2198,7 +2362,6 @@ class AdRewardModel(BaseModel):
 async def reward_ad(data: AdRewardModel):
     if not validate_tg_data(data.initData): return {"ok": False}
     await db.users.update_one({"user_id": data.uid}, {"$inc": {"coins": 5}})
-    # Update Daily Task
     await update_daily_task(data.uid, "ads")
     return {"ok": True}
 
@@ -2232,7 +2395,6 @@ class ReqModel(BaseModel):
 async def handle_request(data: ReqModel):
     if data.uid in banned_cache or not validate_tg_data(data.initData): return {"ok": False}
     
-    # Check if movie already requested to combine logic
     existing = await db.requests.find_one({"movie": {"$regex": f"^{data.movie}$", "$options": "i"}})
     if existing:
         if data.uid not in existing.get("voters", []):
@@ -2244,7 +2406,6 @@ async def handle_request(data: ReqModel):
         })
         req_id = str(res.inserted_id)
         
-        # Send notification to Admin with Approve/Reject buttons
         try: 
             now = datetime.datetime.utcnow()
             user_data = await db.users.find_one({"user_id": data.uid})
@@ -2263,7 +2424,6 @@ async def handle_request(data: ReqModel):
     
     return {"ok": True}
 
-# --- NEW: Live Chat HTTP API (Works on Vercel/Any Hosting) ---
 class ChatMsgModel(BaseModel):
     uid: int
     name: str
@@ -2287,7 +2447,6 @@ async def post_chat(data: ChatMsgModel):
     })
     return {"ok": True}
 
-# --- NEW: Spin API ---
 class SpinModel(BaseModel):
     uid: int
     reward: int
@@ -2324,7 +2483,6 @@ async def handle_spin(data: SpinModel):
     )
     return {"ok": True, "spins_left": max(0, 3 - spin_data["count"])}
 
-# --- NEW: Daily Tasks API ---
 class TaskClaimModel(BaseModel):
     uid: int
     task_type: str
