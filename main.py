@@ -18,7 +18,7 @@ except RuntimeError:
     asyncio.set_event_loop(asyncio.new_event_loop())
 # ==========================================
 
-from fastapi import FastAPI, Body, Request, Depends, HTTPException, status
+from fastapi import FastAPI, Body, Request, Depends, HTTPException, status, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
@@ -63,6 +63,27 @@ db = client['movie_database']
 
 admin_cache = set([OWNER_ID]) 
 banned_cache = set() 
+
+# --- NEW: WebSocket Connection Manager for Live Chat ---
+class ConnectionManager:
+    def __init__(self):
+        self.active_connections: list[WebSocket] = []
+
+    async def connect(self, websocket: WebSocket):
+        await websocket.accept()
+        self.active_connections.append(websocket)
+
+    def disconnect(self, websocket: WebSocket):
+        if websocket in self.active_connections:
+            self.active_connections.remove(websocket)
+
+    async def broadcast(self, message: dict):
+        for connection in self.active_connections:
+            try:
+                await connection.send_json(message)
+            except:
+                pass
+manager = ConnectionManager()
 
 
 # ==========================================
@@ -458,7 +479,7 @@ async def remove_vip_cmd(m: types.Message):
 
 
 # ==========================================
-# 8. Admin Inline Callback (Payment Approval)
+# 8. Admin Inline Callback (Payment Approval & Requests)
 # ==========================================
 @dp.callback_query(F.data.startswith("trx_"))
 async def handle_trx_approval(c: types.CallbackQuery):
@@ -495,6 +516,33 @@ async def handle_trx_approval(c: types.CallbackQuery):
         await c.message.edit_text(c.message.text + "\n\n❌ <b>পেমেন্ট রিজেক্ট করা হয়েছে!</b>", parse_mode="HTML")
         try: await bot.send_message(user_id, f"❌ <b>দুঃখিত!</b> আপনার পেমেন্ট (TrxID: {payment['trx_id']}) বাতিল করা গঠন করা হয়েছে। তথ্যে ভুল থাকলে সাপোর্ট অ্যাডমিনের সাথে যোগাযোগ করুন।", parse_mode="HTML")
         except: pass
+
+# --- NEW: Request Approve/Reject Notification Logic ---
+@dp.callback_query(F.data.startswith("req_"))
+async def handle_request_approval(c: types.CallbackQuery):
+    if c.from_user.id not in admin_cache: return
+    action = c.data.split("_")[1] # acc or rej
+    req_id = c.data.split("_")[2]
+    
+    req = await db.requests.find_one({"_id": ObjectId(req_id)})
+    if not req:
+        return await c.answer("⚠️ রিকোয়েস্টটি ইতিমধ্যে ডিলিট বা প্রসেস করা হয়েছে!", show_alert=True)
+        
+    movie_name = req["movie"]
+    voters = req.get("voters", [])
+    
+    if action == "acc":
+        await c.message.edit_text(c.message.text + "\n\n✅ <b>Approve করা হয়েছে! (ইউজারদের জানানো হয়েছে)</b>", parse_mode="HTML")
+        for v_id in voters:
+            try: await bot.send_message(v_id, f"🎉 <b>সুখবর!</b> আপনার রিকোয়েস্ট করা/ভোট দেওয়া মুভি <b>{movie_name}</b> অ্যাপে আপলোড করা হয়েছে! এখনই অ্যাপ ওপেন করে দেখে নিন।", parse_mode="HTML")
+            except: pass
+        await db.requests.delete_one({"_id": ObjectId(req_id)})
+    elif action == "rej":
+        await c.message.edit_text(c.message.text + "\n\n❌ <b>Reject করা হয়েছে!</b>", parse_mode="HTML")
+        for v_id in voters:
+            try: await bot.send_message(v_id, f"❌ <b>দুঃখিত!</b> আপনার রিকোয়েস্ট করা মুভি <b>{movie_name}</b> এই মুহূর্তে আপলোড করা সম্ভব হচ্ছে না (হয়তো কোয়ালিটি ভালো না বা পাওয়া যায়নি)।", parse_mode="HTML")
+            except: pass
+        await db.requests.delete_one({"_id": ObjectId(req_id)})
 
 
 # ==========================================
@@ -950,6 +998,30 @@ async def web_ui():
             .pkg-label { display: block; background: #1e293b; padding: 12px; border-radius: 8px; margin-bottom: 8px; cursor: pointer; border: 1px solid #334155; font-weight: bold; transition: 0.3s; }
             .pkg-label:hover { background: #334155; }
             .pkg-label input { margin-right: 10px; transform: scale(1.2); }
+
+            /* --- NEW: Feature CSS --- */
+            /* Chat CSS */
+            .chat-container { height: 350px; overflow-y: auto; background: #0f172a; border-radius: 10px; border: 1px solid #334155; padding: 10px; margin-top: 15px; text-align: left; display: flex; flex-direction: column; gap: 8px; }
+            .chat-msg { background: #1e293b; padding: 8px 12px; border-radius: 12px; font-size: 14px; width: fit-content; max-width: 85%; word-break: break-word; }
+            .chat-msg.mine { background: #3b82f6; color: white; align-self: flex-end; border-bottom-right-radius: 2px; }
+            .chat-msg.others { border-bottom-left-radius: 2px; border: 1px solid #334155; }
+            .chat-name { font-size: 11px; color: #fbbf24; font-weight: bold; margin-bottom: 3px; }
+            
+            /* Spin CSS */
+            .spin-wrapper { position: relative; width: 250px; height: 250px; margin: 20px auto; border-radius: 50%; border: 8px solid #334155; overflow: hidden; box-shadow: 0 0 30px rgba(251,191,36,0.3); }
+            .wheel { width: 100%; height: 100%; border-radius: 50%; transition: transform 4s cubic-bezier(0.1, 0.7, 0.1, 1); background: conic-gradient(#fecaca 0deg 60deg, #fde68a 60deg 120deg, #bbf7d0 120deg 180deg, #bfdbfe 180deg 240deg, #e9d5ff 240deg 300deg, #fecdd3 300deg 360deg); }
+            .pointer { position: absolute; top: -15px; left: 50%; transform: translateX(-50%); width: 0; height: 0; border-left: 15px solid transparent; border-right: 15px solid transparent; border-top: 30px solid #ef4444; z-index: 10; filter: drop-shadow(0 2px 2px rgba(0,0,0,0.5)); }
+            .spin-center { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 50px; height: 50px; background: #1e293b; border-radius: 50%; z-index: 5; border: 3px solid #fbbf24; display: flex; align-items: center; justify-content: center; font-weight: bold; color: white; }
+            .wheel-slice { position: absolute; width: 50%; height: 50%; transform-origin: bottom right; display: flex; align-items: center; justify-content: center; font-weight: bold; color: #000; font-size: 18px; }
+
+            /* Tasks CSS */
+            .task-box { background: #0f172a; padding: 15px; border-radius: 12px; border: 1px solid #334155; text-align: left; margin-bottom: 15px; }
+            .task-title { font-size: 16px; font-weight: bold; color: white; margin-bottom: 8px; display: flex; justify-content: space-between; }
+            .progress-bg { width: 100%; height: 10px; background: #334155; border-radius: 5px; overflow: hidden; margin-bottom: 10px; }
+            .progress-fill { height: 100%; background: linear-gradient(45deg, #10b981, #059669); width: 0%; transition: width 0.5s; }
+            .task-btn { padding: 8px 15px; border-radius: 8px; border: none; font-weight: bold; color: white; width: 100%; cursor: pointer; background: #3b82f6; transition: 0.2s; }
+            .task-btn:disabled { background: #475569; color: #94a3b8; cursor: not-allowed; }
+            .task-btn.claimed { background: #10b981; }
         </style>
     </head>
     <body onclick="closeMenu(event)">
@@ -972,6 +1044,9 @@ async def web_ui():
         <div id="dropdownMenu" class="dropdown-menu">
             <a onclick="goHome()"><i class="fa-solid fa-house text-green-400"></i> হোম পেইজ</a>
             <a onclick="openCheckinModal()"><i class="fa-solid fa-gift text-pink-400"></i> ডেইলি চেক-ইন 🪙</a>
+            <a onclick="openTasksModal()"><i class="fa-solid fa-bullseye text-red-400"></i> ডেইলি মিশন 🎯</a>
+            <a onclick="openSpinModal()"><i class="fa-solid fa-dharmachakra text-yellow-400"></i> লাকি স্পিন 🎡</a>
+            <a onclick="openChatModal()"><i class="fa-solid fa-comments text-blue-400"></i> গ্লোবাল চ্যাট 💬</a>
             <a onclick="openVipModal()"><i class="fa-solid fa-crown text-yellow-400"></i> VIP প্যাকেজ কিনুন</a>
             <a onclick="openReferModal()"><i class="fa-solid fa-share-nodes text-blue-400"></i> রেফার ও ইনকাম</a>
             <a onclick="openLeaderboard()"><i class="fa-solid fa-trophy text-yellow-400"></i> লিডারবোর্ড 🏆</a>
@@ -1056,7 +1131,7 @@ async def web_ui():
             <div class="modal-content">
                 <div class="close-icon" onclick="document.getElementById('vipModal').style.display='none'"><i class="fa-solid fa-xmark"></i></div>
                 <h2 style="color:#fbbf24; font-size: 24px; margin-bottom:10px;"><i class="fa-solid fa-crown"></i> VIP প্যাকেজ কিনুন</h2>
-                <p style="color:#cbd5e1; font-size:14.5px; margin-bottom:15px; line-height: 1.4;">পেমেন্ট করে VIP প্যাকেজ কিনুন। ফাইল অটো-ডিলিট হবে না এবং কোনো অ্যাড দেখতে হবে না!</p>
+                <p style="color:#cbd5e1; font-size:14.5px; margin-bottom:15px; line-height: 1.4;">পেমেন্ট করে VIP প্যাকেজ কিনুন। ফাইল অটো-ডিলিট হবে না এবং কোনো অ্যাড দেখতে হবে കട!</p>
                 
                 <div style="display:flex; justify-content:space-between; margin-bottom: 15px;">
                     <button class="method-btn" style="background:#e11471; box-shadow: 0 4px 10px rgba(225,20,113,0.4);" onclick="selectPayment('bkash')">bKash</button>
@@ -1106,6 +1181,77 @@ async def web_ui():
             </div>
         </div>
 
+        <!-- Request Board & Vote Modal -->
+        <div id="reqModal" class="modal">
+            <div class="modal-content" style="max-height: 90vh;">
+                <div class="close-icon" onclick="document.getElementById('reqModal').style.display='none'"><i class="fa-solid fa-xmark"></i></div>
+                <h2 style="color:white; font-size: 24px;">মুভি রিকোয়েস্ট ও ভোট 🗳️</h2>
+                <div style="display:flex; gap:10px; margin-top:15px;">
+                    <input type="text" id="reqText" class="req-input" style="margin:0;" placeholder="নতুন মুভির নাম...">
+                    <button class="btn-submit" style="width:auto; padding:0 20px;" onclick="sendReq()"><i class="fa-solid fa-plus"></i></button>
+                </div>
+                <p style="text-align:left; color:#94a3b8; font-size:14px; margin-top:15px; font-weight:bold;">ট্রেন্ডিং রিকোয়েস্ট:</p>
+                <div id="reqList" style="max-height: 40vh; overflow-y:auto; margin-top:10px; text-align:left; padding-right:5px;">
+                    <!-- Loading requests -->
+                </div>
+            </div>
+        </div>
+
+        <!-- --- NEW: Chat Modal --- -->
+        <div id="chatModal" class="modal">
+            <div class="modal-content" style="max-height: 90vh; display:flex; flex-direction:column;">
+                <div class="close-icon" onclick="closeChat()"><i class="fa-solid fa-xmark"></i></div>
+                <h2 style="color:white; font-size: 22px; margin-bottom:5px;"><i class="fa-solid fa-comments text-blue-400"></i> গ্লোবাল চ্যাট</h2>
+                <p style="color:#94a3b8; font-size:13px; margin-bottom:5px;">সবার সাথে কথা বলুন, মুভির নাম শেয়ার করুন!</p>
+                <div id="chatBox" class="chat-container"></div>
+                <div style="display:flex; gap:8px; margin-top:15px;">
+                    <input type="text" id="chatInput" class="req-input" style="margin:0; padding:12px; font-size:14px;" placeholder="মেসেজ লিখুন...">
+                    <button class="btn-submit" style="width:auto; padding:0 20px; font-size:16px;" onclick="sendChatMessage()"><i class="fa-solid fa-paper-plane"></i></button>
+                </div>
+            </div>
+        </div>
+
+        <!-- --- NEW: Spin to Win Modal --- -->
+        <div id="spinModal" class="modal">
+            <div class="modal-content">
+                <div class="close-icon" onclick="document.getElementById('spinModal').style.display='none'"><i class="fa-solid fa-xmark"></i></div>
+                <h2 style="color:#fbbf24; font-size: 24px; margin-bottom:5px;"><i class="fa-solid fa-dharmachakra"></i> লাকি স্পিন</h2>
+                <p style="color:#cbd5e1; font-size:14px;">প্রতিদিন ৩ বার স্পিন করে ফ্রী কয়েন জিতে নিন! স্পিন করতে একটি অ্যাড দেখতে হবে।</p>
+                
+                <div class="spin-wrapper">
+                    <div class="pointer"></div>
+                    <div class="spin-center">SPIN</div>
+                    <div class="wheel" id="spinWheel">
+                        <!-- Slices will be rendered via JS -->
+                    </div>
+                </div>
+                
+                <p style="color:#4ade80; font-weight:bold; margin-bottom:15px;">আজকের স্পিন বাকি: <span id="spinsLeftText">...</span></p>
+                <button class="btn-submit" id="spinBtn" onclick="startSpin()" style="background: linear-gradient(45deg, #f59e0b, #d97706);"><i class="fa-solid fa-play"></i> স্পিন করুন</button>
+            </div>
+        </div>
+
+        <!-- --- NEW: Daily Missions Modal --- -->
+        <div id="tasksModal" class="modal">
+            <div class="modal-content">
+                <div class="close-icon" onclick="document.getElementById('tasksModal').style.display='none'"><i class="fa-solid fa-xmark"></i></div>
+                <h2 style="color:#f87171; font-size: 24px; margin-bottom:5px;"><i class="fa-solid fa-bullseye"></i> ডেইলি মিশন</h2>
+                <p style="color:#cbd5e1; font-size:14px; margin-bottom:15px;">প্রতিদিনের কাজগুলো সম্পূর্ণ করে এক্সট্রা কয়েন কালেক্ট করুন!</p>
+                
+                <div class="task-box">
+                    <div class="task-title"><span><i class="fa-solid fa-video text-pink-400"></i> ৩টি অ্যাড দেখুন</span> <span id="adTaskProgress">0/3</span></div>
+                    <div class="progress-bg"><div class="progress-fill" id="adTaskBar"></div></div>
+                    <button class="task-btn" id="adTaskBtn" disabled onclick="claimTaskReward('ads')">15 Coins Claim করুন</button>
+                </div>
+                
+                <div class="task-box">
+                    <div class="task-title"><span><i class="fa-solid fa-star text-yellow-400"></i> ২টি মুভি রিভিউ দিন</span> <span id="revTaskProgress">0/2</span></div>
+                    <div class="progress-bg"><div class="progress-fill" id="revTaskBar"></div></div>
+                    <button class="task-btn" id="revTaskBtn" disabled onclick="claimTaskReward('reviews')">10 Coins Claim করুন</button>
+                </div>
+            </div>
+        </div>
+
         <div id="adScreen" class="ad-screen">
             <div class="ad-step-text" id="adStepText">অ্যাড: 1/1</div>
             <div class="timer-ui" id="timerUI">
@@ -1127,22 +1273,6 @@ async def web_ui():
             </div>
         </div>
 
-        <!-- Request Board & Vote Modal -->
-        <div id="reqModal" class="modal">
-            <div class="modal-content" style="max-height: 90vh;">
-                <div class="close-icon" onclick="document.getElementById('reqModal').style.display='none'"><i class="fa-solid fa-xmark"></i></div>
-                <h2 style="color:white; font-size: 24px;">মুভি রিকোয়েস্ট ও ভোট 🗳️</h2>
-                <div style="display:flex; gap:10px; margin-top:15px;">
-                    <input type="text" id="reqText" class="req-input" style="margin:0;" placeholder="নতুন মুভির নাম...">
-                    <button class="btn-submit" style="width:auto; padding:0 20px;" onclick="sendReq()"><i class="fa-solid fa-plus"></i></button>
-                </div>
-                <p style="text-align:left; color:#94a3b8; font-size:14px; margin-top:15px; font-weight:bold;">ট্রেন্ডিং রিকোয়েস্ট:</p>
-                <div id="reqList" style="max-height: 40vh; overflow-y:auto; margin-top:10px; text-align:left; padding-right:5px;">
-                    <!-- Loading requests -->
-                </div>
-            </div>
-        </div>
-
         <!-- Ad SDK -->
         <script>
             const s = document.createElement('script');
@@ -1161,6 +1291,7 @@ async def web_ui():
             let uid = tg.initDataUnsafe?.user?.id || 0;
             let currentAdStep = 1; let activeFileId = null; let autoScrollInterval; let isTouching = false; let abortController = null;
             let isRewardAd = false;
+            let isSpinAd = false;
             
             const BKASH_NO = "{{BKASH_NO}}";
             const NAGAD_NO = "{{NAGAD_NO}}";
@@ -1305,7 +1436,7 @@ async def web_ui():
             
             function watchAdForCoins() {
                 document.getElementById('checkinModal').style.display = 'none';
-                isRewardAd = true;
+                isRewardAd = true; isSpinAd = false;
                 if (typeof window['show_' + ZONE_ID] === 'function') window['show_' + ZONE_ID]();
                 document.getElementById('adScreen').style.display = 'flex';
                 document.getElementById('timerUI').style.display = 'flex';
@@ -1495,7 +1626,7 @@ async def web_ui():
 
             function handleQualityClick(fileId, isUnlocked) {
                 closeQualityModal();
-                if(isUnlocked || isUserVip) { sendFile(fileId); } else { activeFileId = fileId; currentAdStep = 1; isRewardAd = false; startAdTimer(); }
+                if(isUnlocked || isUserVip) { sendFile(fileId); } else { activeFileId = fileId; currentAdStep = 1; isRewardAd = false; isSpinAd = false; startAdTimer(); }
             }
 
             function startAdTimer() {
@@ -1595,6 +1726,189 @@ async def web_ui():
                 } catch (e) {}
             }
 
+            // --- NEW: Global Chat Logic ---
+            let chatSocket = null;
+            function openChatModal() {
+                closeMenu();
+                document.getElementById('chatModal').style.display = 'flex';
+                const chatBox = document.getElementById('chatBox');
+                chatBox.innerHTML = "<p style='color:gray; text-align:center;'>Connecting...</p>";
+                
+                let protocol = window.location.protocol === "https:" ? "wss" : "ws";
+                chatSocket = new WebSocket(`${protocol}://${window.location.host}/ws/chat`);
+                
+                chatSocket.onopen = function(e) { chatBox.innerHTML = ""; };
+                chatSocket.onmessage = function(event) {
+                    const msg = JSON.parse(event.data);
+                    const isMine = msg.uid === uid;
+                    const div = document.createElement('div');
+                    div.className = `chat-msg ${isMine ? 'mine' : 'others'}`;
+                    div.innerHTML = `
+                        ${!isMine ? `<div class="chat-name">${msg.name}</div>` : ''}
+                        ${msg.text}
+                    `;
+                    chatBox.appendChild(div);
+                    chatBox.scrollTop = chatBox.scrollHeight;
+                };
+                chatSocket.onclose = function(event) {
+                    const div = document.createElement('div');
+                    div.innerHTML = "<p style='color:#ef4444; font-size:12px; text-align:center;'>Disconnected. Please reopen chat.</p>";
+                    chatBox.appendChild(div);
+                };
+            }
+            
+            function closeChat() {
+                document.getElementById('chatModal').style.display='none';
+                if(chatSocket) { chatSocket.close(); chatSocket = null; }
+            }
+
+            function sendChatMessage() {
+                const input = document.getElementById('chatInput');
+                const text = input.value.trim();
+                if(text && chatSocket && chatSocket.readyState === WebSocket.OPEN) {
+                    chatSocket.send(JSON.stringify({uid: uid, name: document.getElementById('uName').innerText, text: text}));
+                    input.value = "";
+                }
+            }
+
+            // --- NEW: Spin To Win Logic ---
+            const spinRewards = [5, 0, 10, 0, 50, 0];
+            const spinColors = ["#fecaca", "#fde68a", "#bbf7d0", "#bfdbfe", "#e9d5ff", "#fecdd3"];
+            let currentRotation = 0;
+            let spinsLeftToday = 3;
+
+            function renderWheel() {
+                const wheel = document.getElementById('spinWheel');
+                wheel.innerHTML = '';
+                for(let i=0; i<6; i++) {
+                    const slice = document.createElement('div');
+                    slice.className = 'wheel-slice';
+                    slice.style.transform = `rotate(${i * 60}deg) skewY(30deg)`;
+                    slice.innerHTML = `<span style="transform: skewY(-30deg) rotate(30deg) translate(40px, -40px); display:block; text-align:center;">${spinRewards[i] ? spinRewards[i]+'🪙' : 'Oops!'}</span>`;
+                    wheel.appendChild(slice);
+                }
+            }
+            renderWheel();
+
+            async function openSpinModal() {
+                closeMenu();
+                document.getElementById('spinModal').style.display = 'flex';
+                try {
+                    const res = await fetch('/api/spin/status/' + uid);
+                    const data = await res.json();
+                    spinsLeftToday = data.spins_left;
+                    document.getElementById('spinsLeftText').innerText = spinsLeftToday;
+                    document.getElementById('spinBtn').disabled = spinsLeftToday <= 0;
+                } catch(e) {}
+            }
+
+            function startSpin() {
+                if(spinsLeftToday <= 0) return tg.showAlert("আপনি আজকের স্পিন লিমিট শেষ করেছেন!");
+                
+                document.getElementById('spinModal').style.display = 'none';
+                isSpinAd = true; isRewardAd = false;
+                
+                // Show Ad First
+                if (typeof window['show_' + ZONE_ID] === 'function') window['show_' + ZONE_ID]();
+                document.getElementById('adScreen').style.display = 'flex';
+                document.getElementById('timerUI').style.display = 'flex';
+                document.getElementById('nextAdBtn').style.display = 'none';
+                document.getElementById('adStepText').innerText = `স্পিন করার জন্য অ্যাড দেখুন`;
+                
+                let t = 10; document.getElementById('timer').innerText = t;
+                let iv = setInterval(() => {
+                    t--; document.getElementById('timer').innerText = t;
+                    if(t <= 0) { 
+                        clearInterval(iv); 
+                        document.getElementById('adScreen').style.display = 'none';
+                        executeSpin();
+                    }
+                }, 1000);
+            }
+
+            async function executeSpin() {
+                document.getElementById('spinModal').style.display = 'flex';
+                document.getElementById('spinBtn').disabled = true;
+                
+                // Random outcome
+                const winIndex = Math.floor(Math.random() * 6);
+                const reward = spinRewards[winIndex];
+                
+                // Calculate Rotation
+                const sliceAngle = 360 / 6;
+                const targetAngle = (360 - (winIndex * sliceAngle)) - (sliceAngle / 2);
+                currentRotation += 360 * 5; // 5 full spins
+                const finalRotation = currentRotation + targetAngle;
+                
+                document.getElementById('spinWheel').style.transform = `rotate(${finalRotation}deg)`;
+                
+                setTimeout(async () => {
+                    try {
+                        const res = await fetch('/api/spin', {
+                            method: 'POST', headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({uid: uid, reward: reward, initData: INIT_DATA})
+                        });
+                        const data = await res.json();
+                        if(data.ok) {
+                            spinsLeftToday = data.spins_left;
+                            document.getElementById('spinsLeftText').innerText = spinsLeftToday;
+                            if(reward > 0) { tg.showAlert(`🎉 অভিনন্দন! আপনি ${reward} কয়েন জিতেছেন!`); fetchUserInfo(); }
+                            else { tg.showAlert(`😔 Better luck next time!`); }
+                        } else { tg.showAlert(data.msg); }
+                    } catch(e) {}
+                    document.getElementById('spinBtn').disabled = spinsLeftToday <= 0;
+                }, 4100);
+            }
+
+            // --- NEW: Daily Tasks Logic ---
+            async function openTasksModal() {
+                closeMenu();
+                document.getElementById('tasksModal').style.display = 'flex';
+                loadTasks();
+            }
+
+            async function loadTasks() {
+                try {
+                    const res = await fetch('/api/tasks/' + uid);
+                    const data = await res.json();
+                    
+                    let adCount = Math.min(data.ads, 3);
+                    let revCount = Math.min(data.reviews, 2);
+                    
+                    document.getElementById('adTaskProgress').innerText = `${adCount}/3`;
+                    document.getElementById('adTaskBar').style.width = `${(adCount/3)*100}%`;
+                    const adBtn = document.getElementById('adTaskBtn');
+                    
+                    if(data.ads_claimed) { adBtn.innerText = "Claimed ✅"; adBtn.className = "task-btn claimed"; adBtn.disabled = true; }
+                    else if(adCount >= 3) { adBtn.innerText = "Claim 15 Coins!"; adBtn.className = "task-btn"; adBtn.disabled = false; }
+                    else { adBtn.innerText = "15 Coins Claim করুন"; adBtn.className = "task-btn"; adBtn.disabled = true; }
+                    
+                    document.getElementById('revTaskProgress').innerText = `${revCount}/2`;
+                    document.getElementById('revTaskBar').style.width = `${(revCount/2)*100}%`;
+                    const revBtn = document.getElementById('revTaskBtn');
+                    
+                    if(data.reviews_claimed) { revBtn.innerText = "Claimed ✅"; revBtn.className = "task-btn claimed"; revBtn.disabled = true; }
+                    else if(revCount >= 2) { revBtn.innerText = "Claim 10 Coins!"; revBtn.className = "task-btn"; revBtn.disabled = false; }
+                    else { revBtn.innerText = "10 Coins Claim করুন"; revBtn.className = "task-btn"; revBtn.disabled = true; }
+                    
+                } catch(e) {}
+            }
+
+            async function claimTaskReward(type) {
+                try {
+                    const res = await fetch('/api/tasks/claim', {
+                        method: 'POST', headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({uid: uid, task_type: type, initData: INIT_DATA})
+                    });
+                    const data = await res.json();
+                    if(data.ok) {
+                        tg.showAlert(`🎉 অভিনন্দন! আপনি ${type === 'ads' ? '15' : '10'} Coins পেয়েছেন!`);
+                        fetchUserInfo();
+                        loadTasks();
+                    } else { tg.showAlert(data.msg); }
+                } catch(e) {}
+            }
+
             fetchUserInfo(); loadTrending(); loadUpcoming(); loadMovies(1); 
         </script>
     </body>
@@ -1640,6 +1954,20 @@ async def get_user_info(uid: int):
         "badges": badges
     }
 
+# --- DAILY TASKS UPDATE HELPER ---
+async def update_daily_task(uid: int, task_type: str):
+    now_date = datetime.datetime.utcnow().strftime("%Y-%m-%d")
+    user = await db.users.find_one({"user_id": uid})
+    if not user: return
+    
+    tasks = user.get("tasks", {})
+    if tasks.get("date") != now_date:
+        tasks = {"date": now_date, "ads": 0, "reviews": 0, "ads_claimed": False, "reviews_claimed": False}
+    
+    if task_type in tasks:
+        tasks[task_type] += 1
+        await db.users.update_one({"user_id": uid}, {"$set": {"tasks": tasks}})
+
 # --- REVIEWS API ---
 class ReviewModel(BaseModel):
     uid: int
@@ -1661,6 +1989,8 @@ async def add_review(data: ReviewModel):
         "user_id": data.uid, "name": data.name, "movie_title": data.title,
         "rating": data.rating, "comment": data.comment, "created_at": datetime.datetime.utcnow()
     })
+    # Update Daily Task
+    await update_daily_task(data.uid, "reviews")
     return {"ok": True}
 
 # --- CHECK-IN API ---
@@ -1868,6 +2198,8 @@ class AdRewardModel(BaseModel):
 async def reward_ad(data: AdRewardModel):
     if not validate_tg_data(data.initData): return {"ok": False}
     await db.users.update_one({"user_id": data.uid}, {"$inc": {"coins": 5}})
+    # Update Daily Task
+    await update_daily_task(data.uid, "ads")
     return {"ok": True}
 
 @app.get("/api/requests")
@@ -1906,12 +2238,13 @@ async def handle_request(data: ReqModel):
         if data.uid not in existing.get("voters", []):
             await db.requests.update_one({"_id": existing["_id"]}, {"$inc": {"votes": 1}, "$push": {"voters": data.uid}})
     else:
-        await db.requests.insert_one({
+        res = await db.requests.insert_one({
             "user_id": data.uid, "uname": data.uname, "movie": data.movie,
             "votes": 1, "voters": [data.uid], "created_at": datetime.datetime.utcnow()
         })
+        req_id = str(res.inserted_id)
         
-        # Send notification to Admin
+        # Send notification to Admin with Approve/Reject buttons
         try: 
             now = datetime.datetime.utcnow()
             user_data = await db.users.find_one({"user_id": data.uid})
@@ -1921,11 +2254,117 @@ async def handle_request(data: ReqModel):
             vip_text = "🌟 <b>[VIP Member]</b>" if is_vip else "👤 [Free User]"
             
             builder = InlineKeyboardBuilder()
-            builder.button(text="✍️ রিপ্লাই দিন", callback_data=f"reply_{data.uid}")
+            builder.button(text="✅ Approve", callback_data=f"req_acc_{req_id}")
+            builder.button(text="❌ Reject", callback_data=f"req_rej_{req_id}")
+            builder.button(text="✍️ রিপ্লাই", callback_data=f"reply_{data.uid}")
+            
             await bot.send_message(OWNER_ID, f"🔔 <b>নতুন মুভি রিকোয়েস্ট!</b>\n\n{vip_text}\nইউজার: {data.uname} (<code>{data.uid}</code>)\n🎬 মুভির নাম: <b>{data.movie}</b>", parse_mode="HTML", reply_markup=builder.as_markup())
         except Exception: pass
     
     return {"ok": True}
+
+# --- NEW: Live Chat WebSocket API ---
+@app.websocket("/ws/chat")
+async def websocket_endpoint(websocket: WebSocket):
+    await manager.connect(websocket)
+    
+    # Load last 15 messages when someone joins
+    last_msgs = await db.chat.find().sort("timestamp", -1).limit(15).to_list(15)
+    last_msgs.reverse()
+    for msg in last_msgs:
+        msg['_id'] = str(msg['_id'])
+        msg['timestamp'] = msg['timestamp'].isoformat()
+        await websocket.send_json(msg)
+        
+    try:
+        while True:
+            data = await websocket.receive_json()
+            new_msg = {
+                "uid": data["uid"],
+                "name": data["name"],
+                "text": data["text"],
+                "timestamp": datetime.datetime.utcnow()
+            }
+            res = await db.chat.insert_one(new_msg.copy())
+            new_msg['_id'] = str(res.inserted_id)
+            new_msg['timestamp'] = new_msg['timestamp'].isoformat()
+            await manager.broadcast(new_msg)
+    except WebSocketDisconnect:
+        manager.disconnect(websocket)
+
+# --- NEW: Spin API ---
+class SpinModel(BaseModel):
+    uid: int
+    reward: int
+    initData: str
+
+@app.get("/api/spin/status/{uid}")
+async def get_spin_status(uid: int):
+    now_date = datetime.datetime.utcnow().strftime("%Y-%m-%d")
+    user = await db.users.find_one({"user_id": uid})
+    if not user: return {"spins_left": 0}
+    
+    spin_data = user.get("spin", {"date": "", "count": 0})
+    if spin_data["date"] != now_date:
+        return {"spins_left": 3}
+    return {"spins_left": max(0, 3 - spin_data["count"])}
+
+@app.post("/api/spin")
+async def handle_spin(data: SpinModel):
+    if not validate_tg_data(data.initData): return {"ok": False}
+    now_date = datetime.datetime.utcnow().strftime("%Y-%m-%d")
+    user = await db.users.find_one({"user_id": data.uid})
+    
+    spin_data = user.get("spin", {"date": "", "count": 0})
+    if spin_data["date"] != now_date:
+        spin_data = {"date": now_date, "count": 0}
+        
+    if spin_data["count"] >= 3:
+        return {"ok": False, "msg": "আপনি আজকের স্পিন লিমিট শেষ করেছেন!"}
+        
+    spin_data["count"] += 1
+    await db.users.update_one(
+        {"user_id": data.uid}, 
+        {"$set": {"spin": spin_data}, "$inc": {"coins": data.reward}}
+    )
+    return {"ok": True, "spins_left": max(0, 3 - spin_data["count"])}
+
+# --- NEW: Daily Tasks API ---
+class TaskClaimModel(BaseModel):
+    uid: int
+    task_type: str
+    initData: str
+
+@app.get("/api/tasks/{uid}")
+async def get_tasks(uid: int):
+    now_date = datetime.datetime.utcnow().strftime("%Y-%m-%d")
+    user = await db.users.find_one({"user_id": uid})
+    if not user: return {"ads": 0, "reviews": 0, "ads_claimed": False, "reviews_claimed": False}
+    
+    tasks = user.get("tasks", {})
+    if tasks.get("date") != now_date:
+        return {"ads": 0, "reviews": 0, "ads_claimed": False, "reviews_claimed": False}
+    return tasks
+
+@app.post("/api/tasks/claim")
+async def claim_task(data: TaskClaimModel):
+    if not validate_tg_data(data.initData): return {"ok": False}
+    now_date = datetime.datetime.utcnow().strftime("%Y-%m-%d")
+    user = await db.users.find_one({"user_id": data.uid})
+    
+    tasks = user.get("tasks", {})
+    if tasks.get("date") != now_date:
+        return {"ok": False, "msg": "মিশন সম্পূর্ণ হয়নি!"}
+        
+    if data.task_type == "ads" and tasks.get("ads", 0) >= 3 and not tasks.get("ads_claimed"):
+        await db.users.update_one({"user_id": data.uid}, {"$set": {"tasks.ads_claimed": True}, "$inc": {"coins": 15}})
+        return {"ok": True}
+        
+    if data.task_type == "reviews" and tasks.get("reviews", 0) >= 2 and not tasks.get("reviews_claimed"):
+        await db.users.update_one({"user_id": data.uid}, {"$set": {"tasks.reviews_claimed": True}, "$inc": {"coins": 10}})
+        return {"ok": True}
+        
+    return {"ok": False, "msg": "ইতিমধ্যে ক্লেইম করা হয়েছে বা মিশন সম্পূর্ণ হয়নি!"}
 
 # ==========================================
 # 15. Main Application Startup
