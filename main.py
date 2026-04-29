@@ -18,7 +18,7 @@ except RuntimeError:
     asyncio.set_event_loop(asyncio.new_event_loop())
 # ==========================================
 
-from fastapi import FastAPI, Body, Request, Depends, HTTPException, status, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Body, Request, Depends, HTTPException, status
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
@@ -63,27 +63,6 @@ db = client['movie_database']
 
 admin_cache = set([OWNER_ID]) 
 banned_cache = set() 
-
-# --- NEW: WebSocket Connection Manager for Live Chat ---
-class ConnectionManager:
-    def __init__(self):
-        self.active_connections: list[WebSocket] = []
-
-    async def connect(self, websocket: WebSocket):
-        await websocket.accept()
-        self.active_connections.append(websocket)
-
-    def disconnect(self, websocket: WebSocket):
-        if websocket in self.active_connections:
-            self.active_connections.remove(websocket)
-
-    async def broadcast(self, message: dict):
-        for connection in self.active_connections:
-            try:
-                await connection.send_json(message)
-            except:
-                pass
-manager = ConnectionManager()
 
 
 # ==========================================
@@ -311,7 +290,7 @@ async def del_movie_cmd(m: types.Message):
         if result.deleted_count > 0:
             await m.answer(f"✅ '<b>{title}</b>' নামের {result.deleted_count} টি ফাইল সফলভাবে ডিলিট হয়েছে!", parse_mode="HTML")
         else:
-            await m.answer("⚠️ এই নামের কোনো মুভি ডাটাবেসে পাওয়া যায়নি। (নাম হুবহু মিলতে হবে)")
+            await m.answer("⚠️ এই নামের কোনো মুভি ডাটাবেসে পাওয়া মিলিটারি পাওয়া যায়নি। (নাম হুবহু মিলতে হবে)")
     except Exception: 
         await m.answer("⚠️ সঠিক নিয়ম: <code>/delmovie মুভির সম্পূর্ণ নাম</code>", parse_mode="HTML")
 
@@ -461,7 +440,7 @@ async def add_vip_cmd(m: types.Message):
         await m.answer(f"✅ ইউজার <code>{target_uid}</code> কে সফলভাবে <b>{days} দিনের</b> VIP দেওয়া হয়েছে!", parse_mode="HTML")
         
         try:
-            await bot.send_message(target_uid, f"🎉 <b>অভিনন্দন!</b> অ্যাডমিন আপনাকে <b>{days} দিনের</b> জন্য VIP মেম্বারশিপ দিয়েছেন।\n\nএখন আপনি কোনো অ্যাড ছাড়াই মুভি ডাউনলোড করতে পারবেন এবং আপনার ফাইল কখনো অটো-ডিলিট হবে কাশী হবে না!", parse_mode="HTML")
+            await bot.send_message(target_uid, f"🎉 <b>অভিনন্দন!</b> অ্যাডমিন আপনাকে <b>{days} দিনের</b> জন্য VIP মেম্বারশিপ দিয়েছেন।\n\nএখন আপনি কোনো অ্যাড ছাড়াই মুভি ডাউনলোড করতে পারবেন এবং আপনার ফাইল কখনো অটো-ডিলিট হবে না!", parse_mode="HTML")
         except Exception: pass
     except Exception: 
         await m.answer("⚠️ সঠিক নিয়ম: <code>/addvip ইউজার_আইডি দিন</code>\nউদাহরণ: <code>/addvip 123456789 30</code>", parse_mode="HTML")
@@ -514,7 +493,7 @@ async def handle_trx_approval(c: types.CallbackQuery):
     else:
         await db.payments.update_one({"_id": ObjectId(pay_id)}, {"$set": {"status": "rejected"}})
         await c.message.edit_text(c.message.text + "\n\n❌ <b>পেমেন্ট রিজেক্ট করা হয়েছে!</b>", parse_mode="HTML")
-        try: await bot.send_message(user_id, f"❌ <b>দুঃখিত!</b> আপনার পেমেন্ট (TrxID: {payment['trx_id']}) বাতিল করা গঠন করা হয়েছে। তথ্যে ভুল থাকলে সাপোর্ট অ্যাডমিনের সাথে যোগাযোগ করুন।", parse_mode="HTML")
+        try: await bot.send_message(user_id, f"❌ <b>দুঃখিত!</b> আপনার পেমেন্ট (TrxID: {payment['trx_id']}) বাতিল করা হয়েছে। তথ্যে ভুল থাকলে সাপোর্ট অ্যাডমিনের সাথে যোগাযোগ করুন।", parse_mode="HTML")
         except: pass
 
 # --- NEW: Request Approve/Reject Notification Logic ---
@@ -1122,7 +1101,7 @@ async def web_ui():
                 
                 <button class="btn-submit" style="background: linear-gradient(45deg, #3b82f6, #2563eb); margin-bottom: 10px;" onclick="claimCheckin()">আজকের ১০ কয়েন সংগ্রহ করুন</button>
                 <button class="btn-submit" style="background: linear-gradient(45deg, #8b5cf6, #6d28d9); margin-bottom: 10px;" onclick="watchAdForCoins()"><i class="fa-solid fa-video"></i> অ্যাড দেখে ৫ কয়েন আয় করুন</button>
-                <button class="btn-submit" style="background: linear-gradient(45deg, #f59e0b, #d97706); color:black;" onclick="convertCoins()"><i class="fa-solid fa-crown"></i> কয়েন দিয়ে VIP কিনুন (50)</button>
+                <button class="btn-submit" style="background: linear-gradient(45deg, #f59e0b, #d97706); color:black;" onclick="convertCoins()"><i class="fa-solid fa-crown"></i> কয়েন দিয়ে VIP কিনুন (50)</button>
             </div>
         </div>
 
@@ -1131,7 +1110,7 @@ async def web_ui():
             <div class="modal-content">
                 <div class="close-icon" onclick="document.getElementById('vipModal').style.display='none'"><i class="fa-solid fa-xmark"></i></div>
                 <h2 style="color:#fbbf24; font-size: 24px; margin-bottom:10px;"><i class="fa-solid fa-crown"></i> VIP প্যাকেজ কিনুন</h2>
-                <p style="color:#cbd5e1; font-size:14.5px; margin-bottom:15px; line-height: 1.4;">পেমেন্ট করে VIP প্যাকেজ কিনুন। ফাইল অটো-ডিলিট হবে না এবং কোনো অ্যাড দেখতে হবে കട!</p>
+                <p style="color:#cbd5e1; font-size:14.5px; margin-bottom:15px; line-height: 1.4;">পেমেন্ট করে VIP প্যাকেজ কিনুন। ফাইল অটো-ডিলিট হবে না এবং কোনো অ্যাড দেখতে হবে না!</p>
                 
                 <div style="display:flex; justify-content:space-between; margin-bottom: 15px;">
                     <button class="method-btn" style="background:#e11471; box-shadow: 0 4px 10px rgba(225,20,113,0.4);" onclick="selectPayment('bkash')">bKash</button>
@@ -1726,49 +1705,70 @@ async def web_ui():
                 } catch (e) {}
             }
 
-            // --- NEW: Global Chat Logic ---
-            let chatSocket = null;
+            // --- NEW: Global Chat Logic (HTTP Polling - 100% Working on all Hosts) ---
+            let chatInterval = null;
+
+            async function fetchChatMessages() {
+                try {
+                    const res = await fetch('/api/chat');
+                    const data = await res.json();
+                    const chatBox = document.getElementById('chatBox');
+                    
+                    let html = "";
+                    data.forEach(msg => {
+                        const isMine = msg.uid === uid;
+                        html += `
+                            <div class="chat-msg ${isMine ? 'mine' : 'others'}">
+                                ${!isMine ? `<div class="chat-name">${msg.name}</div>` : ''}
+                                ${msg.text}
+                            </div>
+                        `;
+                    });
+                    
+                    // To keep scroll at bottom naturally
+                    const isScrolledToBottom = chatBox.scrollHeight - chatBox.clientHeight <= chatBox.scrollTop + 10;
+                    chatBox.innerHTML = html;
+                    if(isScrolledToBottom) chatBox.scrollTop = chatBox.scrollHeight;
+                    
+                } catch(e) {}
+            }
+
             function openChatModal() {
                 closeMenu();
                 document.getElementById('chatModal').style.display = 'flex';
-                const chatBox = document.getElementById('chatBox');
-                chatBox.innerHTML = "<p style='color:gray; text-align:center;'>Connecting...</p>";
-                
-                let protocol = window.location.protocol === "https:" ? "wss" : "ws";
-                chatSocket = new WebSocket(`${protocol}://${window.location.host}/ws/chat`);
-                
-                chatSocket.onopen = function(e) { chatBox.innerHTML = ""; };
-                chatSocket.onmessage = function(event) {
-                    const msg = JSON.parse(event.data);
-                    const isMine = msg.uid === uid;
-                    const div = document.createElement('div');
-                    div.className = `chat-msg ${isMine ? 'mine' : 'others'}`;
-                    div.innerHTML = `
-                        ${!isMine ? `<div class="chat-name">${msg.name}</div>` : ''}
-                        ${msg.text}
-                    `;
-                    chatBox.appendChild(div);
-                    chatBox.scrollTop = chatBox.scrollHeight;
-                };
-                chatSocket.onclose = function(event) {
-                    const div = document.createElement('div');
-                    div.innerHTML = "<p style='color:#ef4444; font-size:12px; text-align:center;'>Disconnected. Please reopen chat.</p>";
-                    chatBox.appendChild(div);
-                };
+                document.getElementById('chatBox').innerHTML = "<p style='color:gray; text-align:center;'>Loading chat...</p>";
+                fetchChatMessages();
+                // Check for new messages every 3 seconds
+                chatInterval = setInterval(fetchChatMessages, 3000);
             }
             
             function closeChat() {
                 document.getElementById('chatModal').style.display='none';
-                if(chatSocket) { chatSocket.close(); chatSocket = null; }
+                if(chatInterval) { clearInterval(chatInterval); chatInterval = null; }
             }
 
-            function sendChatMessage() {
+            async function sendChatMessage() {
                 const input = document.getElementById('chatInput');
                 const text = input.value.trim();
-                if(text && chatSocket && chatSocket.readyState === WebSocket.OPEN) {
-                    chatSocket.send(JSON.stringify({uid: uid, name: document.getElementById('uName').innerText, text: text}));
-                    input.value = "";
-                }
+                if(!text) return;
+                
+                input.value = "";
+                const chatBox = document.getElementById('chatBox');
+                
+                // Show message instantly for the user (Optimistic UI)
+                const div = document.createElement('div');
+                div.className = `chat-msg mine`;
+                div.innerHTML = text;
+                chatBox.appendChild(div);
+                chatBox.scrollTop = chatBox.scrollHeight;
+
+                try {
+                    await fetch('/api/chat', {
+                        method: 'POST', headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({uid: uid, name: document.getElementById('uName').innerText, text: text, initData: INIT_DATA})
+                    });
+                    fetchChatMessages();
+                } catch(e) {}
             }
 
             // --- NEW: Spin To Win Logic ---
@@ -2263,34 +2263,29 @@ async def handle_request(data: ReqModel):
     
     return {"ok": True}
 
-# --- NEW: Live Chat WebSocket API ---
-@app.websocket("/ws/chat")
-async def websocket_endpoint(websocket: WebSocket):
-    await manager.connect(websocket)
-    
-    # Load last 15 messages when someone joins
-    last_msgs = await db.chat.find().sort("timestamp", -1).limit(15).to_list(15)
-    last_msgs.reverse()
-    for msg in last_msgs:
-        msg['_id'] = str(msg['_id'])
-        msg['timestamp'] = msg['timestamp'].isoformat()
-        await websocket.send_json(msg)
-        
-    try:
-        while True:
-            data = await websocket.receive_json()
-            new_msg = {
-                "uid": data["uid"],
-                "name": data["name"],
-                "text": data["text"],
-                "timestamp": datetime.datetime.utcnow()
-            }
-            res = await db.chat.insert_one(new_msg.copy())
-            new_msg['_id'] = str(res.inserted_id)
-            new_msg['timestamp'] = new_msg['timestamp'].isoformat()
-            await manager.broadcast(new_msg)
-    except WebSocketDisconnect:
-        manager.disconnect(websocket)
+# --- NEW: Live Chat HTTP API (Works on Vercel/Any Hosting) ---
+class ChatMsgModel(BaseModel):
+    uid: int
+    name: str
+    text: str
+    initData: str
+
+@app.get("/api/chat")
+async def get_chat():
+    msgs = await db.chat.find().sort("timestamp", -1).limit(50).to_list(50)
+    msgs.reverse()
+    return [{"uid": m["uid"], "name": m.get("name", "User"), "text": m["text"]} for m in msgs]
+
+@app.post("/api/chat")
+async def post_chat(data: ChatMsgModel):
+    if not validate_tg_data(data.initData): return {"ok": False}
+    await db.chat.insert_one({
+        "uid": data.uid,
+        "name": data.name,
+        "text": data.text,
+        "timestamp": datetime.datetime.utcnow()
+    })
+    return {"ok": True}
 
 # --- NEW: Spin API ---
 class SpinModel(BaseModel):
