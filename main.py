@@ -209,8 +209,8 @@ async def start_cmd(message: types.Message, state: FSMContext):
             "👋 <b>হ্যালো অ্যাডমিন!</b>\n\n"
             "⚙️ <b>কমান্ড:</b>\n"
             "🔸 অ্যাডমিন প্যানেল: <code>/addadmin ID</code> | <code>/deladmin ID</code> | <code>/adminlist</code>\n"
-            "🔸 ডাইরেক্ট লিংক অ্যাড: <code>/addlink লিংক</code>\n"
-            "🔸 লিংক ডিলিট ও লিস্ট: <code>/dellink লিংক</code> | <code>/seelinks</code>\n"
+            "🔸 ডাইরেক্ট লিংক: <code>/addlink লিংক</code> | <code>/dellink লিংক</code> | <code>/seelinks</code>\n"
+            "🔸 অ্যাড জোন: <code>/setad ID</code> | অ্যাড সংখ্যা: <code>/setadcount সংখ্যা</code>\n"
             "🔸 টেলিগ্রাম: <code>/settg লিংক</code> | 18+: <code>/set18 লিংক</code>\n"
             "🔸 পেমেন্ট নাম্বার সেট: <code>/setbkash নাম্বার</code> | <code>/setnagad নাম্বার</code>\n"
             "🔸 প্রোটেকশন: <code>/protect on</code> বা <code>/protect off</code>\n"
@@ -373,6 +373,17 @@ async def unban_user_cmd(m: types.Message):
     except Exception: 
         await m.answer("⚠️ সঠিক নিয়ম: <code>/unban ইউজার_আইডি</code>", parse_mode="HTML")
 
+@dp.message(Command("setadcount"))
+async def set_ad_count_cmd(m: types.Message):
+    if m.from_user.id not in admin_cache: return
+    try:
+        count = int(m.text.split(" ")[1])
+        count = max(1, count)
+        await db.settings.update_one({"id": "ad_count"}, {"$set": {"count": count}}, upsert=True)
+        await m.answer(f"✅ অ্যাড দেখার সংখ্যা সেট করা হয়েছে: <b>{count} টি</b>।", parse_mode="HTML")
+    except Exception: 
+        await m.answer("⚠️ সঠিক নিয়ম: <code>/setadcount 3</code>", parse_mode="HTML")
+
 @dp.message(Command("protect"))
 async def protect_cmd(m: types.Message):
     if m.from_user.id not in admin_cache: return
@@ -396,6 +407,16 @@ async def set_del_time(m: types.Message):
         await m.answer("✅ অটো-ডিলিট টাইম সেট করা হয়েছে।")
     except Exception: 
         await m.answer("⚠️ সঠিক নিয়ম: <code>/settime 60</code> (মিনিট)", parse_mode="HTML")
+
+@dp.message(Command("setad"))
+async def set_ad(m: types.Message):
+    if m.from_user.id not in admin_cache: return
+    try:
+        zone = m.text.split(" ")[1]
+        await db.settings.update_one({"id": "ad_config"}, {"$set": {"zone_id": zone}}, upsert=True)
+        await m.answer("✅ জোন আপডেট হয়েছে।")
+    except Exception: 
+        await m.answer("⚠️ সঠিক নিয়ম: <code>/setad 1234567</code>")
 
 @dp.message(Command("settg"))
 async def set_tg_link(m: types.Message):
@@ -535,7 +556,7 @@ async def handle_request_approval(c: types.CallbackQuery):
     elif action == "rej":
         await c.message.edit_text(c.message.text + "\n\n❌ <b>Reject করা হয়েছে!</b>", parse_mode="HTML")
         for v_id in voters:
-            try: await bot.send_message(v_id, f"❌ <b>দুঃখিত!</b> আপনার রিকোয়েস্ট করা মুভি <b>{movie_name}</b> এই মুহূর্তে আপলোড করা সম্ভব হচ্ছে না (হয়তো কোয়ালিটি ভালো না বা পাওয়া যায়নি)।", parse_mode="HTML")
+            try: await bot.send_message(v_id, f"❌ <b>দুঃখিত!</b> আপনার রিকোয়েস্ট করা মুভি <b>{movie_name}</b> এই মুহূর্তে আপলোড করা সম্ভব হচ্ছেবিধা (হয়তো কোয়ালিটি ভালো না বা পাওয়া যায়নি)।", parse_mode="HTML")
             except: pass
         await db.requests.delete_one({"_id": ObjectId(req_id)})
 
@@ -887,18 +908,23 @@ async def edit_movie_api(title: str, data: dict = Body(...), auth: bool = Depend
 # ==========================================
 @app.get("/", response_class=HTMLResponse)
 async def web_ui():
+    ad_cfg = await db.settings.find_one({"id": "ad_config"})
     tg_cfg = await db.settings.find_one({"id": "link_tg"})
     b18_cfg = await db.settings.find_one({"id": "link_18"})
+    ad_count_cfg = await db.settings.find_one({"id": "ad_count"})
     bkash_cfg = await db.settings.find_one({"id": "bkash_no"})
     nagad_cfg = await db.settings.find_one({"id": "nagad_no"})
     dl_cfg = await db.settings.find_one({"id": "direct_links"})
     
+    zone_id = ad_cfg['zone_id'] if ad_cfg else "10916755"
     tg_url = tg_cfg['url'] if tg_cfg else "https://t.me/MovieeBD"
     link_18 = b18_cfg['url'] if b18_cfg else "https://t.me/MovieeBD"
+    required_ads = ad_count_cfg['count'] if ad_count_cfg else 1
+    
     bkash_no = bkash_cfg['number'] if bkash_cfg else "Not Set"
     nagad_no = nagad_cfg['number'] if nagad_cfg else "Not Set"
     
-    direct_links = dl_cfg['links'] if dl_cfg and 'links' in dl_cfg else []
+    direct_links = dl_cfg.get('links', []) if dl_cfg else []
     dl_json = json.dumps(direct_links)
 
     html_code = r"""
@@ -987,14 +1013,18 @@ async def web_ui():
             .rgb-border:active { transform: scale(0.98); }
             .rgb-inner { display: flex; justify-content: space-between; align-items: center; background: #0f172a; padding: 16px; border-radius: 12px; width: 100%; color: white; font-weight: bold; font-size: 16px; }
 
+            .close-btn { background: #334155; color: white; padding: 12px 20px; border-radius: 12px; margin-top: 15px; border: none; width: 100%; font-weight: bold; font-size: 16px; cursor: pointer; }
+            .req-input { width: 100%; padding: 16px; margin: 20px 0; border-radius: 12px; border: 2px solid #334155; background: #0f172a; color: white; outline: none; font-size: 16px; font-weight: bold; }
             .btn-submit { background: linear-gradient(45deg, #10b981, #059669); color: white; border: none; padding: 15px 20px; border-radius: 12px; font-weight: bold; width: 100%; font-size: 18px; cursor: pointer; transition: 0.3s; }
             .btn-submit:active { transform: scale(0.95); }
-            .btn-submit:disabled { background: #475569 !important; color: #94a3b8 !important; cursor: not-allowed; box-shadow: none !important; }
-
             .notice-box { background: linear-gradient(135deg, rgba(248,113,113,0.15), rgba(220,38,38,0.25)); border-left: 5px solid #ef4444; padding: 15px; text-align: left; margin: 25px 0; border-radius: 8px; }
             .notice-box p { color: #fecaca; font-size: 16.5px; font-weight: bold; margin: 0; line-height: 1.6; text-shadow: 0 1px 3px rgba(0,0,0,0.5); }
             .refer-box { background: #0f172a; padding: 15px; border-radius: 10px; border: 1px dashed #3b82f6; margin: 15px 0; font-size: 14px; word-break: break-all; color: #93c5fd; }
-            
+
+            /* Direct Link RGB Modal Custom CSS */
+            .dl-rgb-wrap { position: relative; border: none; background: linear-gradient(45deg, #ff0000, #ff7300, #fffb00, #48ff00, #00ffd5, #002bff, #7a00ff, #ff00c8, #ff0000); background-size: 400%; animation: glowing 8s linear infinite; padding: 4px; border-radius: 16px; width: 100%; max-width: 350px; margin: auto; }
+            .dl-inner-box { background: rgba(15, 23, 42, 0.98); border-radius: 12px; padding: 30px 20px; display: flex; flex-direction: column; align-items: center; gap: 15px; }
+
             .vip-tag { background: linear-gradient(45deg, #fbbf24, #f59e0b); color: #000; font-size: 12px; padding: 3px 8px; border-radius: 12px; font-weight: bold; display: none; margin-left:5px; box-shadow: 0 0 10px rgba(251,191,36,0.5); }
             
             /* CSS FOR FEATURES */
@@ -1024,7 +1054,6 @@ async def web_ui():
             .pkg-label input { margin-right: 10px; transform: scale(1.2); }
 
             /* Chat CSS */
-            .req-input { width: 100%; padding: 16px; margin: 20px 0; border-radius: 12px; border: 2px solid #334155; background: #0f172a; color: white; outline: none; font-size: 16px; font-weight: bold; }
             .chat-container { height: 350px; overflow-y: auto; background: #0f172a; border-radius: 10px; border: 1px solid #334155; padding: 10px; margin-top: 15px; text-align: left; display: flex; flex-direction: column; gap: 8px; }
             .chat-msg { background: #1e293b; padding: 8px 12px; border-radius: 12px; font-size: 14px; width: fit-content; max-width: 85%; word-break: break-word; position: relative; }
             .chat-msg.mine { background: #3b82f6; color: white; align-self: flex-end; border-bottom-right-radius: 2px; }
@@ -1033,15 +1062,20 @@ async def web_ui():
             .chat-reply-btn { font-size: 12px; color: #94a3b8; cursor: pointer; margin-left: 10px; float: right; padding: 2px 5px; }
             .chat-reply-btn:hover { color: #fbbf24; }
             
-            /* Spin CSS */
+            /* Spin CSS (FIXED FOR 8 SLICES) */
             .spin-wrapper { position: relative; width: 250px; height: 250px; margin: 20px auto; border-radius: 50%; border: 8px solid #334155; overflow: hidden; box-shadow: 0 0 30px rgba(251,191,36,0.3); }
             .wheel { 
                 position: relative; width: 100%; height: 100%; border-radius: 50%; 
                 transition: transform 4s cubic-bezier(0.1, 0.7, 0.1, 1); 
                 background: conic-gradient(
-                    #ff9a9e 0deg 45deg, #fecfef 45deg 90deg, #a18cd1 90deg 135deg,
-                    #fbc2eb 135deg 180deg, #84fab0 180deg 225deg, #8fd3f4 225deg 270deg,
-                    #fccb90 270deg 315deg, #d57eeb 315deg 360deg
+                    #ff9a9e 0deg 45deg,
+                    #fecfef 45deg 90deg,
+                    #a18cd1 90deg 135deg,
+                    #fbc2eb 135deg 180deg,
+                    #84fab0 180deg 225deg,
+                    #8fd3f4 225deg 270deg,
+                    #fccb90 270deg 315deg,
+                    #d57eeb 315deg 360deg
                 ); 
             }
             .pointer { position: absolute; top: -15px; left: 50%; transform: translateX(-50%); width: 0; height: 0; border-left: 15px solid transparent; border-right: 15px solid transparent; border-top: 30px solid #ef4444; z-index: 10; filter: drop-shadow(0 2px 2px rgba(0,0,0,0.5)); }
@@ -1134,24 +1168,24 @@ async def web_ui():
                     <textarea id="reviewText" class="review-input" rows="2" placeholder="মুভিটি কেমন লাগলো? কমেন্ট করে জানান..."></textarea>
                     <button class="btn-submit" style="padding:10px; font-size:16px;" onclick="submitReview()">সাবমিট করুন</button>
                     
-                    <div id="reviewList" style="margin-top:20px; max-height:150px; overflow-y:auto; padding-right:5px;"></div>
+                    <div id="reviewList" style="margin-top:20px; max-height:150px; overflow-y:auto; padding-right:5px;">
+                        <!-- Reviews will load here -->
+                    </div>
                 </div>
             </div>
         </div>
-        
-        <!-- ========================================== -->
-        <!-- RGB DIRECT LINK POPUP (REPLACED MONETAG)   -->
-        <!-- ========================================== -->
+
+        <!-- Direct Link RGB Modal -->
         <div id="directLinkModal" class="modal">
-            <div class="modal-content" style="border: 2px solid transparent; background-clip: padding-box; position: relative;">
-                <div class="close-icon" onclick="document.getElementById('directLinkModal').style.display='none'"><i class="fa-solid fa-xmark"></i></div>
-                <div class="rgb-border" style="cursor: default; padding: 4px;">
-                    <div class="rgb-inner" style="flex-direction: column; text-align: center; gap: 15px;">
-                        <h2 style="color: #4ade80; font-size: 22px;"><i class="fa-solid fa-unlock-keyhole"></i> আনলক করুন</h2>
-                        <p id="dlDescText" style="color: #cbd5e1; font-size: 15px; line-height: 1.5;">
-                            এই ভিডিও বা মুভিটি আনলক করতে নিচের বাটনে ক্লিক করুন। একটি নতুন পেইজ ওপেন হবে, সেখানে <b>১৫ সেকেন্ড</b> অপেক্ষা করুন। এরপর অটোমেটিক আপনার বটের ইনবক্সে মুভি চলে যাবে!
+            <div class="modal-content" style="background: transparent; border: none; padding: 0;">
+                <div class="close-icon" onclick="document.getElementById('directLinkModal').style.display='none'" style="top: -15px; right: 5px; z-index: 1000;"><i class="fa-solid fa-xmark"></i></div>
+                <div class="dl-rgb-wrap">
+                    <div class="dl-inner-box">
+                        <h2 style="color: #4ade80; font-size: 24px; font-weight: 900; margin-bottom: 5px;"><i class="fa-solid fa-unlock-keyhole"></i> আনলক করুন</h2>
+                        <p id="dlDescText" style="color: #cbd5e1; font-size: 15px; line-height: 1.6; font-weight: 600;">
+                            <!-- Text injected via JS -->
                         </p>
-                        <button id="dlClickBtn" class="btn-submit" style="background: linear-gradient(45deg, #ef4444, #f97316); box-shadow: 0 0 15px rgba(239,68,68,0.5);" onclick="executeDirectLink()">🔗 Click Here (Open Link)</button>
+                        <button id="dlClickBtn" class="btn-submit" style="background: linear-gradient(45deg, #ef4444, #f97316); box-shadow: 0 0 15px rgba(239,68,68,0.5); font-size: 18px; padding: 15px; margin-top: 10px;" onclick="executeDirectLink()">🔗 Click Here (Open Link)</button>
                     </div>
                 </div>
             </div>
@@ -1225,11 +1259,13 @@ async def web_ui():
             <div class="modal-content">
                 <div class="close-icon" onclick="document.getElementById('leaderboardModal').style.display='none'"><i class="fa-solid fa-xmark"></i></div>
                 <h2 style="color:#fbbf24; font-size: 24px; margin-bottom:15px;"><i class="fa-solid fa-trophy"></i> টপ লিডারবোর্ড</h2>
-                <div id="lbList" style="max-height: 50vh; overflow-y:auto; text-align:left; padding-right:5px;"></div>
+                <div id="lbList" style="max-height: 50vh; overflow-y:auto; text-align:left; padding-right:5px;">
+                    <!-- Loading leaderboard -->
+                </div>
             </div>
         </div>
 
-        <!-- Request Board Modal -->
+        <!-- Request Board & Vote Modal -->
         <div id="reqModal" class="modal">
             <div class="modal-content" style="max-height: 90vh;">
                 <div class="close-icon" onclick="document.getElementById('reqModal').style.display='none'"><i class="fa-solid fa-xmark"></i></div>
@@ -1239,7 +1275,9 @@ async def web_ui():
                     <button class="btn-submit" style="width:auto; padding:0 20px;" onclick="sendReq()"><i class="fa-solid fa-plus"></i></button>
                 </div>
                 <p style="text-align:left; color:#94a3b8; font-size:14px; margin-top:15px; font-weight:bold;">ট্রেন্ডিং রিকোয়েস্ট:</p>
-                <div id="reqList" style="max-height: 40vh; overflow-y:auto; margin-top:10px; text-align:left; padding-right:5px;"></div>
+                <div id="reqList" style="max-height: 40vh; overflow-y:auto; margin-top:10px; text-align:left; padding-right:5px;">
+                    <!-- Loading requests -->
+                </div>
             </div>
         </div>
 
@@ -1248,6 +1286,7 @@ async def web_ui():
             <div class="modal-content" style="max-height: 90vh; display:flex; flex-direction:column;">
                 <div class="close-icon" onclick="closeChat()"><i class="fa-solid fa-xmark"></i></div>
                 <h2 style="color:white; font-size: 22px; margin-bottom:5px;"><i class="fa-solid fa-comments text-blue-400"></i> গ্লোবাল চ্যাট</h2>
+                <p style="color:#94a3b8; font-size:13px; margin-bottom:5px;">সবার সাথে কথা বলুন, মুভির নাম শেয়ার করুন!</p>
                 <div id="chatBox" class="chat-container"></div>
                 <div style="display:flex; gap:8px; margin-top:15px;">
                     <input type="text" id="chatInput" class="req-input" style="margin:0; padding:12px; font-size:14px;" placeholder="মেসেজ লিখুন...">
@@ -1266,7 +1305,9 @@ async def web_ui():
                 <div class="spin-wrapper">
                     <div class="pointer"></div>
                     <div class="spin-center">SPIN</div>
-                    <div class="wheel" id="spinWheel"></div>
+                    <div class="wheel" id="spinWheel">
+                        <!-- Slices will be rendered via JS -->
+                    </div>
                 </div>
                 
                 <p style="color:#4ade80; font-weight:bold; margin-bottom:15px;">আজকের স্পিন বাকি: <span id="spinsLeftText">...</span></p>
@@ -1279,6 +1320,7 @@ async def web_ui():
             <div class="modal-content">
                 <div class="close-icon" onclick="document.getElementById('tasksModal').style.display='none'"><i class="fa-solid fa-xmark"></i></div>
                 <h2 style="color:#f87171; font-size: 24px; margin-bottom:5px;"><i class="fa-solid fa-bullseye"></i> ডেইলি মিশন</h2>
+                <p style="color:#cbd5e1; font-size:14px; margin-bottom:15px;">প্রতিদিনের কাজগুলো সম্পূর্ণ করে এক্সট্রা কয়েন কালেক্ট করুন!</p>
                 
                 <div class="task-box">
                     <div class="task-title"><span><i class="fa-solid fa-link text-pink-400"></i> ৩টি ডাইরেক্ট লিংক দেখুন</span> <span id="adTaskProgress">0/3</span></div>
@@ -1310,17 +1352,18 @@ async def web_ui():
             let tg = window.Telegram.WebApp; 
             tg.expand();
             
-            // ==========================================
-            // DIRECT LINKS SETUP
-            // ==========================================
-            const DIRECT_LINKS = JSON.parse('{{DIRECT_LINKS}}');
-            let onAdCompleteCallback = null; 
+            const DIRECT_LINKS = {{DIRECT_LINKS}};
+            let onAdCompleteCallback = null;
 
+            const ZONE_ID = "{{ZONE_ID}}";
+            const REQUIRED_ADS = parseInt("{{AD_COUNT}}");
             const INIT_DATA = tg.initData || "";
             const BOT_UNAME = "{{BOT_USER}}";
             let currentPage = 1; let isLoading = false; let searchQuery = "";
             let uid = tg.initDataUnsafe?.user?.id || 0;
-            let activeFileId = null; let autoScrollInterval; let isTouching = false; let abortController = null;
+            let currentAdStep = 1; let activeFileId = null; let autoScrollInterval; let isTouching = false; let abortController = null;
+            let isRewardAd = false;
+            let isSpinAd = false;
             
             const BKASH_NO = "{{BKASH_NO}}";
             const NAGAD_NO = "{{NAGAD_NO}}";
@@ -1381,7 +1424,6 @@ async def web_ui():
                 window.scrollTo({ top: 0, behavior: 'smooth' });
             }
             
-            // --- UI Modals & Actions ---
             function openReferModal() { document.getElementById('referModal').style.display = 'flex'; closeMenu(); }
             function copyReferLink() {
                 navigator.clipboard.writeText(document.getElementById('refLinkText').innerText).then(() => { tg.showAlert("✅ রেফার লিংক কপি হয়েছে!"); });
@@ -1408,24 +1450,11 @@ async def web_ui():
                 } catch(e) {}
             }
 
+            // --- REVIEWS LOGIC ---
             function setRating(val) {
                 currentRating = val;
                 let stars = document.getElementById('starRating').children;
                 for(let i=0; i<5; i++) stars[i].className = i < val ? "fa-solid fa-star" : "fa-regular fa-star";
-            }
-
-            async function submitReview() {
-                if(currentRating === 0) return tg.showAlert("অনুগ্রহ করে স্টার রেটিং দিন!");
-                let text = document.getElementById('reviewText').value;
-                if(!text) return tg.showAlert("কিছু কমেন্ট লিখুন!");
-                try {
-                    await fetch('/api/reviews', {
-                        method: 'POST', headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({uid: uid, name: document.getElementById('uName').innerText, title: currentMovieTitle, rating: currentRating, comment: text, initData: INIT_DATA})
-                    });
-                    document.getElementById('reviewText').value = ""; setRating(0);
-                    loadReviews(currentMovieTitle); tg.showAlert("✅ ধন্যবাদ! আপনার রিভিউ যুক্ত হয়েছে।");
-                } catch(e) {}
             }
 
             async function loadReviews(title) {
@@ -1439,8 +1468,23 @@ async def web_ui():
                 } catch(e) {}
             }
 
+            async function submitReview() {
+                if(currentRating === 0) return tg.showAlert("অনুগ্রহ করে স্টার রেটিং দিন!");
+                let text = document.getElementById('reviewText').value;
+                if(!text) return tg.showAlert("কিছু কমেন্ট লিখুন!");
+                
+                try {
+                    await fetch('/api/reviews', {
+                        method: 'POST', headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({uid: uid, name: document.getElementById('uName').innerText, title: currentMovieTitle, rating: currentRating, comment: text, initData: INIT_DATA})
+                    });
+                    document.getElementById('reviewText').value = ""; setRating(0);
+                    loadReviews(currentMovieTitle); tg.showAlert("✅ ধন্যবাদ! আপনার রিভিউ যুক্ত হয়েছে।");
+                } catch(e) {}
+            }
+
+            // --- CHECK-IN LOGIC ---
             function openCheckinModal() { document.getElementById('checkinModal').style.display = 'flex'; closeMenu(); }
-            
             async function claimCheckin() {
                 try {
                     const res = await fetch('/api/checkin', {
@@ -1452,7 +1496,6 @@ async def web_ui():
                     else tg.showAlert(data.msg || "আপনি ইতিমধ্যে আজকের রিওয়ার্ড নিয়েছেন!");
                 } catch(e) {}
             }
-            
             async function convertCoins() {
                 try {
                     const res = await fetch('/api/checkin', {
@@ -1464,8 +1507,8 @@ async def web_ui():
                     else tg.showAlert(data.msg || "আপনার পর্যাপ্ত কয়েন নেই! (৫০ প্রয়োজন)");
                 } catch(e) {}
             }
-
-            // --- VIP Payment ---
+            
+            // --- VIP PAYMENT LOGIC ---
             function openVipModal() { document.getElementById('vipModal').style.display = 'flex'; document.getElementById('payBox').style.display='none'; closeMenu(); }
             function selectPayment(method) {
                 selectedPayMethod = method;
@@ -1494,7 +1537,8 @@ async def web_ui():
                 } catch(e) {}
             }
 
-            // --- Grid Loaders ---
+
+            // --- MOVIE LOADING & UI LOGIC ---
             function drawSkeletons(count) { return Array(count).fill('<div class="skeleton"></div>').join(''); }
             function startAutoScroll() {
                 if(autoScrollInterval) clearInterval(autoScrollInterval);
@@ -1602,9 +1646,46 @@ async def web_ui():
                 }, 500); 
             });
 
+
             // ==========================================
             // DIRECT LINK AD LOGIC (REPLACED MONETAG)
             // ==========================================
+            function showDirectLinkModal(descText) {
+                document.getElementById('dlDescText').innerHTML = descText;
+                const btn = document.getElementById('dlClickBtn');
+                btn.innerText = "🔗 Click Here (Open Link)";
+                btn.disabled = false;
+                btn.style.background = "linear-gradient(45deg, #ef4444, #f97316)";
+                document.getElementById('directLinkModal').style.display = 'flex';
+            }
+
+            function executeDirectLink() {
+                if (!DIRECT_LINKS || DIRECT_LINKS.length === 0) {
+                    document.getElementById('directLinkModal').style.display = 'none';
+                    if (onAdCompleteCallback) onAdCompleteCallback();
+                    return;
+                }
+                
+                const randomLink = DIRECT_LINKS[Math.floor(Math.random() * DIRECT_LINKS.length)];
+                tg.openLink(randomLink);
+
+                const btn = document.getElementById('dlClickBtn');
+                btn.disabled = true;
+                let timeLeft = 15;
+                btn.innerText = `⏳ অপেক্ষা করুন... (${timeLeft}s)`;
+                btn.style.background = "#475569";
+
+                let dlTimer = setInterval(() => {
+                    timeLeft--;
+                    btn.innerText = `⏳ অপেক্ষা করুন... (${timeLeft}s)`;
+                    if (timeLeft <= 0) {
+                        clearInterval(dlTimer);
+                        document.getElementById('directLinkModal').style.display = 'none';
+                        if (onAdCompleteCallback) onAdCompleteCallback();
+                    }
+                }, 1000);
+            }
+
             function openQualityModal(title) {
                 const movie = loadedMovies[title];
                 if(!movie) return;
@@ -1624,7 +1705,8 @@ async def web_ui():
                 document.getElementById('qualityList').innerHTML = listHtml;
                 document.getElementById('qualityModal').style.display = 'flex';
                 
-                setRating(0); loadReviews(title);
+                setRating(0);
+                loadReviews(title);
             }
             
             function closeQualityModal() { document.getElementById('qualityModal').style.display = 'none'; }
@@ -1645,50 +1727,18 @@ async def web_ui():
                 onAdCompleteCallback = () => claimAdReward();
                 showDirectLinkModal("৫ কয়েন ফ্রী পেতে নিচের বাটনে ক্লিক করুন। একটি নতুন পেইজ ওপেন হবে, সেখানে <b>১৫ সেকেন্ড</b> অপেক্ষা করুন। এরপর আপনার ব্যালেন্সে কয়েন যোগ হয়ে যাবে!");
             }
-
-            function showDirectLinkModal(descText) {
-                document.getElementById('dlDescText').innerHTML = descText;
-                
-                const btn = document.getElementById('dlClickBtn');
-                btn.innerText = "🔗 Click Here (Open Link)";
-                btn.disabled = false;
-                btn.style.background = "linear-gradient(45deg, #ef4444, #f97316)";
-                
-                document.getElementById('directLinkModal').style.display = 'flex';
-            }
-
-            function executeDirectLink() {
-                if (DIRECT_LINKS.length === 0) {
-                    // Fallback if admin hasn't added links
-                    document.getElementById('directLinkModal').style.display = 'none';
-                    if (onAdCompleteCallback) onAdCompleteCallback();
-                    return;
-                }
-
-                // Pick random Direct Link
-                const randomLink = DIRECT_LINKS[Math.floor(Math.random() * DIRECT_LINKS.length)];
-                
-                // Open Link via Telegram standard method
-                tg.openLink(randomLink);
-
-                // Start Wait Timer
-                const btn = document.getElementById('dlClickBtn');
-                btn.disabled = true;
-                let timeLeft = 15;
-                btn.innerText = `⏳ অপেক্ষা করুন... (${timeLeft}s)`;
-                btn.style.background = "#475569";
-
-                let dlTimer = setInterval(() => {
-                    timeLeft--;
-                    btn.innerText = `⏳ অপেক্ষা করুন... (${timeLeft}s)`;
-                    if (timeLeft <= 0) {
-                        clearInterval(dlTimer);
-                        document.getElementById('directLinkModal').style.display = 'none';
-                        if (onAdCompleteCallback) onAdCompleteCallback();
-                    }
-                }, 1000);
-            }
             
+            async function claimAdReward() {
+                try {
+                    const res = await fetch('/api/reward_ad', { 
+                        method: 'POST', headers: {'Content-Type': 'application/json'}, 
+                        body: JSON.stringify({uid: uid, initData: INIT_DATA})
+                    });
+                    const data = await res.json();
+                    if(data.ok) { tg.showAlert("🎉 অভিনন্দন! আপনি লিংক ভিজিট করে ৫ কয়েন পেয়েছেন!"); fetchUserInfo(); loadTasks(); }
+                } catch(e) {}
+            }
+
             async function sendFile(id) {
                 try {
                     const res = await fetch('/api/send', { 
@@ -1709,23 +1759,15 @@ async def web_ui():
                     fetchUserInfo(); 
                 } catch (e) {}
             }
-
-            async function claimAdReward() {
-                try {
-                    const res = await fetch('/api/reward_ad', { 
-                        method: 'POST', headers: {'Content-Type': 'application/json'}, 
-                        body: JSON.stringify({uid: uid, initData: INIT_DATA})
-                    });
-                    const data = await res.json();
-                    if(data.ok) { tg.showAlert("🎉 অভিনন্দন! আপনি লিংক ভিজিট করে ৫ কয়েন পেয়েছেন!"); fetchUserInfo(); }
-                } catch(e) {}
-            }
-
+            
             // --- REQUEST & UPVOTE LOGIC ---
             function openReqModal() { 
-                closeMenu(); document.getElementById('reqModal').style.display = 'flex'; 
-                document.getElementById('reqText').focus(); loadRequests();
+                closeMenu();
+                document.getElementById('reqModal').style.display = 'flex'; 
+                document.getElementById('reqText').focus(); 
+                loadRequests();
             }
+            
             async function loadRequests() {
                 const reqList = document.getElementById('reqList');
                 reqList.innerHTML = "<p style='color:gray; text-align:center;'>Loading...</p>";
@@ -1746,25 +1788,53 @@ async def web_ui():
                                 </button>
                                 ${delBtn}
                             </div>
-                        </div>`;
+                        </div>
+                        `;
                     }).join('');
                 } catch(e) {}
             }
-            async function voteRequest(id) { try { await fetch('/api/requests/vote', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({uid: uid, req_id: id, initData: INIT_DATA})}); loadRequests(); } catch (e) {} }
-            async function deleteReq(id) { if(!confirm('ডিলিট করবেন?')) return; try { await fetch('/api/requests/' + id, { method: 'DELETE' }); loadRequests(); } catch(e) {} }
+            
+            async function voteRequest(id) {
+                try {
+                    await fetch('/api/requests/vote', { 
+                        method: 'POST', headers: {'Content-Type': 'application/json'}, 
+                        body: JSON.stringify({uid: uid, req_id: id, initData: INIT_DATA})
+                    });
+                    loadRequests();
+                } catch (e) {}
+            }
+            
+            async function deleteReq(id) {
+                if(!confirm('আপনি কি নিশ্চিত যে এই রিকোয়েস্টটি ডিলিট করতে চান?')) return;
+                try {
+                    await fetch('/api/requests/' + id, { method: 'DELETE' });
+                    loadRequests();
+                } catch(e) {}
+            }
+            
             async function sendReq() {
                 const text = document.getElementById('reqText').value;
                 if(!text) return alert('মুভির নাম লিখুন!');
-                try { await fetch('/api/request', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({uid: uid, uname: tg.initDataUnsafe.user?.first_name || 'Guest', movie: text, initData: INIT_DATA})}); document.getElementById('reqText').value = ''; tg.showAlert('রিকোয়েস্ট বা ভোট সফলভাবে যোগ করা হয়েছে!'); loadRequests(); } catch (e) {}
+                try {
+                    await fetch('/api/request', { 
+                        method: 'POST', headers: {'Content-Type': 'application/json'}, 
+                        body: JSON.stringify({uid: uid, uname: tg.initDataUnsafe.user?.first_name || 'Guest', movie: text, initData: INIT_DATA})
+                    });
+                    document.getElementById('reqText').value = '';
+                    tg.showAlert('রিকোয়েস্ট বা ভোট সফলভাবে যোগ করা হয়েছে!');
+                    loadRequests();
+                } catch (e) {}
             }
 
             // --- Chat Logic ---
             let chatInterval = null;
+
             async function fetchChatMessages() {
                 try {
                     const res = await fetch('/api/chat');
                     const data = await res.json();
                     const chatBox = document.getElementById('chatBox');
+                    
                     let html = "";
                     data.forEach(msg => {
                         const isMine = msg.uid === uid;
@@ -1773,38 +1843,83 @@ async def web_ui():
                                 ${!isMine ? `<div class="chat-name">${msg.name}</div>` : ''}
                                 ${msg.text}
                                 ${!isMine ? `<span class="chat-reply-btn" onclick="replyToChat('${msg.name}')"><i class="fa-solid fa-reply"></i></span>` : ''}
-                            </div>`;
+                            </div>
+                        `;
                     });
+                    
                     const isScrolledToBottom = chatBox.scrollHeight - chatBox.clientHeight <= chatBox.scrollTop + 10;
                     chatBox.innerHTML = html;
                     if(isScrolledToBottom) chatBox.scrollTop = chatBox.scrollHeight;
+                    
                 } catch(e) {}
             }
-            function replyToChat(name) { const input = document.getElementById('chatInput'); input.value = `@${name} ` + input.value; input.focus(); }
-            function openChatModal() { closeMenu(); document.getElementById('chatModal').style.display = 'flex'; document.getElementById('chatBox').innerHTML = "<p style='color:gray; text-align:center;'>Loading chat...</p>"; fetchChatMessages(); chatInterval = setInterval(fetchChatMessages, 3000); }
-            function closeChat() { document.getElementById('chatModal').style.display='none'; if(chatInterval) { clearInterval(chatInterval); chatInterval = null; } }
+            
+            function replyToChat(name) {
+                const input = document.getElementById('chatInput');
+                input.value = `@${name} ` + input.value;
+                input.focus();
+            }
+
+            function openChatModal() {
+                closeMenu();
+                document.getElementById('chatModal').style.display = 'flex';
+                document.getElementById('chatBox').innerHTML = "<p style='color:gray; text-align:center;'>Loading chat...</p>";
+                fetchChatMessages();
+                chatInterval = setInterval(fetchChatMessages, 3000);
+            }
+            
+            function closeChat() {
+                document.getElementById('chatModal').style.display='none';
+                if(chatInterval) { clearInterval(chatInterval); chatInterval = null; }
+            }
+
             async function sendChatMessage() {
-                const input = document.getElementById('chatInput'); const text = input.value.trim(); if(!text) return;
-                input.value = ""; const chatBox = document.getElementById('chatBox');
-                const div = document.createElement('div'); div.className = `chat-msg mine`; div.innerHTML = text;
-                chatBox.appendChild(div); chatBox.scrollTop = chatBox.scrollHeight;
-                try { await fetch('/api/chat', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({uid: uid, name: document.getElementById('uName').innerText, text: text, initData: INIT_DATA})}); fetchChatMessages(); } catch(e) {}
+                const input = document.getElementById('chatInput');
+                const text = input.value.trim();
+                if(!text) return;
+                
+                input.value = "";
+                const chatBox = document.getElementById('chatBox');
+                
+                const div = document.createElement('div');
+                div.className = `chat-msg mine`;
+                div.innerHTML = text;
+                chatBox.appendChild(div);
+                chatBox.scrollTop = chatBox.scrollHeight;
+
+                try {
+                    await fetch('/api/chat', {
+                        method: 'POST', headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({uid: uid, name: document.getElementById('uName').innerText, text: text, initData: INIT_DATA})
+                    });
+                    fetchChatMessages();
+                } catch(e) {}
             }
 
             // --- Spin To Win Logic ---
             const spinRewards = [10, 50, 0, 100, 20, 0, 500, 5];
-            let currentRotation = 0; let spinsLeftToday = 3;
+            let currentRotation = 0;
+            let spinsLeftToday = 3;
 
             function renderWheel() {
-                const wheel = document.getElementById('spinWheel'); wheel.innerHTML = '';
+                const wheel = document.getElementById('spinWheel');
+                wheel.innerHTML = '';
                 const sliceAngle = 360 / 8;
                 for(let i=0; i<8; i++) {
                     const textDiv = document.createElement('div');
-                    textDiv.style.position = 'absolute'; textDiv.style.width = '40px'; textDiv.style.height = '50%'; textDiv.style.top = '0';
-                    textDiv.style.left = '50%'; textDiv.style.marginLeft = '-20px'; textDiv.style.transformOrigin = '50% 100%';
+                    textDiv.style.position = 'absolute';
+                    textDiv.style.width = '40px'; 
+                    textDiv.style.height = '50%'; 
+                    textDiv.style.top = '0';
+                    textDiv.style.left = '50%';
+                    textDiv.style.marginLeft = '-20px';
+                    textDiv.style.transformOrigin = '50% 100%';
                     textDiv.style.transform = `rotate(${i * sliceAngle + (sliceAngle/2)}deg)`;
-                    textDiv.style.fontWeight = '900'; textDiv.style.fontSize = '18px'; textDiv.style.color = '#000';
-                    textDiv.style.textAlign = 'center'; textDiv.style.paddingTop = '15px'; 
+                    textDiv.style.fontWeight = '900';
+                    textDiv.style.fontSize = '18px';
+                    textDiv.style.color = '#000';
+                    textDiv.style.textAlign = 'center';
+                    textDiv.style.paddingTop = '15px'; 
                     textDiv.innerHTML = spinRewards[i] ? spinRewards[i]+'🪙' : 'Oops!';
                     wheel.appendChild(textDiv);
                 }
@@ -1812,10 +1927,13 @@ async def web_ui():
             renderWheel();
 
             async function openSpinModal() {
-                closeMenu(); document.getElementById('spinModal').style.display = 'flex';
+                closeMenu();
+                document.getElementById('spinModal').style.display = 'flex';
                 try {
-                    const res = await fetch('/api/spin/status/' + uid); const data = await res.json();
-                    spinsLeftToday = data.spins_left; document.getElementById('spinsLeftText').innerText = spinsLeftToday;
+                    const res = await fetch('/api/spin/status/' + uid);
+                    const data = await res.json();
+                    spinsLeftToday = data.spins_left;
+                    document.getElementById('spinsLeftText').innerText = spinsLeftToday;
                     document.getElementById('spinBtn').disabled = spinsLeftToday <= 0;
                 } catch(e) {}
             }
@@ -1851,7 +1969,8 @@ async def web_ui():
                         });
                         const data = await res.json();
                         if(data.ok) {
-                            spinsLeftToday = data.spins_left; document.getElementById('spinsLeftText').innerText = spinsLeftToday;
+                            spinsLeftToday = data.spins_left;
+                            document.getElementById('spinsLeftText').innerText = spinsLeftToday;
                             if(reward > 0) { tg.showAlert(`🎉 অভিনন্দন! আপনি ${reward} কয়েন জিতেছেন!`); fetchUserInfo(); }
                             else { tg.showAlert(`😔 Better luck next time!`); }
                         } else { tg.showAlert(data.msg); }
@@ -1861,15 +1980,24 @@ async def web_ui():
             }
 
             // --- Daily Tasks Logic ---
-            async function openTasksModal() { closeMenu(); document.getElementById('tasksModal').style.display = 'flex'; loadTasks(); }
+            async function openTasksModal() {
+                closeMenu();
+                document.getElementById('tasksModal').style.display = 'flex';
+                loadTasks();
+            }
+
             async function loadTasks() {
                 try {
-                    const res = await fetch('/api/tasks/' + uid); const data = await res.json();
-                    let adCount = Math.min(data.ads, 3); let revCount = Math.min(data.reviews, 2);
+                    const res = await fetch('/api/tasks/' + uid);
+                    const data = await res.json();
+                    
+                    let adCount = Math.min(data.ads, 3);
+                    let revCount = Math.min(data.reviews, 2);
                     
                     document.getElementById('adTaskProgress').innerText = `${adCount}/3`;
                     document.getElementById('adTaskBar').style.width = `${(adCount/3)*100}%`;
                     const adBtn = document.getElementById('adTaskBtn');
+                    
                     if(data.ads_claimed) { adBtn.innerText = "Claimed ✅"; adBtn.className = "task-btn claimed"; adBtn.disabled = true; }
                     else if(adCount >= 3) { adBtn.innerText = "Claim 15 Coins!"; adBtn.className = "task-btn"; adBtn.disabled = false; }
                     else { adBtn.innerText = "15 Coins Claim করুন"; adBtn.className = "task-btn"; adBtn.disabled = true; }
@@ -1877,13 +2005,12 @@ async def web_ui():
                     document.getElementById('revTaskProgress').innerText = `${revCount}/2`;
                     document.getElementById('revTaskBar').style.width = `${(revCount/2)*100}%`;
                     const revBtn = document.getElementById('revTaskBtn');
+                    
                     if(data.reviews_claimed) { revBtn.innerText = "Claimed ✅"; revBtn.className = "task-btn claimed"; revBtn.disabled = true; }
                     else if(revCount >= 2) { revBtn.innerText = "Claim 10 Coins!"; revBtn.className = "task-btn"; revBtn.disabled = false; }
                     else { revBtn.innerText = "10 Coins Claim করুন"; revBtn.className = "task-btn"; revBtn.disabled = true; }
+                    
                 } catch(e) {}
-            }
-            async function claimTaskReward(type) {
-                try { await fetch('/api/tasks/claim', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({uid: uid, task_type: type, initData: INIT_DATA})}); tg.showAlert("✅ মিশন রিওয়ার্ড ক্লেইম করা হয়েছে!"); loadTasks(); fetchUserInfo(); } catch(e) {}
             }
 
             fetchUserInfo(); loadTrending(); loadUpcoming(); loadMovies(1); 
@@ -1891,7 +2018,7 @@ async def web_ui():
     </body>
     </html>
     """
-    html_code = html_code.replace("{{DIRECT_LINKS}}", dl_json).replace("{{TG_LINK}}", tg_url).replace("{{LINK_18}}", link_18).replace("{{BOT_USER}}", BOT_USERNAME).replace("{{BKASH_NO}}", bkash_no).replace("{{NAGAD_NO}}", nagad_no)
+    html_code = html_code.replace("{{DIRECT_LINKS}}", dl_json).replace("{{ZONE_ID}}", zone_id).replace("{{TG_LINK}}", tg_url).replace("{{LINK_18}}", link_18).replace("{{AD_COUNT}}", str(required_ads)).replace("{{BOT_USER}}", BOT_USERNAME).replace("{{BKASH_NO}}", bkash_no).replace("{{NAGAD_NO}}", nagad_no)
     return html_code
 
 
