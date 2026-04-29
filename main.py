@@ -100,7 +100,7 @@ async def init_db():
     await db.users.create_index("joined_at")
     await db.reviews.create_index("movie_title")
     await db.payments.create_index("trx_id", unique=True)
-    await db.requests.create_index("movie") # Added for Upvote System
+    await db.requests.create_index("movie") 
 
 
 # ==========================================
@@ -168,7 +168,6 @@ async def start_cmd(message: types.Message, state: FSMContext):
     await state.clear()
     now = datetime.datetime.utcnow()
     
-    # Check User & Refer Logic
     user = await db.users.find_one({"user_id": uid})
     if not user:
         args = message.text.split(" ")
@@ -177,7 +176,6 @@ async def start_cmd(message: types.Message, state: FSMContext):
                 referrer_id = int(args[1].split("_")[1])
                 if referrer_id != uid:
                     await db.users.update_one({"user_id": referrer_id}, {"$inc": {"refer_count": 1}})
-                    # Check if reached 5 refers for VIP
                     ref_user = await db.users.find_one({"user_id": referrer_id})
                     if ref_user and ref_user.get("refer_count", 0) % 5 == 0:
                         current_vip = ref_user.get("vip_until", now)
@@ -290,7 +288,7 @@ async def del_movie_cmd(m: types.Message):
         if result.deleted_count > 0:
             await m.answer(f"✅ '<b>{title}</b>' নামের {result.deleted_count} টি ফাইল সফলভাবে ডিলিট হয়েছে!", parse_mode="HTML")
         else:
-            await m.answer("⚠️ এই নামের কোনো মুভি ডাটাবেসে পাওয়া মিলিটারি পাওয়া যায়নি। (নাম হুবহু মিলতে হবে)")
+            await m.answer("⚠️ এই নামের কোনো মুভি ডাটাবেসে পাওয়া যায়নি। (নাম হুবহু মিলতে হবে)")
     except Exception: 
         await m.answer("⚠️ সঠিক নিয়ম: <code>/delmovie মুভির সম্পূর্ণ নাম</code>", parse_mode="HTML")
 
@@ -735,22 +733,12 @@ async def web_admin_panel(auth: bool = Depends(verify_admin)):
         <div id="adminEditModal" class="fixed inset-0 bg-black bg-opacity-80 hidden flex items-center justify-center z-50">
             <div class="bg-gray-800 p-6 rounded-xl border border-gray-700 w-full max-w-md relative">
                 <button onclick="closeAdminEdit()" class="absolute top-3 right-4 text-gray-400 hover:text-red-500 text-2xl">&times;</button>
-                <h3 class="text-xl font-bold mb-4 text-white"><i class="fa-solid fa-pen-to-square text-blue-400"></i> Edit Movie & Links</h3>
+                <h3 class="text-xl font-bold mb-4 text-white"><i class="fa-solid fa-pen-to-square text-blue-400"></i> Edit Movie</h3>
                 <input type="hidden" id="editOldTitle">
                 
-                <div class="mb-3">
+                <div class="mb-5">
                     <label class="block text-gray-400 text-sm mb-1 font-bold">Movie Title (সব ফাইলের নাম বদলাবে)</label>
                     <input type="text" id="editNewTitle" class="w-full bg-gray-900 border border-gray-600 rounded p-2 text-white outline-none focus:border-blue-500">
-                </div>
-                
-                <div class="mb-3">
-                    <label class="block text-gray-400 text-sm mb-1 font-bold">🎬 Stream Link (Iframe / DoodStream / MP4)</label>
-                    <input type="text" id="editStreamLink" class="w-full bg-gray-900 border border-gray-600 rounded p-2 text-white outline-none focus:border-green-500" placeholder="https://doodstream.com/e/...">
-                </div>
-                
-                <div class="mb-5">
-                    <label class="block text-gray-400 text-sm mb-1 font-bold">🔗 Direct Ad Link (Adsterra / External)</label>
-                    <input type="text" id="editAdLink" class="w-full bg-gray-900 border border-gray-600 rounded p-2 text-white outline-none focus:border-pink-500" placeholder="https://adsterra.com/...">
                 </div>
                 
                 <button onclick="saveAdminEdit()" class="w-full bg-blue-600 text-white rounded p-3 font-bold hover:bg-blue-500 transition text-lg shadow-lg">Save Changes</button>
@@ -773,14 +761,13 @@ async def web_admin_panel(auth: bool = Depends(verify_admin)):
                     document.getElementById('statNew').innerText = data.new_users_today;
                     let html = '';
                     data.movies.forEach(m => {
-                        let hasStream = m.stream_link ? '<i class="fa-solid fa-circle-play text-green-400 ml-2" title="Stream Linked"></i>' : '';
                         html += `<tr class="border-b border-gray-700 hover:bg-gray-750 transition">
-                            <td class="p-4 font-medium text-base">` + m._id + hasStream + `</td>
+                            <td class="p-4 font-medium text-base">` + m._id + `</td>
                             <td class="p-4 text-gray-400 font-bold"><i class="fa-solid fa-eye text-gray-500"></i> ` + formatViews(m.clicks) + `</td>
                             <td class="p-4 text-green-400 font-bold">` + m.file_count + `</td>
                             <td class="p-4 flex gap-2">
                                 <button onclick="addViews('`+encodeURIComponent(m._id)+`')" class="text-yellow-400 bg-yellow-900 bg-opacity-30 px-3 py-1 rounded"><i class="fa-solid fa-fire"></i> Boost</button>
-                                <button onclick="openAdminEdit('`+encodeURIComponent(m._id)+`', '`+m._id.replace(/'/g, "\\'")+`', '`+(m.stream_link || '')+`', '`+(m.ad_link || '')+`')" class="text-blue-400 bg-blue-900 bg-opacity-30 px-3 py-1 rounded">Edit</button>
+                                <button onclick="openAdminEdit('`+encodeURIComponent(m._id)+`', '`+m._id.replace(/'/g, "\\'")+`')" class="text-blue-400 bg-blue-900 bg-opacity-30 px-3 py-1 rounded">Edit</button>
                                 <button onclick="deleteMovie('`+encodeURIComponent(m._id)+`')" class="text-red-400 bg-red-900 bg-opacity-30 px-3 py-1 rounded">Delete</button>
                             </td>
                         </tr>`;
@@ -789,11 +776,9 @@ async def web_admin_panel(auth: bool = Depends(verify_admin)):
                 } catch (e) { alert("Error loading data from the server!"); }
             }
             
-            function openAdminEdit(encodedTitle, oldTitle, streamLink, adLink) {
+            function openAdminEdit(encodedTitle, oldTitle) {
                 document.getElementById('editOldTitle').value = encodedTitle;
                 document.getElementById('editNewTitle').value = oldTitle;
-                document.getElementById('editStreamLink').value = streamLink && streamLink !== 'undefined' ? streamLink : '';
-                document.getElementById('editAdLink').value = adLink && adLink !== 'undefined' ? adLink : '';
                 document.getElementById('adminEditModal').classList.remove('hidden');
             }
             
@@ -804,13 +789,11 @@ async def web_admin_panel(auth: bool = Depends(verify_admin)):
             async function saveAdminEdit() {
                 let encodedTitle = document.getElementById('editOldTitle').value;
                 let newTitle = document.getElementById('editNewTitle').value.trim();
-                let streamLink = document.getElementById('editStreamLink').value.trim();
-                let adLink = document.getElementById('editAdLink').value.trim();
                 
                 await fetch('/api/admin/movie/' + encodedTitle, {
                     method: 'PUT', 
                     headers: {'Content-Type': 'application/json'}, 
-                    body: JSON.stringify({title_new: newTitle, stream_link: streamLink, ad_link: adLink})
+                    body: JSON.stringify({title_new: newTitle})
                 });
                 closeAdminEdit();
                 loadAdminData();
@@ -849,9 +832,7 @@ async def get_admin_data(auth: bool = Depends(verify_admin)):
             "_id": "$title", 
             "clicks": {"$sum": "$clicks"}, 
             "file_count": {"$sum": 1}, 
-            "created_at": {"$max": "$created_at"},
-            "stream_link": {"$first": "$stream_link"},
-            "ad_link": {"$first": "$ad_link"}
+            "created_at": {"$max": "$created_at"}
         }},
         {"$sort": {"created_at": -1}}, {"$limit": 50}
     ]
@@ -869,10 +850,6 @@ async def edit_movie_api(title: str, data: dict = Body(...), auth: bool = Depend
     
     if new_title := data.get("title_new"): 
         update_data["title"] = new_title
-    if "stream_link" in data:
-        update_data["stream_link"] = data["stream_link"]
-    if "ad_link" in data:
-        update_data["ad_link"] = data["ad_link"]
         
     if update_data:
         await db.movies.update_many({"title": title}, {"$set": update_data})
@@ -988,13 +965,6 @@ async def web_ui():
 
             .instruction-text { color: #fbbf24; font-size: 15.5px; font-weight: bold; margin-bottom: 20px; line-height: 1.5; }
             
-            /* Legacy Quality btn kept for safety */
-            .quality-btn { display: flex; justify-content: space-between; align-items: center; background: #0f172a; border: 1px solid #334155; padding: 16px; border-radius: 12px; margin-bottom: 12px; color: white; font-weight: bold; font-size: 16px; cursor: pointer; transition: 0.3s; width: 100%; }
-            .quality-btn:active { transform: scale(0.98); }
-            .quality-locked { border-left: 5px solid #ef4444; }
-            .quality-unlocked { border-left: 5px solid #10b981; }
-            
-            /* RGB Button System */
             .rgb-border { position: relative; border: none; background: linear-gradient(45deg, #ff0000, #ff7300, #fffb00, #48ff00, #00ffd5, #002bff, #7a00ff, #ff00c8, #ff0000); background-size: 400%; animation: glowing 8s linear infinite; padding: 3px; border-radius: 14px; margin-bottom: 12px; cursor: pointer; transition: 0.3s; width: 100%; box-shadow: 0 0 15px rgba(255,0,0,0.3); }
             .rgb-border:active { transform: scale(0.98); }
             .rgb-inner { display: flex; justify-content: space-between; align-items: center; background: #0f172a; padding: 16px; border-radius: 12px; width: 100%; color: white; font-weight: bold; font-size: 16px; }
@@ -1047,17 +1017,31 @@ async def web_ui():
 
             /* Chat CSS */
             .chat-container { height: 350px; overflow-y: auto; background: #0f172a; border-radius: 10px; border: 1px solid #334155; padding: 10px; margin-top: 15px; text-align: left; display: flex; flex-direction: column; gap: 8px; }
-            .chat-msg { background: #1e293b; padding: 8px 12px; border-radius: 12px; font-size: 14px; width: fit-content; max-width: 85%; word-break: break-word; }
+            .chat-msg { background: #1e293b; padding: 8px 12px; border-radius: 12px; font-size: 14px; width: fit-content; max-width: 85%; word-break: break-word; position: relative; }
             .chat-msg.mine { background: #3b82f6; color: white; align-self: flex-end; border-bottom-right-radius: 2px; }
             .chat-msg.others { border-bottom-left-radius: 2px; border: 1px solid #334155; }
             .chat-name { font-size: 11px; color: #fbbf24; font-weight: bold; margin-bottom: 3px; }
+            .chat-reply-btn { font-size: 12px; color: #94a3b8; cursor: pointer; margin-left: 10px; float: right; padding: 2px 5px; }
+            .chat-reply-btn:hover { color: #fbbf24; }
             
-            /* Spin CSS */
+            /* Spin CSS (FIXED FOR 8 SLICES) */
             .spin-wrapper { position: relative; width: 250px; height: 250px; margin: 20px auto; border-radius: 50%; border: 8px solid #334155; overflow: hidden; box-shadow: 0 0 30px rgba(251,191,36,0.3); }
-            .wheel { width: 100%; height: 100%; border-radius: 50%; transition: transform 4s cubic-bezier(0.1, 0.7, 0.1, 1); background: conic-gradient(#fecaca 0deg 60deg, #fde68a 60deg 120deg, #bbf7d0 120deg 180deg, #bfdbfe 180deg 240deg, #e9d5ff 240deg 300deg, #fecdd3 300deg 360deg); }
+            .wheel { 
+                position: relative; width: 100%; height: 100%; border-radius: 50%; 
+                transition: transform 4s cubic-bezier(0.1, 0.7, 0.1, 1); 
+                background: conic-gradient(
+                    #ff9a9e 0deg 45deg,
+                    #fecfef 45deg 90deg,
+                    #a18cd1 90deg 135deg,
+                    #fbc2eb 135deg 180deg,
+                    #84fab0 180deg 225deg,
+                    #8fd3f4 225deg 270deg,
+                    #fccb90 270deg 315deg,
+                    #d57eeb 315deg 360deg
+                ); 
+            }
             .pointer { position: absolute; top: -15px; left: 50%; transform: translateX(-50%); width: 0; height: 0; border-left: 15px solid transparent; border-right: 15px solid transparent; border-top: 30px solid #ef4444; z-index: 10; filter: drop-shadow(0 2px 2px rgba(0,0,0,0.5)); }
             .spin-center { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 50px; height: 50px; background: #1e293b; border-radius: 50%; z-index: 5; border: 3px solid #fbbf24; display: flex; align-items: center; justify-content: center; font-weight: bold; color: white; }
-            .wheel-slice { position: absolute; width: 50%; height: 50%; transform-origin: bottom right; display: flex; align-items: center; justify-content: center; font-weight: bold; color: #000; font-size: 18px; }
 
             /* Tasks CSS */
             .task-box { background: #0f172a; padding: 15px; border-radius: 12px; border: 1px solid #334155; text-align: left; margin-bottom: 15px; }
@@ -1067,14 +1051,6 @@ async def web_ui():
             .task-btn { padding: 8px 15px; border-radius: 8px; border: none; font-weight: bold; color: white; width: 100%; cursor: pointer; background: #3b82f6; transition: 0.2s; }
             .task-btn:disabled { background: #475569; color: #94a3b8; cursor: not-allowed; }
             .task-btn.claimed { background: #10b981; }
-
-            /* Stream Player Loader CSS */
-            .player-loader { position: absolute; top:0; left:0; width:100%; height:100%; background:#000; display:flex; flex-direction:column; align-items:center; justify-content:center; z-index:10; color:#fbbf24; transition: 0.5s; }
-            .spinner { width: 50px; height: 50px; border: 5px solid #334155; border-top: 5px solid #fbbf24; border-radius: 50%; animation: spin 1s linear infinite; margin-bottom:15px; }
-            @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-            
-            /* Custom Video Controls styling (optional tweak) */
-            video::-webkit-media-controls-panel { background: rgba(0, 0, 0, 0.7); }
         </style>
     </head>
     <body onclick="closeMenu(event)">
@@ -1137,7 +1113,7 @@ async def web_ui():
             <div class="modal-content">
                 <div class="close-icon" onclick="closeQualityModal()"><i class="fa-solid fa-xmark"></i></div>
                 <h2 id="modalTitle" style="color:#38bdf8; margin-bottom: 8px; font-size: 22px; font-weight:900;">Movie Title</h2>
-                <p class="instruction-text">👇 আপনি কোনটি প্লে বা ডাউনলোড করতে চান তা নির্বাচন করুন:</p>
+                <p class="instruction-text">👇 আপনি কোনটি ডাউনলোড করতে চান তা নির্বাচন করুন:</p>
                 
                 <div id="qualityList"></div>
                 
@@ -1158,52 +1134,6 @@ async def web_ui():
                         <!-- Reviews will load here -->
                     </div>
                 </div>
-            </div>
-        </div>
-        
-        <!-- Stream Task Modal -->
-        <div id="streamTaskModal" class="modal">
-            <div class="modal-content">
-                <div class="close-icon" onclick="document.getElementById('streamTaskModal').style.display='none'"><i class="fa-solid fa-xmark"></i></div>
-                <h2 style="color:#fbbf24; font-size: 22px; margin-bottom:10px;"><i class="fa-solid fa-film"></i> অনলাইন স্ট্রিমিং</h2>
-                <p style="color:#cbd5e1; font-size:15px; margin-bottom:15px;">ভিডিওটি প্লে করার আগে নিচের লিংকে ক্লিক করে <b>১০ সেকেন্ড</b> অপেক্ষা করুন। এরপর ব্যাক করে এসে ভিডিও প্লে করুন।</p>
-                
-                <div class="rgb-border" id="streamAdLinkBtn" onclick="openStreamAd()">
-                    <div class="rgb-inner" style="justify-content:center; gap:10px; background:#1e293b; color:#fbbf24;">
-                        🔗 Click Here (Ad)
-                    </div>
-                </div>
-                
-                <div id="streamTimerBox" style="display:none;">
-                    <div class="rgb-timer-container" style="width:100px; height:100px; margin: 0 auto 15px;">
-                        <div class="rgb-ring"></div>
-                        <div class="timer-text" id="streamTimerText" style="font-size:35px;">10</div>
-                    </div>
-                </div>
-                
-                <button id="playStreamBtn" class="btn-submit" style="display:none; background: linear-gradient(45deg, #10b981, #059669); font-size: 20px; padding: 18px;" onclick="startPlayer()">
-                    <i class="fa-solid fa-circle-play"></i> Play Movie
-                </button>
-            </div>
-        </div>
-
-        <!-- --- NEW UPDATED: Dual-Mode Smart Video Player Modal --- -->
-        <div id="playerModal" class="modal" style="background: #000; z-index: 5000;">
-            <div class="close-icon" onclick="closePlayer()" style="top:20px; right:20px; z-index:9999; background: rgba(255,0,0,0.8); border: 2px solid #fff;"><i class="fa-solid fa-xmark"></i></div>
-            <div style="position:relative; width:100%; height:100vh; max-width:100%; margin:auto; overflow:hidden; background:#000; display:flex; align-items:center; justify-content:center;">
-                
-                <!-- Custom Loading Screen -->
-                <div id="playerLoader" class="player-loader">
-                    <div class="spinner"></div>
-                    <h3 style="font-size:18px;">🎥 ভিডিও সার্ভারে কানেক্ট হচ্ছে...</h3>
-                    <p style="font-size:13px; color:#94a3b8; margin-top:5px;">কয়েক সেকেন্ড অপেক্ষা করুন</p>
-                </div>
-
-                <!-- Iframe for Doodstream / Third-party Embeds -->
-                <iframe id="moviePlayerFrame" src="" style="width:100%; height:100%; border:none; opacity:0; transition: opacity 0.5s; display:none;" allow="autoplay; fullscreen" allowfullscreen webkitallowfullscreen mozallowfullscreen></iframe>
-                
-                <!-- Native Video Player for Direct .mp4 / .mkv Links -->
-                <video id="movieVideoPlayer" controls controlsList="nodownload" style="width:100%; max-height:100vh; border:none; opacity:0; transition: opacity 0.5s; display:none; outline:none;"></video>
             </div>
         </div>
 
@@ -1398,13 +1328,11 @@ async def web_ui():
             
             let loadedMovies = {}; 
             let isUserVip = false;
+            let isAdmin = false;
             let userReferCount = 0;
             let currentRating = 0;
             let currentMovieTitle = "";
             let selectedPayMethod = "";
-            
-            let activeStreamLink = "";
-            let activeAdLink = "";
 
             function formatViews(num) {
                 if (num >= 1000000) return (num / 1000000).toFixed(1).replace(/\.0$/, '') + 'M';
@@ -1422,6 +1350,7 @@ async def web_ui():
                     const res = await fetch('/api/user/' + uid);
                     const data = await res.json();
                     isUserVip = data.vip;
+                    isAdmin = data.is_admin;
                     userReferCount = data.refer_count;
                     document.getElementById('coinCount').innerText = data.coins;
                     document.getElementById('modalCoinCount').innerText = data.coins;
@@ -1722,15 +1651,6 @@ async def web_ui():
                     </div>`;
                 }).join('');
                 
-                if (movie.stream_link) {
-                    listHtml += `
-                    <div class="rgb-border" style="margin-top:20px; animation-duration: 4s;" onclick="handleStreamClick('${title.replace(/'/g, "\\'")}')">
-                        <div class="rgb-inner" style="justify-content:center; gap:10px; font-size:18px; color:#fbbf24; background:#1e293b;">
-                            <i class="fa-solid fa-play"></i> Watch Online
-                        </div>
-                    </div>`;
-                }
-                
                 document.getElementById('qualityList').innerHTML = listHtml;
                 document.getElementById('qualityModal').style.display = 'flex';
                 
@@ -1766,102 +1686,6 @@ async def web_ui():
             }
             function nextAdStep() { currentAdStep++; startAdTimer(); }
             
-            // --- UPDATED: Dual-Mode Smart Stream Player Logic ---
-            function handleStreamClick(title) {
-                const movie = loadedMovies[title];
-                if(!movie) return;
-                activeStreamLink = movie.stream_link;
-                activeAdLink = movie.ad_link || "https://google.com";
-                
-                document.getElementById('qualityModal').style.display = 'none';
-                document.getElementById('streamTaskModal').style.display = 'flex';
-                
-                document.getElementById('streamAdLinkBtn').style.display = 'block';
-                document.getElementById('streamTimerBox').style.display = 'none';
-                document.getElementById('playStreamBtn').style.display = 'none';
-            }
-            
-            function openStreamAd() {
-                window.open(activeAdLink, '_blank');
-                
-                document.getElementById('streamAdLinkBtn').style.display = 'none';
-                document.getElementById('streamTimerBox').style.display = 'block';
-                
-                let t = 10; document.getElementById('streamTimerText').innerText = t;
-                let iv = setInterval(() => {
-                    t--; document.getElementById('streamTimerText').innerText = t;
-                    if(t <= 0) { 
-                        clearInterval(iv); 
-                        document.getElementById('streamTimerBox').style.display = 'none';
-                        document.getElementById('playStreamBtn').style.display = 'block';
-                    }
-                }, 1000);
-            }
-            
-            function startPlayer() {
-                document.getElementById('streamTaskModal').style.display = 'none';
-                document.getElementById('playerModal').style.display = 'flex';
-                
-                const loader = document.getElementById('playerLoader');
-                const frame = document.getElementById('moviePlayerFrame');
-                const videoPlayer = document.getElementById('movieVideoPlayer');
-                
-                // Reset states
-                loader.style.display = 'flex';
-                frame.style.display = 'none';
-                videoPlayer.style.display = 'none';
-                frame.style.opacity = '0';
-                videoPlayer.style.opacity = '0';
-                
-                // Smart Detect: Is it a Direct Link or Iframe Embed?
-                const isDirectVideo = activeStreamLink.match(/\.(mp4|mkv|webm|ogg)$/i) || activeStreamLink.includes('/watch/');
-                
-                if (isDirectVideo) {
-                    // Use Native HTML5 <video> Player
-                    videoPlayer.style.display = 'block';
-                    videoPlayer.src = activeStreamLink;
-                    
-                    videoPlayer.onloadeddata = function() {
-                        setTimeout(() => {
-                            loader.style.display = 'none';
-                            videoPlayer.style.opacity = '1';
-                            videoPlayer.play().catch(e => console.log("Autoplay blocked"));
-                        }, 1000);
-                    };
-                    
-                    // Fallback to remove loader if event fails to fire
-                    setTimeout(() => {
-                        if(loader.style.display !== 'none') {
-                            loader.style.display = 'none';
-                            videoPlayer.style.opacity = '1';
-                        }
-                    }, 4000);
-                    
-                } else {
-                    // Use Iframe for websites like DoodStream
-                    frame.style.display = 'block';
-                    frame.src = activeStreamLink;
-                    
-                    frame.onload = function() {
-                        setTimeout(() => {
-                            loader.style.display = 'none';
-                            frame.style.opacity = '1';
-                        }, 1500); 
-                    };
-                }
-            }
-            
-            function closePlayer() {
-                document.getElementById('playerModal').style.display = 'none';
-                
-                const frame = document.getElementById('moviePlayerFrame');
-                const videoPlayer = document.getElementById('movieVideoPlayer');
-                
-                frame.src = ""; 
-                videoPlayer.pause();
-                videoPlayer.src = "";
-            }
-
             async function sendFile(id) {
                 try {
                     const res = await fetch('/api/send', { 
@@ -1902,12 +1726,16 @@ async def web_ui():
                     reqList.innerHTML = data.map(r => {
                         let hasVoted = r.voters.includes(uid);
                         let btnCls = hasVoted ? "background:#475569;" : "background:#3b82f6;";
+                        let delBtn = isAdmin ? `<button onclick="deleteReq('${r.id}')" style="background:#ef4444; border:none; padding:6px 10px; border-radius:6px; color:white; cursor:pointer; margin-left:5px;"><i class="fa-solid fa-trash"></i></button>` : '';
                         return `
                         <div class="req-item">
                             <span style="color:white; font-weight:bold; flex:1;">${r.movie}</span>
-                            <button class="vote-btn" style="${btnCls}" ${hasVoted?'disabled':''} onclick="voteRequest('${r.id}')">
-                                <i class="fa-solid fa-caret-up"></i> ${r.votes}
-                            </button>
+                            <div>
+                                <button class="vote-btn" style="${btnCls}" ${hasVoted?'disabled':''} onclick="voteRequest('${r.id}')">
+                                    <i class="fa-solid fa-caret-up"></i> ${r.votes}
+                                </button>
+                                ${delBtn}
+                            </div>
                         </div>
                         `;
                     }).join('');
@@ -1922,6 +1750,14 @@ async def web_ui():
                     });
                     loadRequests();
                 } catch (e) {}
+            }
+            
+            async function deleteReq(id) {
+                if(!confirm('আপনি কি নিশ্চিত যে এই রিকোয়েস্টটি ডিলিট করতে চান?')) return;
+                try {
+                    await fetch('/api/requests/' + id, { method: 'DELETE' });
+                    loadRequests();
+                } catch(e) {}
             }
             
             async function sendReq() {
@@ -1954,6 +1790,7 @@ async def web_ui():
                             <div class="chat-msg ${isMine ? 'mine' : 'others'}">
                                 ${!isMine ? `<div class="chat-name">${msg.name}</div>` : ''}
                                 ${msg.text}
+                                ${!isMine ? `<span class="chat-reply-btn" onclick="replyToChat('${msg.name}')"><i class="fa-solid fa-reply"></i></span>` : ''}
                             </div>
                         `;
                     });
@@ -1963,6 +1800,12 @@ async def web_ui():
                     if(isScrolledToBottom) chatBox.scrollTop = chatBox.scrollHeight;
                     
                 } catch(e) {}
+            }
+            
+            function replyToChat(name) {
+                const input = document.getElementById('chatInput');
+                input.value = `@${name} ` + input.value;
+                input.focus();
             }
 
             function openChatModal() {
@@ -2002,20 +1845,31 @@ async def web_ui():
             }
 
             // --- Spin To Win Logic ---
-            const spinRewards = [5, 0, 10, 0, 50, 0];
-            const spinColors = ["#fecaca", "#fde68a", "#bbf7d0", "#bfdbfe", "#e9d5ff", "#fecdd3"];
+            const spinRewards = [10, 50, 0, 100, 20, 0, 500, 5];
             let currentRotation = 0;
             let spinsLeftToday = 3;
 
             function renderWheel() {
                 const wheel = document.getElementById('spinWheel');
                 wheel.innerHTML = '';
-                for(let i=0; i<6; i++) {
-                    const slice = document.createElement('div');
-                    slice.className = 'wheel-slice';
-                    slice.style.transform = `rotate(${i * 60}deg) skewY(30deg)`;
-                    slice.innerHTML = `<span style="transform: skewY(-30deg) rotate(30deg) translate(40px, -40px); display:block; text-align:center;">${spinRewards[i] ? spinRewards[i]+'🪙' : 'Oops!'}</span>`;
-                    wheel.appendChild(slice);
+                const sliceAngle = 360 / 8;
+                for(let i=0; i<8; i++) {
+                    const textDiv = document.createElement('div');
+                    textDiv.style.position = 'absolute';
+                    textDiv.style.width = '40px'; 
+                    textDiv.style.height = '50%'; 
+                    textDiv.style.top = '0';
+                    textDiv.style.left = '50%';
+                    textDiv.style.marginLeft = '-20px';
+                    textDiv.style.transformOrigin = '50% 100%';
+                    textDiv.style.transform = `rotate(${i * sliceAngle + (sliceAngle/2)}deg)`;
+                    textDiv.style.fontWeight = '900';
+                    textDiv.style.fontSize = '18px';
+                    textDiv.style.color = '#000';
+                    textDiv.style.textAlign = 'center';
+                    textDiv.style.paddingTop = '15px'; 
+                    textDiv.innerHTML = spinRewards[i] ? spinRewards[i]+'🪙' : 'Oops!';
+                    wheel.appendChild(textDiv);
                 }
             }
             renderWheel();
@@ -2059,15 +1913,16 @@ async def web_ui():
                 document.getElementById('spinModal').style.display = 'flex';
                 document.getElementById('spinBtn').disabled = true;
                 
-                const winIndex = Math.floor(Math.random() * 6);
+                const winIndex = Math.floor(Math.random() * 8);
                 const reward = spinRewards[winIndex];
                 
-                const sliceAngle = 360 / 6;
-                const targetAngle = (360 - (winIndex * sliceAngle)) - (sliceAngle / 2);
-                currentRotation += 360 * 5; 
-                const finalRotation = currentRotation + targetAngle;
+                const sliceAngle = 360 / 8;
+                const targetAngle = 360 - (winIndex * sliceAngle + (sliceAngle / 2));
                 
-                document.getElementById('spinWheel').style.transform = `rotate(${finalRotation}deg)`;
+                let base = Math.floor(currentRotation / 360) * 360;
+                currentRotation = base + (360 * 5) + targetAngle;
+                
+                document.getElementById('spinWheel').style.transform = `rotate(${currentRotation}deg)`;
                 
                 setTimeout(async () => {
                     try {
@@ -2131,12 +1986,12 @@ async def web_ui():
 
 
 # ==========================================
-# 14. Main Web App APIs (Updated with ALL Features)
+# 14. Main Web App APIs
 # ==========================================
 @app.get("/api/user/{uid}")
 async def get_user_info(uid: int):
     user = await db.users.find_one({"user_id": uid})
-    if not user: return {"vip": False, "refer_count": 0, "vip_expiry": None, "coins": 0, "badges": []}
+    if not user: return {"vip": False, "is_admin": False, "refer_count": 0, "vip_expiry": None, "coins": 0, "badges": []}
     
     vip_until = user.get("vip_until")
     now = datetime.datetime.utcnow()
@@ -2158,6 +2013,7 @@ async def get_user_info(uid: int):
         
     return {
         "vip": is_vip,
+        "is_admin": uid in admin_cache,
         "refer_count": refer_count,
         "vip_expiry": vip_expiry_str,
         "coins": user.get("coins", 0),
@@ -2273,7 +2129,6 @@ async def submit_payment(data: PaymentModel):
     
     return {"ok": True}
 
-# --- EXISTING MOVIE APIs (UPDATED FOR STREAM LINKS) ---
 @app.get("/api/trending")
 async def trending_movies(uid: int = 0):
     if uid in banned_cache: return {"error": "banned"}
@@ -2288,8 +2143,6 @@ async def trending_movies(uid: int = 0):
             "_id": "$title", 
             "photo_id": {"$first": "$photo_id"}, 
             "clicks": {"$sum": "$clicks"}, 
-            "stream_link": {"$first": "$stream_link"},
-            "ad_link": {"$first": "$ad_link"},
             "files": {"$push": {"id": {"$toString": "$_id"}, "quality": {"$ifNull": ["$quality", "Main File"]}}}
         }},
         {"$sort": {"clicks": -1}}, {"$limit": 10}
@@ -2326,8 +2179,6 @@ async def list_movies(page: int = 1, q: str = "", uid: int = 0):
             "photo_id": {"$first": "$photo_id"}, 
             "clicks": {"$sum": "$clicks"}, 
             "created_at": {"$max": "$created_at"}, 
-            "stream_link": {"$first": "$stream_link"},
-            "ad_link": {"$first": "$ad_link"},
             "files": {"$push": {"id": {"$toString": "$_id"}, "quality": {"$ifNull": ["$quality", "Main File"]}}}
         }},
         {"$sort": {"created_at": -1}}, {"$skip": skip}, {"$limit": limit}
@@ -2438,6 +2289,11 @@ async def vote_request(data: VoteModel):
     if data.uid in req.get("voters", []): return {"ok": False, "msg": "Already voted"}
     
     await db.requests.update_one({"_id": ObjectId(data.req_id)}, {"$inc": {"votes": 1}, "$push": {"voters": data.uid}})
+    return {"ok": True}
+
+@app.delete("/api/requests/{req_id}")
+async def delete_request(req_id: str):
+    await db.requests.delete_one({"_id": ObjectId(req_id)})
     return {"ok": True}
 
 class ReqModel(BaseModel):
