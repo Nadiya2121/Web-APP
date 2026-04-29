@@ -731,7 +731,7 @@ async def web_admin_panel(auth: bool = Depends(verify_admin)):
             </div>
         </div>
 
-        <!-- NEW: Custom Admin Edit Modal -->
+        <!-- Custom Admin Edit Modal -->
         <div id="adminEditModal" class="fixed inset-0 bg-black bg-opacity-80 hidden flex items-center justify-center z-50">
             <div class="bg-gray-800 p-6 rounded-xl border border-gray-700 w-full max-w-md relative">
                 <button onclick="closeAdminEdit()" class="absolute top-3 right-4 text-gray-400 hover:text-red-500 text-2xl">&times;</button>
@@ -994,7 +994,7 @@ async def web_ui():
             .quality-locked { border-left: 5px solid #ef4444; }
             .quality-unlocked { border-left: 5px solid #10b981; }
             
-            /* --- NEW: RGB Button System --- */
+            /* RGB Button System */
             .rgb-border { position: relative; border: none; background: linear-gradient(45deg, #ff0000, #ff7300, #fffb00, #48ff00, #00ffd5, #002bff, #7a00ff, #ff00c8, #ff0000); background-size: 400%; animation: glowing 8s linear infinite; padding: 3px; border-radius: 14px; margin-bottom: 12px; cursor: pointer; transition: 0.3s; width: 100%; box-shadow: 0 0 15px rgba(255,0,0,0.3); }
             .rgb-border:active { transform: scale(0.98); }
             .rgb-inner { display: flex; justify-content: space-between; align-items: center; background: #0f172a; padding: 16px; border-radius: 12px; width: 100%; color: white; font-weight: bold; font-size: 16px; }
@@ -1019,7 +1019,7 @@ async def web_ui():
             
             .vip-tag { background: linear-gradient(45deg, #fbbf24, #f59e0b); color: #000; font-size: 12px; padding: 3px 8px; border-radius: 12px; font-weight: bold; display: none; margin-left:5px; box-shadow: 0 0 10px rgba(251,191,36,0.5); }
             
-            /* --- NEW CSS FOR FEATURES --- */
+            /* CSS FOR FEATURES */
             .coin-tag { background: #3b82f6; color: white; font-size: 12px; padding: 3px 8px; border-radius: 12px; font-weight: bold; margin-left:5px; display: inline-block; }
             .badge-tag { background: #6366f1; color: white; font-size: 11px; padding: 2px 6px; border-radius: 8px; font-weight: bold; margin-left:4px; display: inline-block; margin-top: 4px; border:1px solid #818cf8;}
             .lb-item { display: flex; justify-content: space-between; background: #0f172a; padding: 12px; border-radius: 8px; margin-bottom: 8px; border: 1px solid #334155; align-items: center;}
@@ -1067,6 +1067,11 @@ async def web_ui():
             .task-btn { padding: 8px 15px; border-radius: 8px; border: none; font-weight: bold; color: white; width: 100%; cursor: pointer; background: #3b82f6; transition: 0.2s; }
             .task-btn:disabled { background: #475569; color: #94a3b8; cursor: not-allowed; }
             .task-btn.claimed { background: #10b981; }
+
+            /* --- NEW: Stream Player Loader CSS --- */
+            .player-loader { position: absolute; top:0; left:0; width:100%; height:100%; background:#000; display:flex; flex-direction:column; align-items:center; justify-content:center; z-index:10; color:#fbbf24; transition: 0.5s; }
+            .spinner { width: 50px; height: 50px; border: 5px solid #334155; border-top: 5px solid #fbbf24; border-radius: 50%; animation: spin 1s linear infinite; margin-bottom:15px; }
+            @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
         </style>
     </head>
     <body onclick="closeMenu(event)">
@@ -1153,7 +1158,7 @@ async def web_ui():
             </div>
         </div>
         
-        <!-- --- NEW: Stream Task Modal --- -->
+        <!-- Stream Task Modal -->
         <div id="streamTaskModal" class="modal">
             <div class="modal-content">
                 <div class="close-icon" onclick="document.getElementById('streamTaskModal').style.display='none'"><i class="fa-solid fa-xmark"></i></div>
@@ -1179,11 +1184,19 @@ async def web_ui():
             </div>
         </div>
 
-        <!-- --- NEW: Video Player Modal --- -->
-        <div id="playerModal" class="modal" style="background: #000;">
-            <div class="close-icon" onclick="closePlayer()" style="top:20px; right:20px; z-index:9999; background: rgba(255,0,0,0.8);"><i class="fa-solid fa-xmark"></i></div>
-            <div style="width:100%; height:100%; display:flex; align-items:center; justify-content:center;">
-                <iframe id="moviePlayerFrame" src="" style="width:100%; height:80vh; border:none; border-radius:10px;" allowfullscreen></iframe>
+        <!-- --- NEW UPDATED: Video Player Modal with Fullscreen & Loading Animation --- -->
+        <div id="playerModal" class="modal" style="background: #000; z-index: 5000;">
+            <div class="close-icon" onclick="closePlayer()" style="top:20px; right:20px; z-index:9999; background: rgba(255,0,0,0.8); border: 2px solid #fff;"><i class="fa-solid fa-xmark"></i></div>
+            <div style="position:relative; width:100%; height:100vh; max-width:100%; margin:auto; overflow:hidden; background:#000; display:flex; align-items:center; justify-content:center;">
+                
+                <!-- Custom Loading Screen -->
+                <div id="playerLoader" class="player-loader">
+                    <div class="spinner"></div>
+                    <h3 style="font-size:18px;">🎥 ভিডিও সার্ভারে কানেক্ট হচ্ছে...</h3>
+                    <p style="font-size:13px; color:#94a3b8; margin-top:5px;">কয়েক সেকেন্ড অপেক্ষা করুন</p>
+                </div>
+
+                <iframe id="moviePlayerFrame" src="" style="width:100%; height:100%; border:none; opacity:0; transition: opacity 0.5s;" allow="autoplay; fullscreen" allowfullscreen webkitallowfullscreen mozallowfullscreen></iframe>
             </div>
         </div>
 
@@ -1692,7 +1705,6 @@ async def web_ui():
                 currentMovieTitle = title;
                 document.getElementById('modalTitle').innerText = title;
                 
-                // NEW: RGB Border UI Applied
                 let listHtml = movie.files.map(f => {
                     let isFree = f.is_unlocked || isUserVip;
                     let icon = isFree ? '<i class="fa-solid fa-paper-plane text-green-400" style="font-size:18px;"></i>' : '<i class="fa-solid fa-lock text-red-400" style="font-size:18px;"></i>';
@@ -1703,7 +1715,6 @@ async def web_ui():
                     </div>`;
                 }).join('');
                 
-                // NEW: Check if Stream Link Exists and Add "Watch Online" Button
                 if (movie.stream_link) {
                     listHtml += `
                     <div class="rgb-border" style="margin-top:20px; animation-duration: 4s;" onclick="handleStreamClick('${title.replace(/'/g, "\\'")}')">
@@ -1748,12 +1759,12 @@ async def web_ui():
             }
             function nextAdStep() { currentAdStep++; startAdTimer(); }
             
-            // --- NEW: Streaming Flow JS Logic ---
+            // --- UPDATED: Streaming Flow Logic (With Loader Support) ---
             function handleStreamClick(title) {
                 const movie = loadedMovies[title];
                 if(!movie) return;
                 activeStreamLink = movie.stream_link;
-                activeAdLink = movie.ad_link || "https://google.com"; // Fallback URL
+                activeAdLink = movie.ad_link || "https://google.com";
                 
                 document.getElementById('qualityModal').style.display = 'none';
                 document.getElementById('streamTaskModal').style.display = 'flex';
@@ -1764,7 +1775,6 @@ async def web_ui():
             }
             
             function openStreamAd() {
-                // Open Adsterra or Direct Link in browser
                 window.open(activeAdLink, '_blank');
                 
                 document.getElementById('streamAdLinkBtn').style.display = 'none';
@@ -1784,12 +1794,28 @@ async def web_ui():
             function startPlayer() {
                 document.getElementById('streamTaskModal').style.display = 'none';
                 document.getElementById('playerModal').style.display = 'flex';
-                document.getElementById('moviePlayerFrame').src = activeStreamLink;
+                
+                const loader = document.getElementById('playerLoader');
+                const frame = document.getElementById('moviePlayerFrame');
+                
+                // Show Loader & Hide iframe initially
+                loader.style.display = 'flex';
+                frame.style.opacity = '0';
+                
+                frame.src = activeStreamLink;
+                
+                // When iframe finishes loading, wait an extra 1.5s to clear the black screen then reveal it
+                frame.onload = function() {
+                    setTimeout(() => {
+                        loader.style.display = 'none';
+                        frame.style.opacity = '1';
+                    }, 1500); 
+                };
             }
             
             function closePlayer() {
                 document.getElementById('playerModal').style.display = 'none';
-                document.getElementById('moviePlayerFrame').src = ""; // Stop video playback
+                document.getElementById('moviePlayerFrame').src = ""; 
             }
 
             async function sendFile(id) {
