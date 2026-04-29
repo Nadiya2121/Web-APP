@@ -493,7 +493,7 @@ async def handle_trx_approval(c: types.CallbackQuery):
     else:
         await db.payments.update_one({"_id": ObjectId(pay_id)}, {"$set": {"status": "rejected"}})
         await c.message.edit_text(c.message.text + "\n\n❌ <b>পেমেন্ট রিজেক্ট করা হয়েছে!</b>", parse_mode="HTML")
-        try: await bot.send_message(user_id, f"❌ <b>দুঃখিত!</b> আপনার পেমেন্ট (TrxID: {payment['trx_id']}) বাতিল করা হয়েছে। তথ্যে ভুল থাকলে সাপোর্ট অ্যাডমিনের সাথে যোগাযোগ করুন।", parse_mode="HTML")
+        try: await bot.send_message(user_id, f"❌ <b>দুঃখিত!</b> আপনার পেমেন্ট (TrxID: {payment['trx_id']}) বাতিল করা গঠন করা হয়েছে। তথ্যে ভুল থাকলে সাপোর্ট অ্যাডমিনের সাথে যোগাযোগ করুন।", parse_mode="HTML")
         except: pass
 
 
@@ -549,11 +549,27 @@ async def receive_movie_quality(m: types.Message, state: FSMContext):
     
     if CHANNEL_ID and CHANNEL_ID != "-100XXXXXXXXXX":
         try:
+            # Delete old post logic
+            old_post = await db.channel_posts.find_one({"title": title})
+            if old_post:
+                try:
+                    await bot.delete_message(chat_id=CHANNEL_ID, message_id=old_post["message_id"])
+                except Exception:
+                    pass
+            
             bot_info = await bot.get_me()
             kb = [[types.InlineKeyboardButton(text="🎬 মুভিটি পেতে এখানে ক্লিক করুন", url=f"https://t.me/{bot_info.username}?start=new")]]
             markup = types.InlineKeyboardMarkup(inline_keyboard=kb)
             caption = f"🎬 <b>নতুন ফাইল যুক্ত হয়েছে!</b>\n\n📌 <b>নাম:</b> {title}\n🏷 <b>কোয়ালিটি/এপিসোড:</b> {quality}\n\n👇 <i>ডাউনলোড করতে নিচের বাটনে ক্লিক করুন।</i>"
-            await bot.send_photo(chat_id=CHANNEL_ID, photo=photo_id, caption=caption, parse_mode="HTML", reply_markup=markup)
+            
+            sent_msg = await bot.send_photo(chat_id=CHANNEL_ID, photo=photo_id, caption=caption, parse_mode="HTML", reply_markup=markup)
+            
+            # Save new post id to prevent duplicate posts
+            await db.channel_posts.update_one(
+                {"title": title},
+                {"$set": {"message_id": sent_msg.message_id}},
+                upsert=True
+            )
         except Exception: 
             pass
 
@@ -878,7 +894,12 @@ async def web_ui():
             .btn-req { bottom: 35px; background: linear-gradient(45deg, #10b981, #059669); }
 
             .modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); display: none; align-items: center; justify-content: center; z-index: 3000; backdrop-filter: blur(5px); }
-            .modal-content { background: #1e293b; width: 92%; max-width: 400px; padding: 25px; border-radius: 20px; text-align: center; border: 1px solid #334155; max-height: 85vh; overflow-y: auto; }
+            .modal-content { background: #1e293b; width: 92%; max-width: 400px; padding: 25px; border-radius: 20px; text-align: center; border: 1px solid #334155; max-height: 85vh; overflow-y: auto; position: relative; }
+            
+            .close-icon { position: absolute; top: 12px; right: 15px; width: 32px; height: 32px; border-radius: 50%; background: #334155; color: #fff; font-size: 18px; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: 0.2s; z-index: 100; border: 1px solid #475569; }
+            .close-icon:hover { background: #ef4444; color: white; }
+            .close-icon:active { transform: scale(0.9); }
+
             .instruction-text { color: #fbbf24; font-size: 15.5px; font-weight: bold; margin-bottom: 20px; line-height: 1.5; }
             .quality-btn { display: flex; justify-content: space-between; align-items: center; background: #0f172a; border: 1px solid #334155; padding: 16px; border-radius: 12px; margin-bottom: 12px; color: white; font-weight: bold; font-size: 16px; cursor: pointer; transition: 0.3s; width: 100%; }
             .quality-btn:active { transform: scale(0.98); }
@@ -986,6 +1007,7 @@ async def web_ui():
         <!-- Download & Review Modal -->
         <div id="qualityModal" class="modal">
             <div class="modal-content">
+                <div class="close-icon" onclick="closeQualityModal()"><i class="fa-solid fa-xmark"></i></div>
                 <h2 id="modalTitle" style="color:#38bdf8; margin-bottom: 8px; font-size: 22px; font-weight:900;">Movie Title</h2>
                 <p class="instruction-text">👇 আপনি কোনটি ডাউনলোড করতে চান তা নির্বাচন করুন:</p>
                 <div id="qualityList"></div>
@@ -1007,14 +1029,13 @@ async def web_ui():
                         <!-- Reviews will load here -->
                     </div>
                 </div>
-
-                <button class="close-btn" onclick="closeQualityModal()">বন্ধ করুন</button>
             </div>
         </div>
 
         <!-- Daily Check-in Modal -->
         <div id="checkinModal" class="modal">
             <div class="modal-content">
+                <div class="close-icon" onclick="document.getElementById('checkinModal').style.display='none'"><i class="fa-solid fa-xmark"></i></div>
                 <i class="fa-solid fa-gift" style="font-size:70px; color:#ec4899; text-shadow: 0 0 20px rgba(236,72,153,0.5);"></i>
                 <h2 style="margin:15px 0 10px; color:white; font-size: 24px;">ডেইলি রিওয়ার্ড</h2>
                 <p style="color:#cbd5e1; font-size:15px; line-height: 1.5;">প্রতিদিন লগিন করে ফ্রী কয়েন সংগ্রহ করুন। ৫০ কয়েন জমিয়ে ১ দিনের VIP কেনা যাবে!</p>
@@ -1027,13 +1048,13 @@ async def web_ui():
                 <button class="btn-submit" style="background: linear-gradient(45deg, #3b82f6, #2563eb); margin-bottom: 10px;" onclick="claimCheckin()">আজকের ১০ কয়েন সংগ্রহ করুন</button>
                 <button class="btn-submit" style="background: linear-gradient(45deg, #8b5cf6, #6d28d9); margin-bottom: 10px;" onclick="watchAdForCoins()"><i class="fa-solid fa-video"></i> অ্যাড দেখে ৫ কয়েন আয় করুন</button>
                 <button class="btn-submit" style="background: linear-gradient(45deg, #f59e0b, #d97706); color:black;" onclick="convertCoins()"><i class="fa-solid fa-crown"></i> কয়েন দিয়ে VIP কিনুন (50)</button>
-                <button class="close-btn" onclick="document.getElementById('checkinModal').style.display='none'">বন্ধ করুন</button>
             </div>
         </div>
 
         <!-- VIP Automated Payment Modal with Packages -->
         <div id="vipModal" class="modal">
             <div class="modal-content">
+                <div class="close-icon" onclick="document.getElementById('vipModal').style.display='none'"><i class="fa-solid fa-xmark"></i></div>
                 <h2 style="color:#fbbf24; font-size: 24px; margin-bottom:10px;"><i class="fa-solid fa-crown"></i> VIP প্যাকেজ কিনুন</h2>
                 <p style="color:#cbd5e1; font-size:14.5px; margin-bottom:15px; line-height: 1.4;">পেমেন্ট করে VIP প্যাকেজ কিনুন। ফাইল অটো-ডিলিট হবে না এবং কোনো অ্যাড দেখতে হবে না!</p>
                 
@@ -1058,32 +1079,30 @@ async def web_ui():
                     <input type="text" id="trxIdInput" class="search-input" style="margin-top:10px; background:#1e293b; padding:15px; font-size:16px;" placeholder="যেমন: 8JD8XXXXX">
                     <button class="btn-submit" onclick="submitPayment()">পেমেন্ট ভেরিফাই করুন</button>
                 </div>
-                
-                <button class="close-btn" onclick="document.getElementById('vipModal').style.display='none'">বন্ধ করুন</button>
             </div>
         </div>
 
         <!-- Refer Modal -->
         <div id="referModal" class="modal">
             <div class="modal-content">
+                <div class="close-icon" onclick="document.getElementById('referModal').style.display='none'"><i class="fa-solid fa-xmark"></i></div>
                 <i class="fa-solid fa-share-nodes" style="font-size:60px; color:#38bdf8;"></i>
                 <h2 style="margin:15px 0 10px; color:white; font-size: 24px;">রেফার করুন</h2>
                 <p style="color:#cbd5e1; font-size:15px; margin-bottom:15px;">প্রতি ৫ জন রেফার করলেই পাবেন ২৪ ঘণ্টার VIP একদম ফ্রি!</p>
                 <h3 style="color:#4ade80; font-size:18px;">মোট রেফার: <span id="refCountNum" style="font-size:24px; font-weight:900;">0</span> জন</h3>
                 <div class="refer-box" id="refLinkText">Loading link...</div>
                 <button class="btn-submit" style="background: linear-gradient(45deg, #3b82f6, #1d4ed8);" onclick="copyReferLink()"><i class="fa-regular fa-copy"></i> লিংক কপি করুন</button>
-                <button class="close-btn" onclick="document.getElementById('referModal').style.display='none'">বন্ধ করুন</button>
             </div>
         </div>
         
         <!-- Leaderboard Modal -->
         <div id="leaderboardModal" class="modal">
             <div class="modal-content">
+                <div class="close-icon" onclick="document.getElementById('leaderboardModal').style.display='none'"><i class="fa-solid fa-xmark"></i></div>
                 <h2 style="color:#fbbf24; font-size: 24px; margin-bottom:15px;"><i class="fa-solid fa-trophy"></i> টপ লিডারবোর্ড</h2>
                 <div id="lbList" style="max-height: 50vh; overflow-y:auto; text-align:left; padding-right:5px;">
                     <!-- Loading leaderboard -->
                 </div>
-                <button class="close-btn" onclick="document.getElementById('leaderboardModal').style.display='none'">বন্ধ করুন</button>
             </div>
         </div>
 
@@ -1111,6 +1130,7 @@ async def web_ui():
         <!-- Request Board & Vote Modal -->
         <div id="reqModal" class="modal">
             <div class="modal-content" style="max-height: 90vh;">
+                <div class="close-icon" onclick="document.getElementById('reqModal').style.display='none'"><i class="fa-solid fa-xmark"></i></div>
                 <h2 style="color:white; font-size: 24px;">মুভি রিকোয়েস্ট ও ভোট 🗳️</h2>
                 <div style="display:flex; gap:10px; margin-top:15px;">
                     <input type="text" id="reqText" class="req-input" style="margin:0;" placeholder="নতুন মুভির নাম...">
@@ -1120,7 +1140,6 @@ async def web_ui():
                 <div id="reqList" style="max-height: 40vh; overflow-y:auto; margin-top:10px; text-align:left; padding-right:5px;">
                     <!-- Loading requests -->
                 </div>
-                <button class="close-btn" onclick="document.getElementById('reqModal').style.display='none'">বন্ধ করুন</button>
             </div>
         </div>
 
