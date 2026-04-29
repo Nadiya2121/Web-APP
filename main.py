@@ -1068,10 +1068,13 @@ async def web_ui():
             .task-btn:disabled { background: #475569; color: #94a3b8; cursor: not-allowed; }
             .task-btn.claimed { background: #10b981; }
 
-            /* --- NEW: Stream Player Loader CSS --- */
+            /* Stream Player Loader CSS */
             .player-loader { position: absolute; top:0; left:0; width:100%; height:100%; background:#000; display:flex; flex-direction:column; align-items:center; justify-content:center; z-index:10; color:#fbbf24; transition: 0.5s; }
             .spinner { width: 50px; height: 50px; border: 5px solid #334155; border-top: 5px solid #fbbf24; border-radius: 50%; animation: spin 1s linear infinite; margin-bottom:15px; }
             @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+            
+            /* Custom Video Controls styling (optional tweak) */
+            video::-webkit-media-controls-panel { background: rgba(0, 0, 0, 0.7); }
         </style>
     </head>
     <body onclick="closeMenu(event)">
@@ -1184,7 +1187,7 @@ async def web_ui():
             </div>
         </div>
 
-        <!-- --- NEW UPDATED: Video Player Modal with Fullscreen & Loading Animation --- -->
+        <!-- --- NEW UPDATED: Dual-Mode Smart Video Player Modal --- -->
         <div id="playerModal" class="modal" style="background: #000; z-index: 5000;">
             <div class="close-icon" onclick="closePlayer()" style="top:20px; right:20px; z-index:9999; background: rgba(255,0,0,0.8); border: 2px solid #fff;"><i class="fa-solid fa-xmark"></i></div>
             <div style="position:relative; width:100%; height:100vh; max-width:100%; margin:auto; overflow:hidden; background:#000; display:flex; align-items:center; justify-content:center;">
@@ -1196,7 +1199,11 @@ async def web_ui():
                     <p style="font-size:13px; color:#94a3b8; margin-top:5px;">কয়েক সেকেন্ড অপেক্ষা করুন</p>
                 </div>
 
-                <iframe id="moviePlayerFrame" src="" style="width:100%; height:100%; border:none; opacity:0; transition: opacity 0.5s;" allow="autoplay; fullscreen" allowfullscreen webkitallowfullscreen mozallowfullscreen></iframe>
+                <!-- Iframe for Doodstream / Third-party Embeds -->
+                <iframe id="moviePlayerFrame" src="" style="width:100%; height:100%; border:none; opacity:0; transition: opacity 0.5s; display:none;" allow="autoplay; fullscreen" allowfullscreen webkitallowfullscreen mozallowfullscreen></iframe>
+                
+                <!-- Native Video Player for Direct .mp4 / .mkv Links -->
+                <video id="movieVideoPlayer" controls controlsList="nodownload" style="width:100%; max-height:100vh; border:none; opacity:0; transition: opacity 0.5s; display:none; outline:none;"></video>
             </div>
         </div>
 
@@ -1309,7 +1316,7 @@ async def web_ui():
             <div class="modal-content">
                 <div class="close-icon" onclick="document.getElementById('spinModal').style.display='none'"><i class="fa-solid fa-xmark"></i></div>
                 <h2 style="color:#fbbf24; font-size: 24px; margin-bottom:5px;"><i class="fa-solid fa-dharmachakra"></i> লাকি স্পিন</h2>
-                <p style="color:#cbd5e1; font-size:14px;">প্রতিদিন ৩ বার স্পিন করে ফ্রী কয়েন জিতে নিন! স্পিন করতে একটি অ্যাড দেখতে হবে।</p>
+                <p style="color:#cbd5e1; font-size:14px;">প্রতিদিন ৩ বার স্পিন করে ফ্রী কয়েন জিতে নিন! স্পিন করতে একটি অ্যাড দেখতে হবে.</p>
                 
                 <div class="spin-wrapper">
                     <div class="pointer"></div>
@@ -1759,7 +1766,7 @@ async def web_ui():
             }
             function nextAdStep() { currentAdStep++; startAdTimer(); }
             
-            // --- UPDATED: Streaming Flow Logic (With Loader Support) ---
+            // --- UPDATED: Dual-Mode Smart Stream Player Logic ---
             function handleStreamClick(title) {
                 const movie = loadedMovies[title];
                 if(!movie) return;
@@ -1797,25 +1804,62 @@ async def web_ui():
                 
                 const loader = document.getElementById('playerLoader');
                 const frame = document.getElementById('moviePlayerFrame');
+                const videoPlayer = document.getElementById('movieVideoPlayer');
                 
-                // Show Loader & Hide iframe initially
+                // Reset states
                 loader.style.display = 'flex';
+                frame.style.display = 'none';
+                videoPlayer.style.display = 'none';
                 frame.style.opacity = '0';
+                videoPlayer.style.opacity = '0';
                 
-                frame.src = activeStreamLink;
+                // Smart Detect: Is it a Direct Link or Iframe Embed?
+                const isDirectVideo = activeStreamLink.match(/\.(mp4|mkv|webm|ogg)$/i) || activeStreamLink.includes('/watch/');
                 
-                // When iframe finishes loading, wait an extra 1.5s to clear the black screen then reveal it
-                frame.onload = function() {
+                if (isDirectVideo) {
+                    // Use Native HTML5 <video> Player
+                    videoPlayer.style.display = 'block';
+                    videoPlayer.src = activeStreamLink;
+                    
+                    videoPlayer.onloadeddata = function() {
+                        setTimeout(() => {
+                            loader.style.display = 'none';
+                            videoPlayer.style.opacity = '1';
+                            videoPlayer.play().catch(e => console.log("Autoplay blocked"));
+                        }, 1000);
+                    };
+                    
+                    // Fallback to remove loader if event fails to fire
                     setTimeout(() => {
-                        loader.style.display = 'none';
-                        frame.style.opacity = '1';
-                    }, 1500); 
-                };
+                        if(loader.style.display !== 'none') {
+                            loader.style.display = 'none';
+                            videoPlayer.style.opacity = '1';
+                        }
+                    }, 4000);
+                    
+                } else {
+                    // Use Iframe for websites like DoodStream
+                    frame.style.display = 'block';
+                    frame.src = activeStreamLink;
+                    
+                    frame.onload = function() {
+                        setTimeout(() => {
+                            loader.style.display = 'none';
+                            frame.style.opacity = '1';
+                        }, 1500); 
+                    };
+                }
             }
             
             function closePlayer() {
                 document.getElementById('playerModal').style.display = 'none';
-                document.getElementById('moviePlayerFrame').src = ""; 
+                
+                const frame = document.getElementById('moviePlayerFrame');
+                const videoPlayer = document.getElementById('movieVideoPlayer');
+                
+                frame.src = ""; 
+                videoPlayer.pause();
+                videoPlayer.src = "";
             }
 
             async function sendFile(id) {
@@ -2074,21 +2118,6 @@ async def web_ui():
                     else if(revCount >= 2) { revBtn.innerText = "Claim 10 Coins!"; revBtn.className = "task-btn"; revBtn.disabled = false; }
                     else { revBtn.innerText = "10 Coins Claim করুন"; revBtn.className = "task-btn"; revBtn.disabled = true; }
                     
-                } catch(e) {}
-            }
-
-            async function claimTaskReward(type) {
-                try {
-                    const res = await fetch('/api/tasks/claim', {
-                        method: 'POST', headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({uid: uid, task_type: type, initData: INIT_DATA})
-                    });
-                    const data = await res.json();
-                    if(data.ok) {
-                        tg.showAlert(`🎉 অভিনন্দন! আপনি ${type === 'ads' ? '15' : '10'} Coins পেয়েছেন!`);
-                        fetchUserInfo();
-                        loadTasks();
-                    } else { tg.showAlert(data.msg); }
                 } catch(e) {}
             }
 
