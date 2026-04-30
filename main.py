@@ -480,7 +480,7 @@ async def add_vip_cmd(m: types.Message):
         await db.users.update_one({"user_id": target_uid}, {"$set": {"vip_until": new_vip}})
         await m.answer(f"✅ ইউজার <code>{target_uid}</code> কে সফলভাবে <b>{days} দিনের</b> VIP দেওয়া হয়েছে!", parse_mode="HTML")
         
-        try: await bot.send_message(target_uid, f"🎉 <b>অভিনন্দন!</b> অ্যাডমিন আপনাকে <b>{days} দিনের</b> জন্য VIP মেম্বারশিপ দিয়েছেন।\n\nএখন আপনি কোনো অ্যাড ছাড়াই মুভি ডাউনলোড করতে পারবেন এবং আপনার ফাইল কখনো অটো-ডিলিট হবে না!", parse_mode="HTML")
+        try: await bot.send_message(target_uid, f"🎉 <b>অভিনন্দন!</b> অ্যাডমিন আপনাকে <b>{days} দিনের</b> জন্য VIP মেম্বারশিপ দিয়েছেন।\n\nএখন আপনি কোনো অ্যাড ছাড়াই মুভি ডাউনলোড করতে পারবেন এবং আপনার ফাইল কখনো অটো-ডিলিট হবে কাশী হবে না!", parse_mode="HTML")
         except Exception: pass
     except Exception: await m.answer("⚠️ সঠিক নিয়ম: <code>/addvip ইউজার_আইডি দিন</code>\nউদাহরণ: <code>/addvip 123456789 30</code>", parse_mode="HTML")
 
@@ -1631,7 +1631,7 @@ async def web_ui():
                 try {
                     const res = await fetch('/api/leaderboard');
                     const data = await res.json();
-                    if(data.length===0) return lbList.innerHTML = "<p style='color:gray; text-align:center;'>কোনো ডাটা পাওয়া যায়নি।</p>";
+                    if(data.length===0) return lbList.innerHTML = "<p style='color:gray; text-align:center;'>কোনো ডাটা পাওয়া যায়নি。</p>";
                     lbList.innerHTML = data.map((u, i) => `
                         <div class="lb-item">
                             <div style="display:flex; align-items:center; gap:10px;">
@@ -1755,7 +1755,7 @@ async def web_ui():
                     grid.innerHTML = data.map(m => {
                         loadedMovies[m._id] = m;
                         let editBtnHtml = isAdmin ? `<div class="edit-badge" onclick="event.stopPropagation(); openInAppEdit('${m._id.replace(/'/g, "\\'")}')"><i class="fa-solid fa-pen"></i> Edit</div>` : '';
-                        let poster = m.photo_id.startswith('http') ? m.photo_id : `/api/image/${m.photo_id}`;
+                        let poster = (m.photo_id && m.photo_id.startsWith('http')) ? m.photo_id : `/api/image/${m.photo_id}`;
                         return `<div class="trending-card" onclick="openQualityModal('${m._id.replace(/'/g, "\\'")}')">
                             <div class="post-content">
                                 <div class="top-badge">🔥 TOP</div>
@@ -1782,7 +1782,7 @@ async def web_ui():
                     if(data.length > 0) {
                         wrapper.style.display = 'block';
                         grid.innerHTML = data.map(m => {
-                            let poster = m.photo_id.startswith('http') ? m.photo_id : `/api/image/${m.photo_id}`;
+                            let poster = (m.photo_id && m.photo_id.startsWith('http')) ? m.photo_id : `/api/image/${m.photo_id}`;
                             return `<div class="upcoming-card"><img src="${poster}"><div class="card-footer">${m.title}</div></div>`
                         }).join('');
                     } else { wrapper.style.display = 'none'; }
@@ -1806,7 +1806,7 @@ async def web_ui():
                         grid.innerHTML = data.movies.map(m => {
                             loadedMovies[m._id] = m; 
                             let editBtnHtml = isAdmin ? `<div class="edit-badge" onclick="event.stopPropagation(); openInAppEdit('${m._id.replace(/'/g, "\\'")}')"><i class="fa-solid fa-pen"></i> Edit</div>` : '';
-                            let poster = m.photo_id.startswith('http') ? m.photo_id : `/api/image/${m.photo_id}`;
+                            let poster = (m.photo_id && m.photo_id.startsWith('http')) ? m.photo_id : `/api/image/${m.photo_id}`;
                             return `<div class="card" onclick="openQualityModal('${m._id.replace(/'/g, "\\'")}')">
                                 <div class="post-content">
                                     ${editBtnHtml}
@@ -1899,7 +1899,7 @@ async def web_ui():
                 document.getElementById('tmdbGenres').innerHTML = `🎭 ${movie.genres || 'N/A'}`;
                 document.getElementById('tmdbOverview').innerText = movie.overview || "No synopsis available.";
                 
-                let posterUrl = movie.photo_id.startsWith('http') ? movie.photo_id : `/api/image/${movie.photo_id}`;
+                let posterUrl = (movie.photo_id && movie.photo_id.startsWith('http')) ? movie.photo_id : `/api/image/${movie.photo_id}`;
                 if(movie.tmdb_backdrop) {
                     document.getElementById('tmdbBackdrop').style.backgroundImage = `url('${movie.tmdb_backdrop}')`;
                 } else {
