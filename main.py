@@ -235,7 +235,12 @@ async def forward_to_admin(m: types.Message):
     try:
         builder = InlineKeyboardBuilder()
         builder.button(text="✍️ রিপ্লাই দিন", callback_data=f"reply_{m.from_user.id}")
-        await bot.send_message(OWNER_ID, f"📩 <b>New Message from <a href='tg://user?id={m.from_user.id}'>{m.from_user.first_name}</a></b>:\n\n{m.text or 'Media file'}", parse_mode="HTML", reply_markup=builder.as_markup())
+        
+        # Send message to all admins instead of just OWNER_ID
+        for ad_id in admin_cache:
+            try:
+                await bot.send_message(ad_id, f"📩 <b>New Message from <a href='tg://user?id={m.from_user.id}'>{m.from_user.first_name}</a></b>:\n\n{m.text or 'Media file'}", parse_mode="HTML", reply_markup=builder.as_markup())
+            except Exception: pass
     except Exception: pass
 
 
@@ -902,6 +907,32 @@ async def edit_movie_api(title: str, data: dict = Body(...), auth: bool = Depend
             
     return {"ok": True}
 
+class FileEditModel(BaseModel):
+    id: str
+    quality: str
+
+class UpdateMovieModel(BaseModel):
+    uid: int
+    old_title: str
+    new_title: str
+    files: list[FileEditModel]
+    initData: str
+
+@app.post("/api/admin/inapp_edit")
+async def inapp_edit_movie(data: UpdateMovieModel):
+    if data.uid not in admin_cache or not validate_tg_data(data.initData):
+        return {"ok": False}
+    
+    # Update overall title if changed
+    if data.new_title and data.new_title != data.old_title:
+        await db.movies.update_many({"title": data.old_title}, {"$set": {"title": data.new_title}})
+        await db.requests.update_many({"movie": data.old_title}, {"$set": {"movie": data.new_title}})
+        
+    # Update qualities for specific files
+    for f in data.files:
+        await db.movies.update_one({"_id": ObjectId(f.id)}, {"$set": {"quality": f.quality}})
+        
+    return {"ok": True}
 
 # ==========================================
 # 13. Main Web App UI (Frontend with Full Features)
@@ -983,6 +1014,10 @@ async def web_ui():
             .top-badge { position: absolute; top: 10px; left: 10px; background: linear-gradient(45deg, #ff0000, #cc0000); color: white; padding: 4px 8px; border-radius: 6px; font-size: 11px; font-weight: bold; z-index: 10; }
             .view-badge { position: absolute; bottom: 10px; left: 10px; background: rgba(0,0,0,0.75); color: #fff; padding: 4px 8px; border-radius: 6px; font-size: 12px; font-weight: bold; display: flex; align-items: center; gap: 5px; }
             .ep-badge { position: absolute; top: 10px; right: 10px; background: #10b981; color: white; padding: 4px 8px; border-radius: 6px; font-size: 11px; font-weight: bold; z-index: 10; }
+            
+            /* Admin Edit Badge on Movie Card */
+            .edit-badge { position: absolute; top: 10px; right: 50px; background: #3b82f6; color: white; padding: 4px 8px; border-radius: 6px; font-size: 11px; font-weight: bold; z-index: 15; box-shadow: 0 0 10px rgba(59,130,246,0.5); cursor: pointer; transition: 0.2s; }
+            .edit-badge:active { transform: scale(0.9); }
 
             .card-footer { padding: 12px; font-size: 14px; font-weight: bold; text-align: center; color: #f8fafc; line-height: 1.4; white-space: normal; word-wrap: break-word; display: block; }
             
@@ -1009,9 +1044,16 @@ async def web_ui():
 
             .instruction-text { color: #fbbf24; font-size: 15.5px; font-weight: bold; margin-bottom: 20px; line-height: 1.5; }
             
-            .rgb-border { position: relative; border: none; background: linear-gradient(45deg, #ff0000, #ff7300, #fffb00, #48ff00, #00ffd5, #002bff, #7a00ff, #ff00c8, #ff0000); background-size: 400%; animation: glowing 8s linear infinite; padding: 3px; border-radius: 14px; margin-bottom: 12px; cursor: pointer; transition: 0.3s; width: 100%; box-shadow: 0 0 15px rgba(255,0,0,0.3); }
+            /* Enhanced Performance CSS for Episodes */
+            .rgb-border { transform: translateZ(0); will-change: transform; position: relative; border: none; background: linear-gradient(45deg, #ff0000, #ff7300, #fffb00, #48ff00, #00ffd5, #002bff, #7a00ff, #ff00c8, #ff0000); background-size: 400%; animation: glowing 8s linear infinite; padding: 3px; border-radius: 14px; margin-bottom: 12px; cursor: pointer; transition: 0.3s; width: 100%; box-shadow: 0 0 15px rgba(255,0,0,0.3); }
             .rgb-border:active { transform: scale(0.98); }
+            .no-anim { animation: none !important; background: #38bdf8 !important; box-shadow: none !important; }
             .rgb-inner { display: flex; justify-content: space-between; align-items: center; background: #0f172a; padding: 16px; border-radius: 12px; width: 100%; color: white; font-weight: bold; font-size: 16px; }
+
+            /* Scrollable Episode List */
+            #qualityList { max-height: 45vh; overflow-y: auto; padding-right: 5px; scroll-behavior: smooth; -webkit-overflow-scrolling: touch; }
+            #qualityList::-webkit-scrollbar { width: 4px; }
+            #qualityList::-webkit-scrollbar-thumb { background: #38bdf8; border-radius: 10px; }
 
             .close-btn { background: #334155; color: white; padding: 12px 20px; border-radius: 12px; margin-top: 15px; border: none; width: 100%; font-weight: bold; font-size: 16px; cursor: pointer; }
             .req-input { width: 100%; padding: 16px; margin: 20px 0; border-radius: 12px; border: 2px solid #334155; background: #0f172a; color: white; outline: none; font-size: 16px; font-weight: bold; }
@@ -1172,6 +1214,25 @@ async def web_ui():
                         <!-- Reviews will load here -->
                     </div>
                 </div>
+            </div>
+        </div>
+        
+        <!-- In-App Admin Edit Modal -->
+        <div id="inAppEditModal" class="modal">
+            <div class="modal-content" style="max-height: 90vh; display:flex; flex-direction:column; text-align:left;">
+                <div class="close-icon" onclick="document.getElementById('inAppEditModal').style.display='none'"><i class="fa-solid fa-xmark"></i></div>
+                <h2 style="color:#38bdf8; font-size: 20px; margin-bottom:15px;"><i class="fa-solid fa-pen-to-square"></i> মুভি/এপিসোড এডিট করুন</h2>
+                
+                <label style="color:gray; font-size:13px; font-weight:bold;">মুভির মূল নাম:</label>
+                <input type="text" id="editMovieTitle" class="req-input" style="margin-top:5px; padding:10px;">
+                <input type="hidden" id="editMovieOldTitle">
+                
+                <label style="color:gray; font-size:13px; font-weight:bold; margin-top:10px; display:block;">এপিসোড/কোয়ালিটি সমূহ:</label>
+                <div id="editEpisodesList" style="max-height: 40vh; overflow-y:auto; margin-top:5px; padding-right:5px;">
+                    <!-- Episodes inputs will be loaded here -->
+                </div>
+                
+                <button class="btn-submit" style="margin-top:20px; background: linear-gradient(45deg, #3b82f6, #1d4ed8);" onclick="saveInAppEdit()"><i class="fa-solid fa-floppy-disk"></i> সেভ করুন</button>
             </div>
         </div>
 
@@ -1411,6 +1472,12 @@ async def web_ui():
                     if(data.badges && data.badges.length > 0) {
                         document.getElementById('badgesContainer').innerHTML = data.badges.map(b => '<span class="badge-tag">'+b+'</span>').join('');
                     }
+                    
+                    // Once user info is loaded, reload movies to show Edit badges if admin
+                    if(isAdmin) {
+                        loadTrending();
+                        loadMovies(currentPage);
+                    }
                 } catch(e) {}
             }
 
@@ -1561,9 +1628,11 @@ async def web_ui():
                     if(data.length === 0) return document.getElementById('trendingWrapper').style.display = 'none';
                     grid.innerHTML = data.map(m => {
                         loadedMovies[m._id] = m;
+                        let editBtnHtml = isAdmin ? `<div class="edit-badge" onclick="event.stopPropagation(); openInAppEdit('${m._id.replace(/'/g, "\\'")}')"><i class="fa-solid fa-pen"></i> Edit</div>` : '';
                         return `<div class="trending-card" onclick="openQualityModal('${m._id.replace(/'/g, "\\'")}')">
                             <div class="post-content">
                                 <div class="top-badge">🔥 TOP</div>
+                                ${editBtnHtml}
                                 <img src="/api/image/${m.photo_id}" loading="lazy" onerror="this.src='https://via.placeholder.com/400x240?text=No+Image'">
                                 <div class="ep-badge"><i class="fa-solid fa-list"></i> ${m.files.length}</div>
                                 <div class="view-badge"><i class="fa-solid fa-eye"></i> ${formatViews(m.clicks)}</div>
@@ -1606,8 +1675,10 @@ async def web_ui():
                     } else if (data.movies) {
                         grid.innerHTML = data.movies.map(m => {
                             loadedMovies[m._id] = m; 
+                            let editBtnHtml = isAdmin ? `<div class="edit-badge" onclick="event.stopPropagation(); openInAppEdit('${m._id.replace(/'/g, "\\'")}')"><i class="fa-solid fa-pen"></i> Edit</div>` : '';
                             return `<div class="card" onclick="openQualityModal('${m._id.replace(/'/g, "\\'")}')">
                                 <div class="post-content">
+                                    ${editBtnHtml}
                                     <img src="/api/image/${m.photo_id}" loading="lazy" onerror="this.src='https://via.placeholder.com/400x240?text=No+Image'">
                                     <div class="ep-badge"><i class="fa-solid fa-list"></i> ${m.files.length}</div>
                                     <div class="view-badge"><i class="fa-solid fa-eye"></i> ${formatViews(m.clicks)}</div>
@@ -1696,8 +1767,10 @@ async def web_ui():
                     let isFree = f.is_unlocked || isUserVip;
                     let icon = isFree ? '<i class="fa-solid fa-paper-plane text-green-400" style="font-size:18px;"></i>' : '<i class="fa-solid fa-lock text-red-400" style="font-size:18px;"></i>';
                     let cls = isFree ? 'border-left: 5px solid #10b981;' : 'border-left: 5px solid #ef4444;';
+                    // Fix lag by disabling heavy animation if too many files
+                    let wrapClass = movie.files.length > 15 ? 'rgb-border no-anim' : 'rgb-border';
                     return `
-                    <div class="rgb-border" onclick="handleQualityClick('${f.id}', ${f.is_unlocked})">
+                    <div class="${wrapClass}" onclick="handleQualityClick('${f.id}', ${f.is_unlocked})">
                         <div class="rgb-inner" style="${cls}"><span><i class="fa-solid fa-download"></i> ${f.quality}</span> ${icon}</div>
                     </div>`;
                 }).join('');
@@ -1719,6 +1792,54 @@ async def web_ui():
                     activeFileId = fileId; 
                     onAdCompleteCallback = () => sendFile(activeFileId);
                     showDirectLinkModal("এই ভিডিও বা মুভিটি আনলক করতে নিচের বাটনে ক্লিক করুন। একটি নতুন পেইজ ওপেন হবে, সেখানে <b>১৫ সেকেন্ড</b> অপেক্ষা করুন। এরপর অটোমেটিক আপনার বটের ইনবক্সে মুভি চলে যাবে!");
+                }
+            }
+            
+            // --- IN APP ADMIN EDIT LOGIC ---
+            function openInAppEdit(title) {
+                const movie = loadedMovies[title];
+                if(!movie) return;
+                
+                document.getElementById('editMovieOldTitle').value = title;
+                document.getElementById('editMovieTitle').value = title;
+                
+                let html = movie.files.map((f, i) => `
+                    <div style="background:#0f172a; border:1px solid #334155; padding:10px; border-radius:8px; margin-bottom:8px;">
+                        <label style="color:#94a3b8; font-size:11px;">ফাইল ${i+1} ID: ${f.id.substring(0,6)}...</label>
+                        <input type="text" class="req-input ep-edit-input" data-id="${f.id}" value="${f.quality}" style="margin:5px 0 0 0; padding:8px; font-size:14px; width:100%;">
+                    </div>
+                `).join('');
+                
+                document.getElementById('editEpisodesList').innerHTML = html;
+                document.getElementById('inAppEditModal').style.display = 'flex';
+            }
+
+            async function saveInAppEdit() {
+                const oldTitle = document.getElementById('editMovieOldTitle').value;
+                const newTitle = document.getElementById('editMovieTitle').value.trim();
+                
+                const inputs = document.querySelectorAll('.ep-edit-input');
+                let filesData = [];
+                inputs.forEach(inp => {
+                    filesData.push({ id: inp.getAttribute('data-id'), quality: inp.value.trim() });
+                });
+                
+                try {
+                    const res = await fetch('/api/admin/inapp_edit', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ uid: uid, old_title: oldTitle, new_title: newTitle, files: filesData, initData: INIT_DATA })
+                    });
+                    const data = await res.json();
+                    if(data.ok) {
+                        tg.showAlert("✅ সফলভাবে আপডেট করা হয়েছে!");
+                        document.getElementById('inAppEditModal').style.display = 'none';
+                        goHome(); // Reload data
+                    } else {
+                        tg.showAlert("⚠️ আপডেট ব্যর্থ হয়েছে!");
+                    }
+                } catch(e) {
+                    tg.showAlert("Error saving edits.");
                 }
             }
             
@@ -1749,7 +1870,7 @@ async def web_ui():
                     if(!responseData.ok) return alert("⚠️ Security verification failed!");
                     
                     if (isUserVip) {
-                        document.getElementById('successNoticeBox').innerHTML = `<p style="color:#4ade80;"><i class="fa-solid fa-crown" style="color: #fbbf24;"></i> <b>VIP সুবিধা:</b> এই ফাইলটি আপনার ইনবক্স থেকে কখনো অটো-ডিলিট হবে না। সারাজীবন সেভ থাকবে!</p>`;
+                        document.getElementById('successNoticeBox').innerHTML = `<p style="color:#4ade80;"><i class="fa-solid fa-crown" style="color: #fbbf24;"></i> <b>VIP সুবিধা:</b> এই ফাইলটি আপনার ইনবক্স থেকে কখনো অটো-ডিলিট হবে কাশী হবে না। সারাজীবন সেভ থাকবে!</p>`;
                         document.getElementById('successNoticeBox').style.background = "linear-gradient(135deg, rgba(74,222,128,0.1), rgba(34,197,94,0.15))";
                         document.getElementById('successNoticeBox').style.borderLeftColor = "#4ade80";
                     }
@@ -2013,7 +2134,7 @@ async def web_ui():
                 } catch(e) {}
             }
 
-            fetchUserInfo(); loadTrending(); loadUpcoming(); loadMovies(1); 
+            fetchUserInfo(); 
         </script>
     </body>
     </html>
@@ -2161,7 +2282,10 @@ async def submit_payment(data: PaymentModel):
         elif data.days == 180: pkg_name = "৬ মাসের"
         
         msg = f"💰 <b>নতুন পেমেন্ট রিকোয়েস্ট!</b>\n\n👤 ইউজার ID: <code>{data.uid}</code>\n🏦 মেথড: {data.method.upper()}\n🧾 TrxID: <code>{data.trx_id}</code>\n💵 পরিমাণ: {data.price} BDT\n⏳ প্যাকেজ: {pkg_name} VIP"
-        await bot.send_message(OWNER_ID, msg, parse_mode="HTML", reply_markup=builder.as_markup())
+        
+        for ad_id in admin_cache:
+            try: await bot.send_message(ad_id, msg, parse_mode="HTML", reply_markup=builder.as_markup())
+            except Exception: pass
     except Exception: pass
     
     return {"ok": True}
@@ -2367,7 +2491,9 @@ async def handle_request(data: ReqModel):
             builder.button(text="❌ Reject", callback_data=f"req_rej_{req_id}")
             builder.button(text="✍️ রিপ্লাই", callback_data=f"reply_{data.uid}")
             
-            await bot.send_message(OWNER_ID, f"🔔 <b>নতুন মুভি রিকোয়েস্ট!</b>\n\n{vip_text}\nইউজার: {data.uname} (<code>{data.uid}</code>)\n🎬 মুভির নাম: <b>{data.movie}</b>", parse_mode="HTML", reply_markup=builder.as_markup())
+            for ad_id in admin_cache:
+                try: await bot.send_message(ad_id, f"🔔 <b>নতুন মুভি রিকোয়েস্ট!</b>\n\n{vip_text}\nইউজার: {data.uname} (<code>{data.uid}</code>)\n🎬 মুভির নাম: <b>{data.movie}</b>", parse_mode="HTML", reply_markup=builder.as_markup())
+                except Exception: pass
         except Exception: pass
     
     return {"ok": True}
