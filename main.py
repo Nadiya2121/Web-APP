@@ -99,9 +99,12 @@ async def init_db():
     await db.movies.create_index("created_at")
     await db.auto_delete.create_index("delete_at")
     await db.users.create_index("joined_at")
+    await db.users.create_index("user_id") # <-- FIX FOR DB SLOWNESS
     await db.reviews.create_index("movie_title")
+    await db.reviews.create_index("user_id") # <-- FIX FOR DB SLOWNESS
     await db.payments.create_index("trx_id", unique=True)
     await db.requests.create_index("movie") 
+    await db.user_unlocks.create_index("user_id") # <-- FIX FOR DB SLOWNESS
 
 
 # ==========================================
@@ -360,7 +363,7 @@ async def ban_user_cmd(m: types.Message):
     if m.from_user.id not in admin_cache: return
     try:
         target_uid = int(m.text.split()[1])
-        if target_uid in admin_cache: return await m.answer("⚠️ অ্যাডমিনকে ব্যান করা যাবে না!")
+        if target_uid in admin_cache: return await m.answer("⚠️ অ্যাডমিনকে ব্যান করা যাবেবিধা না!")
         await db.banned.update_one({"user_id": target_uid}, {"$set": {"user_id": target_uid}}, upsert=True)
         banned_cache.add(target_uid)
         await m.answer(f"🚫 ইউজার <code>{target_uid}</code> কে ব্যান করা হয়েছে!", parse_mode="HTML")
@@ -1473,12 +1476,16 @@ async def web_ui():
                         document.getElementById('badgesContainer').innerHTML = data.badges.map(b => '<span class="badge-tag">'+b+'</span>').join('');
                     }
                     
-                    // Once user info is loaded, reload movies to show Edit badges if admin
-                    if(isAdmin) {
-                        loadTrending();
-                        loadMovies(currentPage);
-                    }
-                } catch(e) {}
+                    // Lodaing all movies for EVERYONE (Admin & Normal Users) after getting info
+                    loadUpcoming();
+                    loadTrending();
+                    loadMovies(currentPage);
+                    
+                } catch(e) {
+                    loadUpcoming();
+                    loadTrending();
+                    loadMovies(currentPage);
+                }
             }
 
             function toggleMenu(e) { e.stopPropagation(); const menu = document.getElementById('dropdownMenu'); menu.style.display = (menu.style.display === 'block') ? 'none' : 'block'; }
