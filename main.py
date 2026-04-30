@@ -88,7 +88,7 @@ class SmartUpload(StatesGroup):
     waiting_for_language = State()
     waiting_for_custom_language = State()
     waiting_for_season = State()
-    waiting_for_custom_file_name = State() # NEW: Custom quality/episode name state
+    waiting_for_custom_file_name = State() # Custom quality/episode name state
     waiting_for_selection = State()
     waiting_for_files = State()
 
@@ -118,7 +118,7 @@ async def init_db():
     await db.payments.create_index("trx_id", unique=True)
     await db.requests.create_index("movie") 
     await db.user_unlocks.create_index("user_id") 
-    await db.channel_noti.create_index("title", unique=True) # NEW Index for Channel Notification
+    await db.channel_noti.create_index("title", unique=True) # Index for Channel Notification
 
 async def fetch_tmdb_advanced(query: str):
     imdb_match = re.search(r'tt\d+', query)
@@ -596,7 +596,7 @@ async def handle_request_approval(c: types.CallbackQuery):
 
 
 # ==========================================
-# 9. NEW TMDB Smart Upload Flow
+# 9. NEW TMDB Smart Upload Flow (WITH LANGUAGE IN TITLE)
 # ==========================================
 @dp.message(Command("upload"))
 async def start_smart_upload(m: types.Message, state: FSMContext):
@@ -689,19 +689,24 @@ async def process_custom_language(m: types.Message, state: FSMContext):
     await proceed_to_season_or_quality(m, state, lang)
 
 async def proceed_to_season_or_quality(message, state, lang):
-    await state.update_data(selected_language=lang)
     data = await state.get_data()
     media_type = data["media_type"]
     poster_url = data["tmdb_poster"]
+    tmdb_title = data["tmdb_title"]
+    
+    # 🟢 FIX: মূল টাইটেলের সাথে ল্যাঙ্গুয়েজ যুক্ত করা হলো
+    new_title = f"{tmdb_title} [{lang}]"
+    
+    await state.update_data(selected_language=lang, tmdb_title=new_title)
     
     if media_type == "movie":
         await state.set_state(SmartUpload.waiting_for_selection)
         opts = ["480p", "720p", "1080p", "4K"]
         await state.update_data(options=opts)
-        await bot.send_photo(message.chat.id, photo=poster_url, caption=f"✅ ভাষা: <b>{lang}</b>\n👇 <b>যে যে কোয়ালিটি আপলোড করবেন, সেগুলো সিলেক্ট করুন:</b>", reply_markup=generate_multi_select_kb(opts, []), parse_mode="HTML")
+        await bot.send_photo(message.chat.id, photo=poster_url, caption=f"✅ নতুন নাম: <b>{new_title}</b>\n👇 <b>যে যে কোয়ালিটি আপলোড করবেন, সেগুলো সিলেক্ট করুন:</b>", reply_markup=generate_multi_select_kb(opts, []), parse_mode="HTML")
     else:
         await state.set_state(SmartUpload.waiting_for_season)
-        await bot.send_photo(message.chat.id, photo=poster_url, caption=f"✅ ভাষা: <b>{lang}</b>\n📺 এটি একটি সিরিজ। <b>সিজন নাম্বার লিখে পাঠান (যেমন: 1, 2, 3)</b>:", parse_mode="HTML")
+        await bot.send_photo(message.chat.id, photo=poster_url, caption=f"✅ নতুন নাম: <b>{new_title}</b>\n📺 এটি একটি সিরিজ। <b>সিজন নাম্বার লিখে পাঠান (যেমন: 1, 2, 3)</b>:", parse_mode="HTML")
 
 @dp.message(SmartUpload.waiting_for_season, F.text)
 async def process_season_number(m: types.Message, state: FSMContext):
@@ -722,14 +727,12 @@ def generate_multi_select_kb(options, selected):
     builder.row(types.InlineKeyboardButton(text="🚀 Confirm & Send Files", callback_data="confirm_selection"))
     return builder.as_markup()
 
-# NEW: Handle Custom Option Button
 @dp.callback_query(F.data == "custom_opt")
 async def process_custom_opt(c: types.CallbackQuery, state: FSMContext):
     await state.set_state(SmartUpload.waiting_for_custom_file_name)
     await c.message.delete()
     await c.message.answer("✍️ <b>কাস্টম কোয়ালিটি বা এপিসোডের নাম লিখে পাঠান:</b>\n<i>(যেমন: Dual Audio 720p বা Bonus Episode)</i>", parse_mode="HTML")
 
-# NEW: Handle Custom Option Text Input
 @dp.message(SmartUpload.waiting_for_custom_file_name, F.text)
 async def process_custom_file_name(m: types.Message, state: FSMContext):
     custom_name = m.text.strip()
@@ -784,9 +787,7 @@ async def receive_bulk_files(m: types.Message, state: FSMContext):
     if "season" in data:
         quality_label = f"S{int(data['season']):02d} {quality_label}"
 
-    lang = data.get("selected_language", "")
-    if lang:
-        quality_label = f"{quality_label} [{lang}]"
+    # 🟢 FIX: ল্যাঙ্গুয়েজ যেহেতু টাইটেলে অ্যাড হয়েছে, তাই quality label থেকে বাদ দেওয়া হলো
 
     received.append({
         "file_id": fid, "file_type": ftype, "quality": quality_label
@@ -795,7 +796,7 @@ async def receive_bulk_files(m: types.Message, state: FSMContext):
     await state.update_data(received_files=received)
     
     if len(received) >= expected:
-        title = data["tmdb_title"]
+        title = data["tmdb_title"]  # এটি এখন Name (Year) [Language] ফরম্যাটে আছে
         photo_url = data["tmdb_poster"]
         
         docs_to_insert = []
@@ -816,7 +817,6 @@ async def receive_bulk_files(m: types.Message, state: FSMContext):
         await m.answer(f"🎉 <b>{title}</b> এর {expected} টি ফাইল সফলভাবে ডাটাবেসে সেভ হয়েছে!", parse_mode="HTML")
         await state.clear()
         
-        # FIX: Auto Delete old Channel Notification for the same Title
         if CHANNEL_ID and CHANNEL_ID != "-100XXXXXXXXXX":
             try:
                 bot_info = await bot.get_me()
@@ -828,15 +828,12 @@ async def receive_bulk_files(m: types.Message, state: FSMContext):
                            f"🎭 <b>ক্যাটাগরি:</b> {data['tmdb_genres']}\n\n"
                            f"👇 <i>ডাউনলোড করতে নিচের বাটনে ক্লিক করুন।</i>")
                 
-                # Auto delete old notification message
                 existing_noti = await db.channel_noti.find_one({"title": title})
                 if existing_noti:
                     try: await bot.delete_message(chat_id=CHANNEL_ID, message_id=existing_noti["msg_id"])
                     except Exception: pass
                 
                 sent_msg = await bot.send_photo(chat_id=CHANNEL_ID, photo=photo_url, caption=caption, parse_mode="HTML", reply_markup=markup)
-                
-                # Save new notification msg_id
                 await db.channel_noti.update_one({"title": title}, {"$set": {"msg_id": sent_msg.message_id}}, upsert=True)
             except Exception: pass
 
@@ -890,7 +887,6 @@ async def receive_movie_quality(m: types.Message, state: FSMContext):
             except Exception: pass
         await db.requests.delete_one({"_id": req["_id"]})
     
-    # FIX: Auto Delete old Channel Notification for the same Title
     if CHANNEL_ID and CHANNEL_ID != "-100XXXXXXXXXX":
         try:
             bot_info = await bot.get_me()
@@ -898,15 +894,12 @@ async def receive_movie_quality(m: types.Message, state: FSMContext):
             markup = types.InlineKeyboardMarkup(inline_keyboard=kb)
             caption = f"🎬 <b>নতুন ফাইল যুক্ত হয়েছে!</b>\n\n📌 <b>নাম:</b> {title}\n🏷 <b>কোয়ালিটি/এপিসোড:</b> {quality}\n\n👇 <i>ডাউনলোড করতে নিচের বাটনে ক্লিক করুন।</i>"
             
-            # Auto delete old notification message
             existing_noti = await db.channel_noti.find_one({"title": title})
             if existing_noti:
                 try: await bot.delete_message(chat_id=CHANNEL_ID, message_id=existing_noti["msg_id"])
                 except Exception: pass
                 
             sent_msg = await bot.send_photo(chat_id=CHANNEL_ID, photo=photo_id, caption=caption, parse_mode="HTML", reply_markup=markup)
-            
-            # Save new notification msg_id
             await db.channel_noti.update_one({"title": title}, {"$set": {"msg_id": sent_msg.message_id}}, upsert=True)
         except Exception: pass
 
@@ -1247,7 +1240,7 @@ async def web_ui():
             .dropdown-menu a:last-child { border-bottom: none; }
             .dropdown-menu i { width: 20px; text-align: center; margin-right: 8px; }
 
-            /* NEW: Category Scroll Bar CSS */
+            /* Category Scroll Bar CSS */
             .category-container { display: flex; overflow-x: auto; gap: 10px; padding: 12px 15px; scroll-behavior: smooth; -webkit-overflow-scrolling: touch; background: #0f172a; border-bottom: 1px solid #1e293b; position: sticky; top: 65px; z-index: 999;}
             .category-container::-webkit-scrollbar { display: none; }
             .category-btn { background: #1e293b; color: #94a3b8; border: 1px solid #334155; padding: 8px 16px; border-radius: 20px; font-size: 13px; font-weight: bold; cursor: pointer; white-space: nowrap; transition: 0.3s; }
@@ -1408,7 +1401,7 @@ async def web_ui():
             </div>
         </header>
         
-        <!-- NEW: Horizontal Category Bar -->
+        <!-- Category Horizontal Bar -->
         <div class="category-container" id="categoryScroll">
             <div class="category-btn active" onclick="filterCategory('', this)">🔥 All</div>
             <div class="category-btn" onclick="filterCategory('Action', this)">⚔️ Action</div>
@@ -1551,7 +1544,7 @@ async def web_ui():
             <div class="center-modal-content">
                 <div class="close-icon" onclick="document.getElementById('vipModal').style.display='none'"><i class="fa-solid fa-xmark"></i></div>
                 <h2 style="color:#fbbf24; font-size: 24px; margin-bottom:10px;"><i class="fa-solid fa-crown"></i> VIP প্যাকেজ কিনুন</h2>
-                <p style="color:#cbd5e1; font-size:14.5px; margin-bottom:15px; line-height: 1.4;">পেমেন্ট করে VIP প্যাকেজ কিনুন। ফাইল অটো-ডিলিট হবে কেজি এবং কোনো অ্যাড দেখতে হবে না!</p>
+                <p style="color:#cbd5e1; font-size:14.5px; margin-bottom:15px; line-height: 1.4;">পেমেন্ট করে VIP প্যাকেজ কিনুন। ফাইল অটো-ডিলিট হবে না এবং কোনো অ্যাড দেখতে হবে না!</p>
                 
                 <div style="display:flex; justify-content:space-between; margin-bottom: 15px;">
                     <button class="method-btn" style="background:#e11471; box-shadow: 0 4px 10px rgba(225,20,113,0.4);" onclick="selectPayment('bkash')">bKash</button>
@@ -1762,7 +1755,6 @@ async def web_ui():
                 window.scrollTo({ top: 0, behavior: 'smooth' });
             }
             
-            // NEW: Category Filter Logic
             function filterCategory(cat, btnElement) {
                 document.querySelectorAll('.category-btn').forEach(btn => btn.classList.remove('active'));
                 btnElement.classList.add('active');
