@@ -9,6 +9,7 @@ import hashlib
 import urllib.parse
 import secrets
 import json
+import re
 
 # ==========================================
 # 🛑 FIX FOR EVENT LOOP ERROR
@@ -84,6 +85,8 @@ class AdminStates(StatesGroup):
 class SmartUpload(StatesGroup):
     # New TMDB Smart Flow
     waiting_for_query = State()
+    waiting_for_language = State()
+    waiting_for_custom_language = State()
     waiting_for_season = State()
     waiting_for_selection = State()
     waiting_for_files = State()
@@ -115,12 +118,45 @@ async def init_db():
     await db.requests.create_index("movie") 
     await db.user_unlocks.create_index("user_id") 
 
-async def fetch_tmdb_search(query: str):
-    url = f"https://api.themoviedb.org/3/search/multi?api_key={TMDB_API_KEY}&query={urllib.parse.quote(query)}&language=en-US&page=1"
+async def fetch_tmdb_advanced(query: str):
+    imdb_match = re.search(r'tt\d+', query)
+    tmdb_movie_match = re.search(r'themoviedb\.org/movie/(\d+)', query)
+    tmdb_tv_match = re.search(r'themoviedb\.org/tv/(\d+)', query)
+    
     async with aiohttp.ClientSession() as session:
-        async with session.get(url) as resp:
-            if resp.status == 200:
-                return await resp.json()
+        if imdb_match:
+            imdb_id = imdb_match.group(0)
+            url = f"https://api.themoviedb.org/3/find/{imdb_id}?api_key={TMDB_API_KEY}&external_source=imdb_id"
+            async with session.get(url) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    results = data.get("movie_results", []) + data.get("tv_results", [])
+                    # Append media_type if missing based on result structure
+                    for r in results:
+                        if "title" in r: r["media_type"] = "movie"
+                        elif "name" in r: r["media_type"] = "tv"
+                    return {"results": results}
+        elif tmdb_movie_match:
+            tmdb_id = tmdb_movie_match.group(1)
+            url = f"https://api.themoviedb.org/3/movie/{tmdb_id}?api_key={TMDB_API_KEY}&language=en-US"
+            async with session.get(url) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    data["media_type"] = "movie"
+                    return {"results": [data]}
+        elif tmdb_tv_match:
+            tmdb_id = tmdb_tv_match.group(1)
+            url = f"https://api.themoviedb.org/3/tv/{tmdb_id}?api_key={TMDB_API_KEY}&language=en-US"
+            async with session.get(url) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    data["media_type"] = "tv"
+                    return {"results": [data]}
+        else:
+            url = f"https://api.themoviedb.org/3/search/multi?api_key={TMDB_API_KEY}&query={urllib.parse.quote(query)}&language=en-US&page=1"
+            async with session.get(url) as resp:
+                if resp.status == 200:
+                    return await resp.json()
     return None
 
 async def fetch_tmdb_details(tmdb_id: int, media_type: str):
@@ -369,7 +405,7 @@ async def ban_user_cmd(m: types.Message):
     if m.from_user.id not in admin_cache: return
     try:
         target_uid = int(m.text.split()[1])
-        if target_uid in admin_cache: return await m.answer("⚠️ অ্যাডমিনকে ব্যান করা যাবে না!")
+        if target_uid in admin_cache: return await m.answer("⚠️ অ্যাডমিনকে ব্যান করা যাবেবিধা যাবে না!")
         await db.banned.update_one({"user_id": target_uid}, {"$set": {"user_id": target_uid}}, upsert=True)
         banned_cache.add(target_uid)
         await m.answer(f"🚫 ইউজার <code>{target_uid}</code> কে ব্যান করা হয়েছে!", parse_mode="HTML")
@@ -480,7 +516,7 @@ async def add_vip_cmd(m: types.Message):
         await db.users.update_one({"user_id": target_uid}, {"$set": {"vip_until": new_vip}})
         await m.answer(f"✅ ইউজার <code>{target_uid}</code> কে সফলভাবে <b>{days} দিনের</b> VIP দেওয়া হয়েছে!", parse_mode="HTML")
         
-        try: await bot.send_message(target_uid, f"🎉 <b>অভিনন্দন!</b> অ্যাডমিন আপনাকে <b>{days} দিনের</b> জন্য VIP মেম্বারশিপ দিয়েছেন।\n\nএখন আপনি কোনো অ্যাড ছাড়াই মুভি ডাউনলোড করতে পারবেন এবং আপনার ফাইল কখনো অটো-ডিলিট হবে কাশী হবে না!", parse_mode="HTML")
+        try: await bot.send_message(target_uid, f"🎉 <b>অভিনন্দন!</b> অ্যাডমিন আপনাকে <b>{days} দিনের</b> জন্য VIP মেম্বারশিপ দিয়েছেন।\n\nএখন আপনি কোনো অ্যাড ছাড়াই মুভি ডাউনলোড করতে পারবেন এবং আপনার ফাইল কখনো অটো-ডিলিট হবে না!", parse_mode="HTML")
         except Exception: pass
     except Exception: await m.answer("⚠️ সঠিক নিয়ম: <code>/addvip ইউজার_আইডি দিন</code>\nউদাহরণ: <code>/addvip 123456789 30</code>", parse_mode="HTML")
 
@@ -565,18 +601,18 @@ async def handle_request_approval(c: types.CallbackQuery):
 async def start_smart_upload(m: types.Message, state: FSMContext):
     if m.from_user.id not in admin_cache: return
     await state.set_state(SmartUpload.waiting_for_query)
-    await m.answer("🔍 <b>মুভি বা সিরিজের নাম লিখুন (ইংরেজিতে):</b>\n<i>(TMDB তে সার্চ করা হবে)</i>\nবাতিল করতে /start দিন।", parse_mode="HTML")
+    await m.answer("🔍 <b>মুভি বা সিরিজের নাম লিখুন (অথবা IMDB/TMDB লিংক দিন):</b>\n<i>(TMDB তে সার্চ করা হবে)</i>\nবাতিল করতে /start দিন।", parse_mode="HTML")
 
 @dp.message(SmartUpload.waiting_for_query, F.text)
 async def process_tmdb_search(m: types.Message, state: FSMContext):
     query = m.text.strip()
     msg = await m.answer("⏳ TMDB-তে খোঁজা হচ্ছে...")
-    data = await fetch_tmdb_search(query)
+    data = await fetch_tmdb_advanced(query)
     
     if not data or not data.get("results"):
-        return await msg.edit_text("❌ <b>কিছু পাওয়া যায়নি!</b> আবার সঠিক নাম লিখে পাঠান।", parse_mode="HTML")
+        return await msg.edit_text("❌ <b>কিছু পাওয়া যায়নি!</b> আবার সঠিক নাম বা লিংক লিখে পাঠান।", parse_mode="HTML")
         
-    results = [r for r in data["results"] if r["media_type"] in ["movie", "tv"]][:5]
+    results = [r for r in data["results"] if r.get("media_type") in ["movie", "tv"]][:5]
     if not results:
         return await msg.edit_text("❌ <b>সঠিক মুভি বা সিরিজ পাওয়া যায়নি!</b> আবার চেষ্টা করুন।", parse_mode="HTML")
         
@@ -610,26 +646,62 @@ async def select_tmdb_movie(c: types.CallbackQuery, state: FSMContext):
     genres = ", ".join([g["name"] for g in details.get("genres", [])])
     rating = round(details.get("vote_average", 0.0), 1)
     overview = details.get("overview", "No synopsis available.")
-    release_date = details.get("release_date") or details.get("first_air_date") or "N/A"
+    release_date = details.get("release_date") or details.get("first_air_date") or ""
+    year = release_date[:4] if release_date else "N/A"
+    
+    # Add year to title
+    if year != "N/A" and year not in title:
+        title = f"{title} ({year})"
     
     await state.update_data(
         tmdb_title=title, tmdb_poster=poster_url, tmdb_backdrop=backdrop_url,
-        tmdb_genres=genres, tmdb_rating=rating, tmdb_overview=overview, tmdb_release=release_date,
+        tmdb_genres=genres, tmdb_rating=rating, tmdb_overview=overview, tmdb_release=release_date or "N/A",
         media_type=media_type, selections=[]
     )
     
     text = (f"✅ <b>{title}</b> সিলেক্ট হয়েছে!\n\n"
-            f"⭐️ রেটিং: {rating}\n🎭 জেনার: {genres}\n📅 রিলিজ: {release_date}\n\n")
+            f"⭐️ রেটিং: {rating}\n🎭 জেনার: {genres}\n📅 রিলিজ: {release_date or 'N/A'}\n\n")
             
+    # Language Selection Step
+    builder = InlineKeyboardBuilder()
+    langs = ["Bangla Dubbed", "Hindi Dubbed", "Dual Audio", "Multi Audio", "Bangla", "Hindi", "English", "Custom Language"]
+    for lang in langs:
+        builder.button(text=lang, callback_data=f"lang_{lang}")
+    builder.adjust(2)
+    
+    await state.set_state(SmartUpload.waiting_for_language)
+    await c.message.delete()
+    await bot.send_photo(c.message.chat.id, photo=poster_url, caption=text + "👇 <b>মুভির ভাষা (Language) সিলেক্ট করুন:</b>", reply_markup=builder.as_markup(), parse_mode="HTML")
+
+@dp.callback_query(SmartUpload.waiting_for_language, F.data.startswith("lang_"))
+async def process_language(c: types.CallbackQuery, state: FSMContext):
+    lang = c.data.replace("lang_", "")
+    if lang == "Custom Language":
+        await state.set_state(SmartUpload.waiting_for_custom_language)
+        await c.message.delete()
+        await c.message.answer("✍️ <b>কাস্টম ভাষার নাম লিখে পাঠান:</b>\n<i>(যেমন: Tamil + Telugu)</i>", parse_mode="HTML")
+        return
+    await c.message.delete()
+    await proceed_to_season_or_quality(c.message, state, lang)
+
+@dp.message(SmartUpload.waiting_for_custom_language, F.text)
+async def process_custom_language(m: types.Message, state: FSMContext):
+    lang = m.text.strip()
+    await proceed_to_season_or_quality(m, state, lang)
+
+async def proceed_to_season_or_quality(message, state, lang):
+    await state.update_data(selected_language=lang)
+    data = await state.get_data()
+    media_type = data["media_type"]
+    poster_url = data["tmdb_poster"]
+    
     if media_type == "movie":
         await state.set_state(SmartUpload.waiting_for_selection)
         await state.update_data(options=["480p", "720p", "1080p", "4K"])
-        await c.message.delete()
-        await bot.send_photo(c.message.chat.id, photo=poster_url, caption=text + "👇 <b>যে যে কোয়ালিটি আপলোড করবেন, সেগুলো সিলেক্ট করুন:</b>", reply_markup=generate_multi_select_kb(["480p", "720p", "1080p", "4K"], []), parse_mode="HTML")
+        await bot.send_photo(message.chat.id, photo=poster_url, caption=f"✅ ভাষা: <b>{lang}</b>\n👇 <b>যে যে কোয়ালিটি আপলোড করবেন, সেগুলো সিলেক্ট করুন:</b>", reply_markup=generate_multi_select_kb(["480p", "720p", "1080p", "4K"], []), parse_mode="HTML")
     else:
         await state.set_state(SmartUpload.waiting_for_season)
-        await c.message.delete()
-        await bot.send_photo(c.message.chat.id, photo=poster_url, caption=text + "📺 এটি একটি সিরিজ। <b>সিজন নাম্বার লিখে পাঠান (যেমন: 1, 2, 3)</b>:", parse_mode="HTML")
+        await bot.send_photo(message.chat.id, photo=poster_url, caption=f"✅ ভাষা: <b>{lang}</b>\n📺 এটি একটি সিরিজ। <b>সিজন নাম্বার লিখে পাঠান (যেমন: 1, 2, 3)</b>:", parse_mode="HTML")
 
 @dp.message(SmartUpload.waiting_for_season, F.text)
 async def process_season_number(m: types.Message, state: FSMContext):
@@ -687,6 +759,11 @@ async def receive_bulk_files(m: types.Message, state: FSMContext):
     quality_label = selected_options[current_index]
     if "season" in data:
         quality_label = f"S{int(data['season']):02d} {quality_label}"
+
+    # Add Language to Quality Label
+    lang = data.get("selected_language", "")
+    if lang:
+        quality_label = f"{quality_label} [{lang}]"
 
     received.append({
         "file_id": fid, "file_type": ftype, "quality": quality_label
@@ -1631,7 +1708,7 @@ async def web_ui():
                 try {
                     const res = await fetch('/api/leaderboard');
                     const data = await res.json();
-                    if(data.length===0) return lbList.innerHTML = "<p style='color:gray; text-align:center;'>কোনো ডাটা পাওয়া যায়নি。</p>";
+                    if(data.length===0) return lbList.innerHTML = "<p style='color:gray; text-align:center;'>কোনো ডাটা পাওয়া যায়নি।</p>";
                     lbList.innerHTML = data.map((u, i) => `
                         <div class="lb-item">
                             <div style="display:flex; align-items:center; gap:10px;">
@@ -1849,7 +1926,7 @@ async def web_ui():
             });
 
             // ==========================================
-            // DIRECT LINK AD LOGIC (REPLACED MONETAG)
+            // STRICT ANTI-CHEAT DIRECT LINK AD LOGIC
             // ==========================================
             function showDirectLinkModal(descText) {
                 document.getElementById('dlDescText').innerHTML = descText;
@@ -1872,13 +1949,44 @@ async def web_ui():
 
                 const btn = document.getElementById('dlClickBtn');
                 btn.disabled = true;
+                
                 let timeLeft = 15;
-                btn.innerText = `⏳ অপেক্ষা করুন... (${timeLeft}s)`;
+                let cheatDetected = false;
+                
+                btn.innerText = `⏳ লিংকে ১৫ সেকেন্ড অপেক্ষা করুন... (${timeLeft}s)`;
                 btn.style.background = "#475569";
 
+                let leaveTime = Date.now();
+                let hasLeft = false;
+
+                const checkLeave = () => { 
+                    if (!hasLeft) { hasLeft = true; leaveTime = Date.now(); }
+                };
+                
+                window.addEventListener('blur', checkLeave);
+                document.addEventListener('visibilitychange', () => { if(document.hidden) checkLeave(); });
+
                 let dlTimer = setInterval(() => {
+                    if (cheatDetected) return;
+                    
                     timeLeft--;
-                    btn.innerText = `⏳ অপেক্ষা করুন... (${timeLeft}s)`;
+                    btn.innerText = `⏳ লিংকে ১৫ সেকেন্ড অপেক্ষা করুন... (${timeLeft}s)`;
+
+                    let isVisibleNow = (document.visibilityState === 'visible' && !document.hidden);
+                    
+                    if (hasLeft && isVisibleNow) {
+                        let timeSpentAway = (Date.now() - leaveTime) / 1000;
+                        if (timeSpentAway < 14.5 && timeLeft > 0) {
+                            clearInterval(dlTimer);
+                            cheatDetected = true;
+                            btn.disabled = false;
+                            btn.innerText = "⚠️ আপনি ১৫ সেকেন্ড অপেক্ষা করেননি! আবার ক্লিক করুন।";
+                            btn.style.background = "linear-gradient(45deg, #ef4444, #f97316)";
+                            hasLeft = false;
+                            return;
+                        }
+                    }
+
                     if (timeLeft <= 0) {
                         clearInterval(dlTimer);
                         document.getElementById('directLinkModal').style.display = 'none';
@@ -1893,7 +2001,6 @@ async def web_ui():
                 currentMovieTitle = title;
                 document.getElementById('modalTitle').innerText = title;
                 
-                // TMDB Data Setup
                 document.getElementById('tmdbRating').innerHTML = `⭐ ${movie.rating || 'N/A'}`;
                 document.getElementById('tmdbYear').innerHTML = `📅 ${movie.release_date || 'N/A'}`;
                 document.getElementById('tmdbGenres').innerHTML = `🎭 ${movie.genres || 'N/A'}`;
