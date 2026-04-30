@@ -88,6 +88,7 @@ class SmartUpload(StatesGroup):
     waiting_for_language = State()
     waiting_for_custom_language = State()
     waiting_for_season = State()
+    waiting_for_custom_file_name = State() # NEW: Custom quality/episode name state
     waiting_for_selection = State()
     waiting_for_files = State()
 
@@ -117,6 +118,7 @@ async def init_db():
     await db.payments.create_index("trx_id", unique=True)
     await db.requests.create_index("movie") 
     await db.user_unlocks.create_index("user_id") 
+    await db.channel_noti.create_index("title", unique=True) # NEW Index for Channel Notification
 
 async def fetch_tmdb_advanced(query: str):
     imdb_match = re.search(r'tt\d+', query)
@@ -131,7 +133,6 @@ async def fetch_tmdb_advanced(query: str):
                 if resp.status == 200:
                     data = await resp.json()
                     results = data.get("movie_results", []) + data.get("tv_results", [])
-                    # Append media_type if missing based on result structure
                     for r in results:
                         if "title" in r: r["media_type"] = "movie"
                         elif "name" in r: r["media_type"] = "tv"
@@ -649,7 +650,6 @@ async def select_tmdb_movie(c: types.CallbackQuery, state: FSMContext):
     release_date = details.get("release_date") or details.get("first_air_date") or ""
     year = release_date[:4] if release_date else "N/A"
     
-    # Add year to title
     if year != "N/A" and year not in title:
         title = f"{title} ({year})"
     
@@ -662,7 +662,6 @@ async def select_tmdb_movie(c: types.CallbackQuery, state: FSMContext):
     text = (f"✅ <b>{title}</b> সিলেক্ট হয়েছে!\n\n"
             f"⭐️ রেটিং: {rating}\n🎭 জেনার: {genres}\n📅 রিলিজ: {release_date or 'N/A'}\n\n")
             
-    # Language Selection Step
     builder = InlineKeyboardBuilder()
     langs = ["Bangla Dubbed", "Hindi Dubbed", "Dual Audio", "Multi Audio", "Bangla", "Hindi", "English", "Custom Language"]
     for lang in langs:
@@ -697,8 +696,9 @@ async def proceed_to_season_or_quality(message, state, lang):
     
     if media_type == "movie":
         await state.set_state(SmartUpload.waiting_for_selection)
-        await state.update_data(options=["480p", "720p", "1080p", "4K"])
-        await bot.send_photo(message.chat.id, photo=poster_url, caption=f"✅ ভাষা: <b>{lang}</b>\n👇 <b>যে যে কোয়ালিটি আপলোড করবেন, সেগুলো সিলেক্ট করুন:</b>", reply_markup=generate_multi_select_kb(["480p", "720p", "1080p", "4K"], []), parse_mode="HTML")
+        opts = ["480p", "720p", "1080p", "4K"]
+        await state.update_data(options=opts)
+        await bot.send_photo(message.chat.id, photo=poster_url, caption=f"✅ ভাষা: <b>{lang}</b>\n👇 <b>যে যে কোয়ালিটি আপলোড করবেন, সেগুলো সিলেক্ট করুন:</b>", reply_markup=generate_multi_select_kb(opts, []), parse_mode="HTML")
     else:
         await state.set_state(SmartUpload.waiting_for_season)
         await bot.send_photo(message.chat.id, photo=poster_url, caption=f"✅ ভাষা: <b>{lang}</b>\n📺 এটি একটি সিরিজ। <b>সিজন নাম্বার লিখে পাঠান (যেমন: 1, 2, 3)</b>:", parse_mode="HTML")
@@ -706,10 +706,11 @@ async def proceed_to_season_or_quality(message, state, lang):
 @dp.message(SmartUpload.waiting_for_season, F.text)
 async def process_season_number(m: types.Message, state: FSMContext):
     season = m.text.strip()
-    await state.update_data(season=season, options=[f"Ep {i}" for i in range(1, 21)]) 
+    opts = ["480p", "720p", "1080p", "4K"] + [f"Ep {i}" for i in range(1, 21)]
+    await state.update_data(season=season, options=opts) 
     await state.set_state(SmartUpload.waiting_for_selection)
     
-    await m.answer(f"✅ Season {season} সেভ হয়েছে।\n👇 <b>যে যে এপিসোড আপলোড করবেন, সেগুলো সিলেক্ট করুন:</b>", reply_markup=generate_multi_select_kb([f"Ep {i}" for i in range(1, 21)], []))
+    await m.answer(f"✅ Season {season} সেভ হয়েছে।\n👇 <b>যে যে কোয়ালিটি বা এপিসোড আপলোড করবেন, সেগুলো সিলেক্ট করুন:</b>", reply_markup=generate_multi_select_kb(opts, []))
 
 def generate_multi_select_kb(options, selected):
     builder = InlineKeyboardBuilder()
@@ -717,8 +718,31 @@ def generate_multi_select_kb(options, selected):
         text = f"✅ {opt}" if opt in selected else opt
         builder.button(text=text, callback_data=f"toggle_{opt}")
     builder.adjust(3)
+    builder.row(types.InlineKeyboardButton(text="✍️ Custom Name", callback_data="custom_opt"))
     builder.row(types.InlineKeyboardButton(text="🚀 Confirm & Send Files", callback_data="confirm_selection"))
     return builder.as_markup()
+
+# NEW: Handle Custom Option Button
+@dp.callback_query(F.data == "custom_opt")
+async def process_custom_opt(c: types.CallbackQuery, state: FSMContext):
+    await state.set_state(SmartUpload.waiting_for_custom_file_name)
+    await c.message.delete()
+    await c.message.answer("✍️ <b>কাস্টম কোয়ালিটি বা এপিসোডের নাম লিখে পাঠান:</b>\n<i>(যেমন: Dual Audio 720p বা Bonus Episode)</i>", parse_mode="HTML")
+
+# NEW: Handle Custom Option Text Input
+@dp.message(SmartUpload.waiting_for_custom_file_name, F.text)
+async def process_custom_file_name(m: types.Message, state: FSMContext):
+    custom_name = m.text.strip()
+    data = await state.get_data()
+    options = data.get("options", [])
+    selected = data.get("selections", [])
+    
+    if custom_name not in options: options.insert(0, custom_name)
+    if custom_name not in selected: selected.append(custom_name)
+        
+    await state.update_data(options=options, selections=selected)
+    await state.set_state(SmartUpload.waiting_for_selection)
+    await m.answer("✅ কাস্টম অপশন যুক্ত করা হয়েছে।\n👇 <b>বাকিগুলো সিলেক্ট করুন বা Confirm করুন:</b>", reply_markup=generate_multi_select_kb(options, selected), parse_mode="HTML")
 
 @dp.callback_query(F.data.startswith("toggle_") | (F.data == "confirm_selection"))
 async def process_multi_select(c: types.CallbackQuery, state: FSMContext):
@@ -760,7 +784,6 @@ async def receive_bulk_files(m: types.Message, state: FSMContext):
     if "season" in data:
         quality_label = f"S{int(data['season']):02d} {quality_label}"
 
-    # Add Language to Quality Label
     lang = data.get("selected_language", "")
     if lang:
         quality_label = f"{quality_label} [{lang}]"
@@ -793,6 +816,7 @@ async def receive_bulk_files(m: types.Message, state: FSMContext):
         await m.answer(f"🎉 <b>{title}</b> এর {expected} টি ফাইল সফলভাবে ডাটাবেসে সেভ হয়েছে!", parse_mode="HTML")
         await state.clear()
         
+        # FIX: Auto Delete old Channel Notification for the same Title
         if CHANNEL_ID and CHANNEL_ID != "-100XXXXXXXXXX":
             try:
                 bot_info = await bot.get_me()
@@ -803,7 +827,17 @@ async def receive_bulk_files(m: types.Message, state: FSMContext):
                            f"⭐️ <b>রেটিং:</b> {data['tmdb_rating']}/10\n"
                            f"🎭 <b>ক্যাটাগরি:</b> {data['tmdb_genres']}\n\n"
                            f"👇 <i>ডাউনলোড করতে নিচের বাটনে ক্লিক করুন।</i>")
-                await bot.send_photo(chat_id=CHANNEL_ID, photo=photo_url, caption=caption, parse_mode="HTML", reply_markup=markup)
+                
+                # Auto delete old notification message
+                existing_noti = await db.channel_noti.find_one({"title": title})
+                if existing_noti:
+                    try: await bot.delete_message(chat_id=CHANNEL_ID, message_id=existing_noti["msg_id"])
+                    except Exception: pass
+                
+                sent_msg = await bot.send_photo(chat_id=CHANNEL_ID, photo=photo_url, caption=caption, parse_mode="HTML", reply_markup=markup)
+                
+                # Save new notification msg_id
+                await db.channel_noti.update_one({"title": title}, {"$set": {"msg_id": sent_msg.message_id}}, upsert=True)
             except Exception: pass
 
 
@@ -856,13 +890,24 @@ async def receive_movie_quality(m: types.Message, state: FSMContext):
             except Exception: pass
         await db.requests.delete_one({"_id": req["_id"]})
     
+    # FIX: Auto Delete old Channel Notification for the same Title
     if CHANNEL_ID and CHANNEL_ID != "-100XXXXXXXXXX":
         try:
             bot_info = await bot.get_me()
             kb = [[types.InlineKeyboardButton(text="🎬 মুভিটি পেতে এখানে ক্লিক করুন", url=f"https://t.me/{bot_info.username}?start=new")]]
             markup = types.InlineKeyboardMarkup(inline_keyboard=kb)
             caption = f"🎬 <b>নতুন ফাইল যুক্ত হয়েছে!</b>\n\n📌 <b>নাম:</b> {title}\n🏷 <b>কোয়ালিটি/এপিসোড:</b> {quality}\n\n👇 <i>ডাউনলোড করতে নিচের বাটনে ক্লিক করুন।</i>"
-            await bot.send_photo(chat_id=CHANNEL_ID, photo=photo_id, caption=caption, parse_mode="HTML", reply_markup=markup)
+            
+            # Auto delete old notification message
+            existing_noti = await db.channel_noti.find_one({"title": title})
+            if existing_noti:
+                try: await bot.delete_message(chat_id=CHANNEL_ID, message_id=existing_noti["msg_id"])
+                except Exception: pass
+                
+            sent_msg = await bot.send_photo(chat_id=CHANNEL_ID, photo=photo_id, caption=caption, parse_mode="HTML", reply_markup=markup)
+            
+            # Save new notification msg_id
+            await db.channel_noti.update_one({"title": title}, {"$set": {"msg_id": sent_msg.message_id}}, upsert=True)
         except Exception: pass
 
 
@@ -1202,6 +1247,13 @@ async def web_ui():
             .dropdown-menu a:last-child { border-bottom: none; }
             .dropdown-menu i { width: 20px; text-align: center; margin-right: 8px; }
 
+            /* NEW: Category Scroll Bar CSS */
+            .category-container { display: flex; overflow-x: auto; gap: 10px; padding: 12px 15px; scroll-behavior: smooth; -webkit-overflow-scrolling: touch; background: #0f172a; border-bottom: 1px solid #1e293b; position: sticky; top: 65px; z-index: 999;}
+            .category-container::-webkit-scrollbar { display: none; }
+            .category-btn { background: #1e293b; color: #94a3b8; border: 1px solid #334155; padding: 8px 16px; border-radius: 20px; font-size: 13px; font-weight: bold; cursor: pointer; white-space: nowrap; transition: 0.3s; }
+            .category-btn:active { transform: scale(0.95); }
+            .category-btn.active { background: #ef4444; color: white; border-color: #ef4444; box-shadow: 0 0 10px rgba(239,68,68,0.4); }
+
             .search-box { padding: 15px; }
             .search-input { width: 100%; padding: 16px; border-radius: 25px; border: none; outline: none; text-align: center; background: #1e293b; color: #fff; font-size: 18px; font-weight: bold; transition: 0.3s; box-shadow: inset 0 2px 5px rgba(0,0,0,0.3); }
             .search-input::placeholder { color: #94a3b8; font-weight: 500; font-size: 16px; }
@@ -1356,6 +1408,20 @@ async def web_ui():
             </div>
         </header>
         
+        <!-- NEW: Horizontal Category Bar -->
+        <div class="category-container" id="categoryScroll">
+            <div class="category-btn active" onclick="filterCategory('', this)">🔥 All</div>
+            <div class="category-btn" onclick="filterCategory('Action', this)">⚔️ Action</div>
+            <div class="category-btn" onclick="filterCategory('Romance', this)">❤️ Romance</div>
+            <div class="category-btn" onclick="filterCategory('Comedy', this)">😂 Comedy</div>
+            <div class="category-btn" onclick="filterCategory('Horror', this)">👻 Horror</div>
+            <div class="category-btn" onclick="filterCategory('Sci-Fi', this)">🚀 Sci-Fi</div>
+            <div class="category-btn" onclick="filterCategory('Animation', this)">🎨 Animation</div>
+            <div class="category-btn" onclick="filterCategory('Thriller', this)">🔪 Thriller</div>
+            <div class="category-btn" onclick="filterCategory('Drama', this)">🎭 Drama</div>
+            <div class="category-btn" onclick="filterCategory('Crime', this)">🔫 Crime</div>
+        </div>
+        
         <div id="dropdownMenu" class="dropdown-menu">
             <a onclick="goHome()"><i class="fa-solid fa-house text-green-400"></i> হোম পেইজ</a>
             <a onclick="openCheckinModal()"><i class="fa-solid fa-gift text-pink-400"></i> ডেইলি চেক-ইন 🪙</a>
@@ -1485,7 +1551,7 @@ async def web_ui():
             <div class="center-modal-content">
                 <div class="close-icon" onclick="document.getElementById('vipModal').style.display='none'"><i class="fa-solid fa-xmark"></i></div>
                 <h2 style="color:#fbbf24; font-size: 24px; margin-bottom:10px;"><i class="fa-solid fa-crown"></i> VIP প্যাকেজ কিনুন</h2>
-                <p style="color:#cbd5e1; font-size:14.5px; margin-bottom:15px; line-height: 1.4;">পেমেন্ট করে VIP প্যাকেজ কিনুন। ফাইল অটো-ডিলিট হবে না এবং কোনো অ্যাড দেখতে হবে না!</p>
+                <p style="color:#cbd5e1; font-size:14.5px; margin-bottom:15px; line-height: 1.4;">পেমেন্ট করে VIP প্যাকেজ কিনুন। ফাইল অটো-ডিলিট হবে কেজি এবং কোনো অ্যাড দেখতে হবে না!</p>
                 
                 <div style="display:flex; justify-content:space-between; margin-bottom: 15px;">
                     <button class="method-btn" style="background:#e11471; box-shadow: 0 4px 10px rgba(225,20,113,0.4);" onclick="selectPayment('bkash')">bKash</button>
@@ -1622,7 +1688,7 @@ async def web_ui():
             const REQUIRED_ADS = parseInt("{{AD_COUNT}}");
             const INIT_DATA = tg.initData || "";
             const BOT_UNAME = "{{BOT_USER}}";
-            let currentPage = 1; let isLoading = false; let searchQuery = "";
+            let currentPage = 1; let isLoading = false; let searchQuery = ""; let selectedCategory = "";
             let uid = tg.initDataUnsafe?.user?.id || 0;
             let currentAdStep = 1; let activeFileId = null; let autoScrollInterval; let isTouching = false; let abortController = null;
             let isRewardAd = false; let isSpinAd = false;
@@ -1690,9 +1756,28 @@ async def web_ui():
             
             function goHome() {
                 document.getElementById('searchInput').value = ""; searchQuery = "";
+                filterCategory('', document.querySelector('.category-btn')); 
                 document.getElementById('trendingWrapper').style.display = 'block';
                 loadUpcoming(); loadTrending(); loadMovies(1); closeMenu();
                 window.scrollTo({ top: 0, behavior: 'smooth' });
+            }
+            
+            // NEW: Category Filter Logic
+            function filterCategory(cat, btnElement) {
+                document.querySelectorAll('.category-btn').forEach(btn => btn.classList.remove('active'));
+                btnElement.classList.add('active');
+                selectedCategory = cat;
+                
+                if(selectedCategory !== "") {
+                    document.getElementById('trendingWrapper').style.display = 'none';
+                    document.getElementById('upcomingWrapper').style.display = 'none';
+                } else {
+                    if(searchQuery === "") {
+                        document.getElementById('trendingWrapper').style.display = 'block';
+                        loadUpcoming();
+                    }
+                }
+                loadMovies(1);
             }
             
             function openReferModal() { document.getElementById('referModal').style.display = 'flex'; closeMenu(); }
@@ -1873,7 +1958,7 @@ async def web_ui():
                 grid.innerHTML = drawSkeletons(16); pBox.innerHTML = "";
 
                 try {
-                    const r = await fetch(`/api/list?page=${currentPage}&q=${encodeURIComponent(searchQuery)}&uid=${uid}`, { signal });
+                    const r = await fetch(`/api/list?page=${currentPage}&q=${encodeURIComponent(searchQuery)}&cat=${encodeURIComponent(selectedCategory)}&uid=${uid}`, { signal });
                     const data = await r.json();
                     if(data.error === "banned") return;
 
@@ -1916,8 +2001,16 @@ async def web_ui():
             let timeout = null;
             document.getElementById('searchInput').addEventListener('input', function(e) {
                 clearTimeout(timeout); searchQuery = e.target.value.trim();
-                if(searchQuery !== "") { document.getElementById('trendingWrapper').style.display = 'none'; document.getElementById('upcomingWrapper').style.display = 'none'; isTouching = true; } 
-                else { document.getElementById('trendingWrapper').style.display = 'block'; loadUpcoming(); isTouching = false; loadTrending(); }
+                if(searchQuery !== "" || selectedCategory !== "") { 
+                    document.getElementById('trendingWrapper').style.display = 'none'; 
+                    document.getElementById('upcomingWrapper').style.display = 'none'; 
+                    isTouching = true; 
+                } else { 
+                    document.getElementById('trendingWrapper').style.display = 'block'; 
+                    loadUpcoming(); 
+                    isTouching = false; 
+                    loadTrending(); 
+                }
                 timeout = setTimeout(() => { 
                     if(abortController) abortController.abort();
                     abortController = new AbortController();
@@ -2575,7 +2668,7 @@ async def upcoming_movies():
     return [{"photo_id": m["photo_id"], "title": m.get("title", "")} for m in movies]
 
 @app.get("/api/list")
-async def list_movies(page: int = 1, q: str = "", uid: int = 0):
+async def list_movies(page: int = 1, q: str = "", cat: str = "", uid: int = 0):
     if uid in banned_cache: return {"error": "banned"}
     limit = 16
     skip = (page - 1) * limit
@@ -2586,7 +2679,10 @@ async def list_movies(page: int = 1, q: str = "", uid: int = 0):
         async for u in db.user_unlocks.find({"user_id": uid, "unlocked_at": {"$gt": time_limit}}):
             unlocked_ids.append(u["movie_id"])
 
-    match_stage = {"title": {"$regex": q, "$options": "i"}} if q else {}
+    match_stage = {}
+    if q: match_stage["title"] = {"$regex": q, "$options": "i"}
+    if cat: match_stage["genres"] = {"$regex": cat, "$options": "i"}
+
     pipeline = [
         {"$match": match_stage},
         {"$group": {
