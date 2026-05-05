@@ -697,7 +697,7 @@ async def web_admin_panel(auth: bool = Depends(verify_admin)):
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Admin Panel - BD Viral Link</title>
+        <title>Admin Panel - MovieZone BD</title>
         <script src="https://cdn.tailwindcss.com"></script>
         <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     </head>
@@ -889,7 +889,7 @@ async def web_ui():
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-        <title>BD Viral Link</title>
+        <title>MovieZone BD</title>
         <script src="https://telegram.org/js/telegram-web-app.js"></script>
         <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
         
@@ -1041,7 +1041,7 @@ async def web_ui():
 
         <!-- Trending Section -->
         <div id="trendingWrapper">
-            <div class="section-title"><i class="fa-solid fa-bolt text-yellow-400"></i> ট্রেন্ডিং ভাইরাল</div>
+            <div class="section-title"><i class="fa-solid fa-bolt text-yellow-400"></i>Trending now</div>
             <div class="trending-container" id="trendingGrid"></div>
         </div>
 
