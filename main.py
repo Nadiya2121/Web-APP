@@ -996,7 +996,7 @@ async def web_ui():
     </head>
     <body onclick="closeMenu(event)">
         <header>
-            <div class="logo">BD Viral <span>Link</span></div>
+            <div class="logo">MovieZone<span>BD</span></div>
             <div class="header-right">
                 <button onclick="goHome()" class="home-btn"><i class="fa-solid fa-house"></i> HOME</button>
                 <div class="user-info">
