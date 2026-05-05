@@ -274,13 +274,11 @@ async def start_cmd(message: types.Message, state: FSMContext):
             try:
                 referrer_id = int(args[1].split("_")[1])
                 if referrer_id != uid:
-                    # NEW COIN SYSTEM FOR REFERRAL (+10 Coins)
                     await db.users.update_one({"user_id": referrer_id}, {"$inc": {"refer_count": 1, "coins": 10}})
                     try: await bot.send_message(referrer_id, "🎉 <b>অভিনন্দন!</b> নতুন রেফারের জন্য আপনি <b>১০ কয়েন</b> পেয়েছেন!", parse_mode="HTML")
                     except: pass
             except Exception: pass
 
-        # Init User with 0 coins
         await db.users.insert_one({
             "user_id": uid, "first_name": message.from_user.first_name, "joined_at": now, "refer_count": 0, "coins": 0, "vip_until": now - datetime.timedelta(days=1)
         })
@@ -446,7 +444,7 @@ async def ban_user_cmd(m: types.Message):
     if m.from_user.id not in admin_cache: return
     try:
         target_uid = int(m.text.split()[1])
-        if target_uid in admin_cache: return await m.answer("⚠️ অ্যাডমিনকে ব্যান করা যাবে না!")
+        if target_uid in admin_cache: return await m.answer("⚠️ অ্যাডমিনকে ব্যান করা যাবেবিধা নেই!")
         await db.banned.update_one({"user_id": target_uid}, {"$set": {"user_id": target_uid}}, upsert=True)
         banned_cache.add(target_uid)
         await m.answer(f"🚫 ইউজার <code>{target_uid}</code> কে ব্যান করা হয়েছে!", parse_mode="HTML")
@@ -871,7 +869,7 @@ async def edit_movie_api(title: str, data: dict = Body(...), auth: bool = Depend
     return {"ok": True}
 
 # ==========================================
-# 8. Web UI (Perfect, Smooth & Optimized)
+# 8. Web UI (Perfect, Netflix Bottom Nav & Coin System)
 # ==========================================
 @app.get("/", response_class=HTMLResponse)
 async def web_ui():
@@ -899,29 +897,35 @@ async def web_ui():
         <style>
             * { margin: 0; padding: 0; box-sizing: border-box; }
             html { -webkit-text-size-adjust: 100%; scroll-behavior: smooth; }
-            body { background: #0f172a; font-family: sans-serif; color: #fff; overflow-x: hidden; width: 100%; -webkit-overflow-scrolling: touch; } 
+            body { background: #0f172a; font-family: sans-serif; color: #fff; overflow-x: hidden; width: 100%; -webkit-overflow-scrolling: touch; padding-bottom: 80px; } 
             
-            header { display: flex; justify-content: space-between; align-items: center; padding: 10px; border-bottom: 1px solid #1e293b; position: sticky; top: 0; background: rgba(15, 23, 42, 0.95); backdrop-filter: blur(10px); z-index: 1000; width: 100%; transform: translateZ(0); will-change: transform; }
-            .logo { font-size: 18px; font-weight: bold; white-space: nowrap; }
-            .logo span { background: red; color: #fff; padding: 2px 4px; border-radius: 4px; margin-left: 3px; font-size: 12px; }
-            .header-right { display: flex; align-items: center; gap: 6px; }
+            /* Clean Center Header */
+            header { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 12px 10px; border-bottom: 1px solid #1e293b; position: sticky; top: 0; background: rgba(15, 23, 42, 0.95); backdrop-filter: blur(10px); z-index: 1000; width: 100%; transform: translateZ(0); will-change: transform; gap: 8px; }
+            .logo { font-size: 22px; font-weight: 900; white-space: nowrap; letter-spacing: 1px; }
+            .logo span { background: #ef4444; color: #fff; padding: 2px 6px; border-radius: 4px; margin-left: 3px; font-size: 14px; }
             
-            .home-btn { background: linear-gradient(45deg, #3b82f6, #2563eb); color: white; border: none; padding: 6px 10px; border-radius: 6px; font-weight: bold; font-size: 12px; cursor: pointer; display: flex; align-items: center; gap: 4px; box-shadow: 0 2px 5px rgba(0,0,0,0.3); transition: 0.2s; white-space: nowrap; }
-            .home-btn:active { transform: scale(0.95); }
+            .home-btn { background: rgba(59, 130, 246, 0.1); color: #3b82f6; border: 1px solid rgba(59, 130, 246, 0.5); padding: 4px 12px; border-radius: 20px; font-weight: bold; font-size: 11px; cursor: pointer; display: flex; align-items: center; gap: 4px; transition: 0.2s; white-space: nowrap; }
+            .home-btn:active { transform: scale(0.95); background: rgba(59, 130, 246, 0.2); }
 
-            .user-info { display: flex; align-items: center; gap: 4px; background: #1e293b; padding: 4px 10px; border-radius: 20px; font-weight: bold; font-size: 12px; border: 1px solid #334155; white-space: nowrap; }
-            .user-info img { width: 24px; height: 24px; border-radius: 50%; object-fit: cover; }
-            .coin-tag { background: #f59e0b; color: black; font-weight: 900; padding: 2px 6px; border-radius: 10px; margin-left: 2px; }
+            /* Bottom Navigation (Netflix Style) */
+            .bottom-nav { position: fixed; bottom: 0; left: 0; width: 100%; background: rgba(15, 23, 42, 0.98); backdrop-filter: blur(15px); border-top: 1px solid #334155; display: flex; justify-content: space-around; align-items: center; padding: 10px 0; z-index: 2000; padding-bottom: calc(10px + env(safe-area-inset-bottom)); }
+            .nav-item { display: flex; flex-direction: column; align-items: center; justify-content: center; color: #94a3b8; font-size: 11px; font-weight: bold; cursor: pointer; transition: 0.2s; width: 25%; gap: 4px; }
+            .nav-item i { font-size: 20px; transition: transform 0.2s; }
+            .nav-item.active { color: #38bdf8; }
+            .nav-item.active i { transform: scale(1.15); }
+            .nav-item:active { transform: scale(0.9); }
             
-            .menu-btn { background: #1e293b; border: 1px solid #334155; padding: 6px 10px; border-radius: 6px; cursor: pointer; color: white; font-size: 15px; }
-            
-            .dropdown-menu { display: none; position: absolute; top: 65px; right: 15px; background: rgba(15, 23, 42, 0.98); backdrop-filter: blur(10px); border: 1px solid #334155; border-radius: 12px; overflow: hidden; box-shadow: 0 10px 25px rgba(0,0,0,0.5); z-index: 2000; width: 240px; animation: simpleFade 0.2s ease-in-out forwards; }
-            @keyframes simpleFade { 0% { opacity: 0; transform: translateY(-5px); } 100% { opacity: 1; transform: translateY(0); } }
+            /* Profile Dropdown Menu fixed to appear above bottom nav */
+            .dropdown-menu { display: none; position: fixed; bottom: 85px; right: 15px; background: rgba(15, 23, 42, 0.98); backdrop-filter: blur(10px); border: 1px solid #334155; border-radius: 12px; overflow: hidden; box-shadow: 0 -5px 25px rgba(0,0,0,0.5); z-index: 2000; width: 250px; animation: slideUp 0.2s ease-out forwards; }
+            @keyframes slideUp { 0% { opacity: 0; transform: translateY(15px); } 100% { opacity: 1; transform: translateY(0); } }
             
             .dropdown-menu a { display: flex; align-items: center; gap: 10px; padding: 12px 15px; color: white; text-decoration: none; font-weight: 600; font-size: 14px; cursor: pointer; transition: background 0.2s ease; border-bottom: 1px solid #334155; }
             .dropdown-menu a:hover, .dropdown-menu a:active { background: rgba(51, 65, 85, 0.5); }
             .dropdown-menu a i { font-size: 16px; width: 20px; text-align: center; }
             
+            .coin-tag { background: #f59e0b; color: black; font-weight: 900; padding: 2px 6px; border-radius: 10px; margin-left: 2px; font-size: 12px; }
+            .vip-tag { background: linear-gradient(45deg, #fbbf24, #f59e0b); color: #000; font-size: 12px; padding: 3px 8px; border-radius: 12px; font-weight: bold; display: none; margin-left:5px; }
+
             .search-box { padding: 15px; }
             .search-input { width: 100%; padding: 16px; border-radius: 25px; border: none; outline: none; text-align: center; background: #1e293b; color: #fff; font-size: 18px; font-weight: bold; }
             
@@ -958,7 +962,7 @@ async def web_ui():
             .page-btn:hover { background: #334155; }
             .page-btn.active { background: #f87171; border-color: #f87171; color: white; }
 
-            .developer-credit { margin: 10px 15px 110px; padding: 22px 15px; background: linear-gradient(135deg, rgba(30, 41, 59, 0.8), rgba(15, 23, 42, 0.95)); border: 1px solid rgba(56, 189, 248, 0.2); border-radius: 16px; text-align: center; box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4), 0 0 15px rgba(56, 189, 248, 0.1); backdrop-filter: blur(10px); position: relative; overflow: hidden; }
+            .developer-credit { margin: 10px 15px 130px; padding: 22px 15px; background: linear-gradient(135deg, rgba(30, 41, 59, 0.8), rgba(15, 23, 42, 0.95)); border: 1px solid rgba(56, 189, 248, 0.2); border-radius: 16px; text-align: center; box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4), 0 0 15px rgba(56, 189, 248, 0.1); backdrop-filter: blur(10px); position: relative; overflow: hidden; }
             .developer-credit::before { content: ''; position: absolute; top: 0; left: -100%; width: 50%; height: 100%; background: linear-gradient(90deg, transparent, rgba(255,255,255,0.08), transparent); animation: shine 3s infinite; }
             @keyframes shine { 100% { left: 200%; } }
             .dev-title { font-size: 12px; color: #94a3b8; font-weight: 700; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 5px; }
@@ -967,10 +971,11 @@ async def web_ui():
             .dev-btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; background: linear-gradient(45deg, #0ea5e9, #2563eb); color: white; padding: 12px 24px; border-radius: 30px; font-size: 15px; font-weight: bold; border: none; cursor: pointer; box-shadow: 0 4px 15px rgba(37, 99, 235, 0.4); transition: 0.2s; position: relative; z-index: 10; }
             .dev-btn:active { transform: scale(0.95); }
 
-            .floating-btn { position: fixed; right: 20px; color: white; width: 50px; height: 50px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 22px; z-index: 500; cursor: pointer; box-shadow: 0 4px 15px rgba(0,0,0,0.5); }
-            .btn-18 { bottom: 155px; background: linear-gradient(45deg, #ff0000, #990000); font-weight: bold; font-size: 18px; border: 2px solid white; }
-            .btn-tg { bottom: 95px; background: linear-gradient(45deg, #24A1DE, #1b7ba8); }
-            .btn-req { bottom: 35px; background: linear-gradient(45deg, #10b981, #059669); }
+            /* Floating Buttons Moved Up due to Bottom Nav */
+            .floating-btn { position: fixed; right: 15px; color: white; width: 48px; height: 48px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 20px; z-index: 500; cursor: pointer; box-shadow: 0 4px 15px rgba(0,0,0,0.5); }
+            .btn-18 { bottom: 205px; background: linear-gradient(45deg, #ff0000, #990000); font-weight: bold; font-size: 16px; border: 2px solid white; }
+            .btn-tg { bottom: 145px; background: linear-gradient(45deg, #24A1DE, #1b7ba8); }
+            .btn-req { bottom: 85px; background: linear-gradient(45deg, #10b981, #059669); }
 
             .modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); display: none; align-items: center; justify-content: center; z-index: 3000; backdrop-filter: blur(5px); }
             .modal-content { background: #1e293b; width: 92%; max-width: 400px; padding: 25px; border-radius: 20px; text-align: center; border: 1px solid #334155; max-height: 85vh; overflow-y: auto; position: relative; }
@@ -980,43 +985,37 @@ async def web_ui():
             .rgb-inner { display: flex; justify-content: space-between; align-items: center; background: #0f172a; padding: 20px 18px; border-radius: 12px; color: white; font-weight: 900; font-size: 18px; }
 
             .btn-submit { background: linear-gradient(45deg, #10b981, #059669); color: white; border: none; padding: 15px 20px; border-radius: 12px; font-weight: bold; width: 100%; font-size: 18px; cursor: pointer; }
-            .vip-tag { background: linear-gradient(45deg, #fbbf24, #f59e0b); color: #000; font-size: 12px; padding: 3px 8px; border-radius: 12px; font-weight: bold; display: none; margin-left:5px; }
 
             .dl-rgb-wrap { position: relative; background: linear-gradient(45deg, #ff0000, #ff7300, #fffb00, #48ff00, #00ffd5, #002bff, #7a00ff, #ff00c8, #ff0000); background-size: 200%; padding: 4px; border-radius: 16px; width: 100%; max-width: 350px; margin: auto; }
             .dl-inner-box { background: rgba(15, 23, 42, 0.98); border-radius: 12px; padding: 30px 20px; display: flex; flex-direction: column; align-items: center; gap: 15px; }
         </style>
     </head>
     <body onclick="closeMenu(event)">
+        <!-- Beautiful Centered Header -->
         <header>
             <div class="logo">MovieZone<span>BD</span></div>
-            <div class="header-right">
-                <button onclick="goHome()" class="home-btn"><i class="fa-solid fa-house"></i> HOME</button>
-                <div class="user-info">
-                    <span id="uName">Guest</span>
-                    <span id="coinDisplay" class="coin-tag" title="Your Coins">🪙 0</span>
-                    <span id="vipBadge" class="vip-tag"><i class="fa-solid fa-crown"></i> VIP</span>
-                </div>
-                <div class="menu-btn" onclick="toggleMenu(event)"><i class="fa-solid fa-bars"></i></div>
-            </div>
+            <button onclick="goHome()" class="home-btn"><i class="fa-solid fa-house"></i> Home Page</button>
         </header>
         
+        <!-- Dropdown Menu now opens from bottom -->
         <div id="dropdownMenu" class="dropdown-menu">
-            <div style="padding: 12px 15px; border-bottom: 1px solid #334155; display: flex; align-items: center; gap: 10px;">
-                <div style="width: 35px; height: 35px; background: #3b82f6; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 18px;">
+            <div style="padding: 12px 15px; border-bottom: 1px solid #334155; display: flex; align-items: center; gap: 12px;">
+                <div style="width: 40px; height: 40px; background: #3b82f6; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 18px; flex-shrink: 0;">
                     <i class="fa-solid fa-user"></i>
                 </div>
-                <div>
-                    <div style="font-size: 14px; font-weight: bold; color: white;" id="menuUname">Guest</div>
-                    <div style="font-size: 11px; color: #94a3b8;" id="menuStatus">Free User</div>
+                <div style="flex-grow: 1; text-align: left;">
+                    <div style="font-size: 15px; font-weight: bold; color: white; line-height: 1.2;" id="menuUname">Guest</div>
+                    <div style="font-size: 12px; color: #94a3b8; margin-top: 2px;" id="menuStatus">Free User</div>
+                </div>
+                <div style="text-align: right;">
+                    <div id="coinDisplay" class="coin-tag" style="display:inline-block; margin-bottom:4px;">🪙 0</div>
+                    <div id="vipBadge" class="vip-tag" style="display:inline-block;">VIP</div>
                 </div>
             </div>
             
-            <a onclick="openVipModal()"><i class="fa-solid fa-coins text-yellow-400"></i> VIP / Coins</a>
             <a onclick="openReferModal()"><i class="fa-solid fa-share-nodes text-blue-400"></i> রেফার ও ইনকাম</a>
             <a onclick="openReqModal()"><i class="fa-solid fa-code-pull-request text-green-400"></i> রিকোয়েস্ট মুভি</a>
-            
             <div style="height: 1px; background: #334155; margin: 4px 0;"></div>
-            
             <a onclick="tg.showAlert('ডাউনলোডের নিয়ম:\n১. ডাউনলোড বাটনে ক্লিক করুন।\n২. ১৫ সেকেন্ড অপেক্ষা করুন।\n৩. ভিডিওটি অটোমেটিক বটের ইনবক্সে চলে যাবে!')"><i class="fa-solid fa-circle-question text-red-400"></i> ডাউনলোডের নিয়ম</a>
             <a onclick="window.open('{{TG_LINK}}')"><i class="fa-solid fa-bullhorn text-green-400"></i> আমাদের চ্যানেল</a>
             <a onclick="window.open('{{SUPPORT_LINK}}')"><i class="fa-brands fa-telegram text-blue-400"></i> সাপোর্ট / কন্টাক্ট</a>
@@ -1048,9 +1047,30 @@ async def web_ui():
             </button>
         </div>
 
+        <!-- Floating Buttons (Moved up) -->
         <div class="floating-btn btn-18" onclick="window.open('{{LINK_18}}')">18+</div>
         <div class="floating-btn btn-tg" onclick="window.open('{{TG_LINK}}')"><i class="fa-brands fa-telegram"></i></div>
         <div class="floating-btn btn-req" onclick="openReqModal()"><i class="fa-solid fa-code-pull-request"></i></div>
+
+        <!-- NEW: Netflix Style Bottom Navigation -->
+        <div class="bottom-nav">
+            <div class="nav-item active" id="navHome" onclick="goHome()">
+                <i class="fa-solid fa-house"></i>
+                <span>Home</span>
+            </div>
+            <div class="nav-item" id="navSearch" onclick="focusSearch()">
+                <i class="fa-solid fa-magnifying-glass"></i>
+                <span>Search</span>
+            </div>
+            <div class="nav-item" id="navVip" onclick="openVipModal()">
+                <i class="fa-solid fa-coins"></i>
+                <span id="navCoinText">0 🪙</span>
+            </div>
+            <div class="nav-item" id="navProfile" onclick="toggleMenu(event)">
+                <i class="fa-solid fa-user"></i>
+                <span>Profile</span>
+            </div>
+        </div>
 
         <!-- Download Modal -->
         <div id="qualityModal" class="modal">
@@ -1083,7 +1103,7 @@ async def web_ui():
             </div>
         </div>
 
-        <!-- NEW VIP & Coin Modal (Coin System) -->
+        <!-- VIP & Coin Modal (Coin System) -->
         <div id="vipModal" class="modal">
             <div class="modal-content">
                 <div class="close-icon" onclick="document.getElementById('vipModal').style.display='none'"><i class="fa-solid fa-xmark"></i></div>
@@ -1153,8 +1173,12 @@ async def web_ui():
             let onAdCompleteCallback = null;
             let autoScrollInterval;
 
-            if(tg.initDataUnsafe?.user) {
-                document.getElementById('uName').innerText = tg.initDataUnsafe.user.first_name;
+            function setNavActive(index) {
+                const items = document.querySelectorAll('.nav-item');
+                items.forEach((item, i) => {
+                    if(i === index) item.classList.add('active');
+                    else item.classList.remove('active');
+                });
             }
 
             async function fetchUserInfo() {
@@ -1168,6 +1192,7 @@ async def web_ui():
                     document.getElementById('menuUname').innerText = firstName;
                     
                     document.getElementById('coinDisplay').innerText = `🪙 ${userCoins}`;
+                    document.getElementById('navCoinText').innerText = `${userCoins} 🪙`;
                     document.getElementById('modalCoinText').innerText = userCoins;
                     
                     if(isUserVip) {
@@ -1188,10 +1213,19 @@ async def web_ui():
                 } catch(e) {}
             }
 
-            function toggleMenu(e) { e.stopPropagation(); const m = document.getElementById('dropdownMenu'); m.style.display = m.style.display === 'block' ? 'none' : 'block'; }
-            function closeMenu() { document.getElementById('dropdownMenu').style.display = 'none'; }
+            function toggleMenu(e) { 
+                e.stopPropagation(); 
+                setNavActive(3);
+                const m = document.getElementById('dropdownMenu'); 
+                m.style.display = m.style.display === 'block' ? 'none' : 'block'; 
+            }
+            
+            function closeMenu() { 
+                document.getElementById('dropdownMenu').style.display = 'none'; 
+            }
             
             function goHome() { 
+                setNavActive(0);
                 document.getElementById('searchInput').value = ""; 
                 searchQuery = ""; 
                 activeCategory = "";
@@ -1206,6 +1240,19 @@ async def web_ui():
                 window.scrollTo({ top: 0, behavior: 'smooth' }); 
             }
             
+            function focusSearch() {
+                setNavActive(1);
+                closeMenu();
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+                setTimeout(() => document.getElementById('searchInput').focus(), 300);
+            }
+            
+            function openVipModal() { 
+                setNavActive(2);
+                document.getElementById('vipModal').style.display = 'flex'; 
+                closeMenu(); 
+            }
+
             function openReferModal() { document.getElementById('referModal').style.display = 'flex'; closeMenu(); }
             function copyReferLink() { navigator.clipboard.writeText(document.getElementById('refLinkText').innerText); tg.showAlert("✅ কপি হয়েছে!"); }
             function openReqModal() { document.getElementById('reqModal').style.display = 'flex'; closeMenu(); }
@@ -1216,8 +1263,6 @@ async def web_ui():
                 await fetch('/api/request', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({uid: uid, uname: tg.initDataUnsafe.user?.first_name || 'Guest', movie: text, initData: INIT_DATA}) });
                 document.getElementById('reqText').value = ''; tg.showAlert('রিকোয়েস্ট পাঠানো হয়েছে!'); document.getElementById('reqModal').style.display='none';
             }
-
-            function openVipModal() { document.getElementById('vipModal').style.display = 'flex'; closeMenu(); }
 
             function formatViews(n) { if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M'; if (n >= 1000) return (n / 1000).toFixed(1) + 'K'; return n; }
 
