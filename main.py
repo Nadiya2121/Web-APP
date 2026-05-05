@@ -274,18 +274,15 @@ async def start_cmd(message: types.Message, state: FSMContext):
             try:
                 referrer_id = int(args[1].split("_")[1])
                 if referrer_id != uid:
-                    await db.users.update_one({"user_id": referrer_id}, {"$inc": {"refer_count": 1}})
-                    ref_user = await db.users.find_one({"user_id": referrer_id})
-                    if ref_user and ref_user.get("refer_count", 0) % 5 == 0:
-                        current_vip = ref_user.get("vip_until", now)
-                        if current_vip < now: current_vip = now
-                        await db.users.update_one({"user_id": referrer_id}, {"$set": {"vip_until": current_vip + datetime.timedelta(days=1)}})
-                        try: await bot.send_message(referrer_id, "🎉 <b>অভিনন্দন!</b> ৫ জন রেফার পূর্ণ হওয়ায় আপনাকে ২৪ ঘণ্টার VIP দেওয়া হয়েছে!", parse_mode="HTML")
-                        except: pass
+                    # NEW COIN SYSTEM FOR REFERRAL (+10 Coins)
+                    await db.users.update_one({"user_id": referrer_id}, {"$inc": {"refer_count": 1, "coins": 10}})
+                    try: await bot.send_message(referrer_id, "🎉 <b>অভিনন্দন!</b> নতুন রেফারের জন্য আপনি <b>১০ কয়েন</b> পেয়েছেন!", parse_mode="HTML")
+                    except: pass
             except Exception: pass
 
+        # Init User with 0 coins
         await db.users.insert_one({
-            "user_id": uid, "first_name": message.from_user.first_name, "joined_at": now, "refer_count": 0, "vip_until": now - datetime.timedelta(days=1)
+            "user_id": uid, "first_name": message.from_user.first_name, "joined_at": now, "refer_count": 0, "coins": 0, "vip_until": now - datetime.timedelta(days=1)
         })
     
     kb = [[types.InlineKeyboardButton(text="🎬 Watch Now", web_app=types.WebAppInfo(url=APP_URL))]]
@@ -902,10 +899,8 @@ async def web_ui():
         <style>
             * { margin: 0; padding: 0; box-sizing: border-box; }
             html { -webkit-text-size-adjust: 100%; scroll-behavior: smooth; }
-            /* Fixed Jittering & Scrolling issue here */
             body { background: #0f172a; font-family: sans-serif; color: #fff; overflow-x: hidden; width: 100%; -webkit-overflow-scrolling: touch; } 
             
-            /* Header Hardware Acceleration added to prevent scroll lag */
             header { display: flex; justify-content: space-between; align-items: center; padding: 10px; border-bottom: 1px solid #1e293b; position: sticky; top: 0; background: rgba(15, 23, 42, 0.95); backdrop-filter: blur(10px); z-index: 1000; width: 100%; transform: translateZ(0); will-change: transform; }
             .logo { font-size: 18px; font-weight: bold; white-space: nowrap; }
             .logo span { background: red; color: #fff; padding: 2px 4px; border-radius: 4px; margin-left: 3px; font-size: 12px; }
@@ -916,6 +911,7 @@ async def web_ui():
 
             .user-info { display: flex; align-items: center; gap: 4px; background: #1e293b; padding: 4px 10px; border-radius: 20px; font-weight: bold; font-size: 12px; border: 1px solid #334155; white-space: nowrap; }
             .user-info img { width: 24px; height: 24px; border-radius: 50%; object-fit: cover; }
+            .coin-tag { background: #f59e0b; color: black; font-weight: 900; padding: 2px 6px; border-radius: 10px; margin-left: 2px; }
             
             .menu-btn { background: #1e293b; border: 1px solid #334155; padding: 6px 10px; border-radius: 6px; cursor: pointer; color: white; font-size: 15px; }
             
@@ -945,7 +941,6 @@ async def web_ui():
             .card { background: transparent; overflow: hidden; cursor: pointer; transition: transform 0.2s; border-radius: 0; transform: translateZ(0); will-change: transform; }
             .card:active { transform: scale(0.98); }
             
-            /* Jitter Fix: Removed heavy CPU animation 'glowing'. Replaced with beautiful static gradient. */
             .post-content { position: relative; padding: 3px; border-radius: 12px; background: linear-gradient(45deg, #ff0000, #ff7300, #fffb00, #48ff00, #00ffd5, #002bff, #7a00ff, #ff00c8, #ff0000); background-size: 200%; }
             .post-content img { width: 100%; aspect-ratio: 16/9; height: auto; object-fit: cover; display: block; border-radius: 10px; }
             
@@ -981,14 +976,12 @@ async def web_ui():
             .modal-content { background: #1e293b; width: 92%; max-width: 400px; padding: 25px; border-radius: 20px; text-align: center; border: 1px solid #334155; max-height: 85vh; overflow-y: auto; position: relative; }
             .close-icon { position: absolute; top: 12px; right: 15px; width: 32px; height: 32px; border-radius: 50%; background: #334155; color: #fff; display: flex; align-items: center; justify-content: center; cursor: pointer; }
             
-            /* Jitter Fix: Static Gradient applied here too */
             .rgb-border { position: relative; background: linear-gradient(45deg, #ff0000, #ff7300, #fffb00, #48ff00, #00ffd5, #002bff, #7a00ff, #ff00c8, #ff0000); background-size: 200%; padding: 4px; border-radius: 14px; margin-bottom: 12px; cursor: pointer; width: 100%; }
             .rgb-inner { display: flex; justify-content: space-between; align-items: center; background: #0f172a; padding: 20px 18px; border-radius: 12px; color: white; font-weight: 900; font-size: 18px; }
 
             .btn-submit { background: linear-gradient(45deg, #10b981, #059669); color: white; border: none; padding: 15px 20px; border-radius: 12px; font-weight: bold; width: 100%; font-size: 18px; cursor: pointer; }
             .vip-tag { background: linear-gradient(45deg, #fbbf24, #f59e0b); color: #000; font-size: 12px; padding: 3px 8px; border-radius: 12px; font-weight: bold; display: none; margin-left:5px; }
 
-            /* Jitter Fix: Static Gradient applied here too */
             .dl-rgb-wrap { position: relative; background: linear-gradient(45deg, #ff0000, #ff7300, #fffb00, #48ff00, #00ffd5, #002bff, #7a00ff, #ff00c8, #ff0000); background-size: 200%; padding: 4px; border-radius: 16px; width: 100%; max-width: 350px; margin: auto; }
             .dl-inner-box { background: rgba(15, 23, 42, 0.98); border-radius: 12px; padding: 30px 20px; display: flex; flex-direction: column; align-items: center; gap: 15px; }
         </style>
@@ -1000,6 +993,7 @@ async def web_ui():
                 <button onclick="goHome()" class="home-btn"><i class="fa-solid fa-house"></i> HOME</button>
                 <div class="user-info">
                     <span id="uName">Guest</span>
+                    <span id="coinDisplay" class="coin-tag" title="Your Coins">🪙 0</span>
                     <span id="vipBadge" class="vip-tag"><i class="fa-solid fa-crown"></i> VIP</span>
                 </div>
                 <div class="menu-btn" onclick="toggleMenu(event)"><i class="fa-solid fa-bars"></i></div>
@@ -1017,7 +1011,7 @@ async def web_ui():
                 </div>
             </div>
             
-            <a onclick="openVipModal()"><i class="fa-solid fa-crown text-yellow-400"></i> VIP আনলক করুন</a>
+            <a onclick="openVipModal()"><i class="fa-solid fa-coins text-yellow-400"></i> VIP / Coins</a>
             <a onclick="openReferModal()"><i class="fa-solid fa-share-nodes text-blue-400"></i> রেফার ও ইনকাম</a>
             <a onclick="openReqModal()"><i class="fa-solid fa-code-pull-request text-green-400"></i> রিকোয়েস্ট মুভি</a>
             
@@ -1089,19 +1083,25 @@ async def web_ui():
             </div>
         </div>
 
-        <!-- NEW VIP Modal (Direct Link Ads System) -->
+        <!-- NEW VIP & Coin Modal (Coin System) -->
         <div id="vipModal" class="modal">
             <div class="modal-content">
                 <div class="close-icon" onclick="document.getElementById('vipModal').style.display='none'"><i class="fa-solid fa-xmark"></i></div>
-                <h2 style="color:#fbbf24; font-size: 24px; margin-bottom:15px;"><i class="fa-solid fa-crown"></i> VIP আনলক করুন</h2>
-                <div style="background: rgba(15, 23, 42, 0.9); border-left: 4px solid #3b82f6; padding: 12px; border-radius: 8px; text-align: left; margin-bottom: 20px;">
-                    <p style="color:#cbd5e1; font-size: 14px; line-height: 1.6;">
-                        কোনো টাকা ছাড়াই সম্পূর্ণ ফ্রিতে VIP নিতে পারবেন!<br><br>
-                        <b>কীভাবে?</b><br>
-                        নিচের বাটনে ক্লিক করুন। একটি নতুন পেইজ ওপেন হবে, সেখানে <b>১৫ সেকেন্ড</b> অপেক্ষা করে ফিরে আসলেই পেয়ে যাবেন ২৪ ঘণ্টার ফ্রি VIP!
-                    </p>
+                <h2 style="color:#fbbf24; font-size: 24px; margin-bottom:15px;"><i class="fa-solid fa-coins"></i> VIP & Coins</h2>
+                
+                <div style="background: rgba(15, 23, 42, 0.9); border: 1px solid #3b82f6; padding: 15px; border-radius: 12px; margin-bottom: 20px;">
+                    <p style="color:#94a3b8; font-size: 14px; font-weight:bold;">আপনার বর্তমান কয়েন:</p>
+                    <h1 style="color:#f59e0b; font-size: 36px; font-weight:900; margin: 5px 0;"><span id="modalCoinText">0</span> 🪙</h1>
+                    <p style="color:#cbd5e1; font-size: 12px;">(১ দিন VIP = ৩০ কয়েন)</p>
                 </div>
-                <button id="vipAdBtn" class="btn-submit" style="background: linear-gradient(45deg, #ef4444, #f97316);" onclick="executeVipAd()">🔗 অ্যাড দেখে VIP নিন</button>
+                
+                <button id="coinAdBtn" class="btn-submit" style="background: linear-gradient(45deg, #ef4444, #f97316); margin-bottom: 12px;" onclick="executeCoinAd()">
+                    <i class="fa-solid fa-play"></i> অ্যাড দেখে ৫ কয়েন নিন
+                </button>
+                
+                <button class="btn-submit" style="background: linear-gradient(45deg, #10b981, #059669);" onclick="buyVipWithCoins()">
+                    <i class="fa-solid fa-crown"></i> ৩০ কয়েনে ১ দিন VIP নিন
+                </button>
             </div>
         </div>
 
@@ -1111,7 +1111,7 @@ async def web_ui():
                 <div class="close-icon" onclick="document.getElementById('referModal').style.display='none'"><i class="fa-solid fa-xmark"></i></div>
                 <i class="fa-solid fa-share-nodes" style="font-size:60px; color:#38bdf8;"></i>
                 <h2 style="margin:15px 0; color:white; font-size: 24px;">রেফার ও ইনকাম</h2>
-                <p style="color:#cbd5e1; font-size:15px; margin-bottom:15px;">৫ জন রেফার করলেই ২৪ ঘণ্টার VIP ফ্রি!</p>
+                <p style="color:#cbd5e1; font-size:15px; margin-bottom:15px;">প্রতিটি সফল রেফারের জন্য পাবেন <b>১০ কয়েন!</b></p>
                 <div style="background:#0f172a; padding:15px; border:1px dashed #3b82f6; margin-bottom:15px; word-break:break-all;" id="refLinkText">...</div>
                 <button class="btn-submit" onclick="copyReferLink()">লিংক কপি করুন</button>
             </div>
@@ -1145,6 +1145,7 @@ async def web_ui():
             
             let uid = tg.initDataUnsafe?.user?.id || 0;
             let isUserVip = false;
+            let userCoins = 0;
             let loadedMovies = {}; 
             let currentPage = 1; 
             let searchQuery = "";
@@ -1161,9 +1162,13 @@ async def web_ui():
                     const res = await fetch('/api/user/' + uid);
                     const data = await res.json();
                     isUserVip = data.vip;
+                    userCoins = data.coins || 0;
                     
                     let firstName = tg.initDataUnsafe?.user?.first_name || 'Guest';
                     document.getElementById('menuUname').innerText = firstName;
+                    
+                    document.getElementById('coinDisplay').innerText = `🪙 ${userCoins}`;
+                    document.getElementById('modalCoinText').innerText = userCoins;
                     
                     if(isUserVip) {
                         document.getElementById('vipBadge').style.display = 'inline-block';
@@ -1357,17 +1362,17 @@ async def web_ui():
                 }, 1000);
             }
 
-            // VIP Ad System for Free Premium
-            let vipLinkOpenedAt = 0; let isWaitingForVipReturn = false; let vipTimerInterval = null;
-            function executeVipAd() {
+            // Coin Ad System (+5 Coins)
+            let coinLinkOpenedAt = 0; let isWaitingForCoinReturn = false; let coinTimerInterval = null;
+            function executeCoinAd() {
                 if (!DIRECT_LINKS || DIRECT_LINKS.length === 0) { tg.showAlert("⚠️ কোনো অ্যাড পাওয়া যায়নি!"); return; }
                 tg.openLink(DIRECT_LINKS[Math.floor(Math.random() * DIRECT_LINKS.length)]);
-                vipLinkOpenedAt = Date.now(); isWaitingForVipReturn = true;
-                const btn = document.getElementById('vipAdBtn');
+                coinLinkOpenedAt = Date.now(); isWaitingForCoinReturn = true;
+                const btn = document.getElementById('coinAdBtn');
                 btn.disabled = true; let timeLeft = 15; btn.style.background = "#475569";
-                vipTimerInterval = setInterval(() => {
-                    timeLeft--; btn.innerText = `⏳ অপেক্ষা করুন... (${timeLeft}s)`;
-                    if (timeLeft <= 0) { clearInterval(vipTimerInterval); btn.innerText = `✅ সম্পন্ন হয়েছে!`; }
+                coinTimerInterval = setInterval(() => {
+                    timeLeft--; btn.innerHTML = `<i class="fa-solid fa-play"></i> অপেক্ষা করুন... (${timeLeft}s)`;
+                    if (timeLeft <= 0) { clearInterval(coinTimerInterval); btn.innerHTML = `<i class="fa-solid fa-check"></i> সম্পন্ন হয়েছে!`; }
                 }, 1000);
             }
 
@@ -1382,30 +1387,47 @@ async def web_ui():
                         } else { document.getElementById('directLinkModal').style.display = 'none'; if (onAdCompleteCallback) onAdCompleteCallback(); }
                     }
                     
-                    // Check VIP Ad
-                    if (isWaitingForVipReturn) {
-                        isWaitingForVipReturn = false; clearInterval(vipTimerInterval);
-                        if (Date.now() - vipLinkOpenedAt < 14000) {
+                    // Check Coin Ad
+                    if (isWaitingForCoinReturn) {
+                        isWaitingForCoinReturn = false; clearInterval(coinTimerInterval);
+                        if (Date.now() - coinLinkOpenedAt < 14000) {
                             tg.showAlert("⚠️ আপনাকে অবশ্যই পুরো ১৫ সেকেন্ড অপেক্ষা করতে হবে।");
-                            const btn = document.getElementById('vipAdBtn'); btn.disabled = false; btn.innerText = "🔗 অ্যাড দেখে VIP নিন"; btn.style.background = "linear-gradient(45deg, #ef4444, #f97316)";
+                            const btn = document.getElementById('coinAdBtn'); btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-play"></i> অ্যাড দেখে ৫ কয়েন নিন'; btn.style.background = "linear-gradient(45deg, #ef4444, #f97316)";
                         } else { 
-                            claimVipReward(); 
+                            claimAdCoin(); 
                         }
                     }
                 }
             });
 
-            async function claimVipReward() {
+            async function claimAdCoin() {
                 try {
-                    const res = await fetch('/api/claim_vip', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({uid: uid, initData: INIT_DATA}) });
+                    const res = await fetch('/api/add_coin', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({uid: uid, initData: INIT_DATA}) });
                     const data = await res.json();
                     if(data.ok) { 
-                        document.getElementById('vipModal').style.display = 'none';
-                        tg.showAlert("🎉 অভিনন্দন! আপনি ২৪ ঘণ্টার জন্য ফ্রি VIP পেয়েছেন।");
+                        tg.showAlert("🎉 অভিনন্দন! আপনি ৫টি কয়েন পেয়েছেন।");
                         fetchUserInfo(); 
                     } else { tg.showAlert("⚠️ কোনো সমস্যা হয়েছে।"); }
                 } catch (e) {}
-                const btn = document.getElementById('vipAdBtn'); btn.disabled = false; btn.innerText = "🔗 অ্যাড দেখে VIP নিন"; btn.style.background = "linear-gradient(45deg, #ef4444, #f97316)";
+                const btn = document.getElementById('coinAdBtn'); btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-play"></i> অ্যাড দেখে ৫ কয়েন নিন'; btn.style.background = "linear-gradient(45deg, #ef4444, #f97316)";
+            }
+
+            async function buyVipWithCoins() {
+                if(userCoins < 30) {
+                    tg.showAlert("⚠️ আপনার কাছে পর্যাপ্ত কয়েন নেই! অ্যাড দেখে অথবা রেফার করে কয়েন জমান।");
+                    return;
+                }
+                if(confirm("আপনি কি ৩০ কয়েন দিয়ে ১ দিনের VIP নিতে চান?")) {
+                    try {
+                        const res = await fetch('/api/buy_vip', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({uid: uid, initData: INIT_DATA}) });
+                        const data = await res.json();
+                        if(data.ok) { 
+                            document.getElementById('vipModal').style.display = 'none';
+                            tg.showAlert("🎉 সফল! আপনার ২৪ ঘণ্টার VIP চালু হয়েছে।");
+                            fetchUserInfo(); 
+                        } else { tg.showAlert(data.msg); }
+                    } catch (e) {}
+                }
             }
 
             async function sendFile(id) {
@@ -1425,50 +1447,43 @@ async def web_ui():
     return html_code
 
 # ==========================================
-# 8. Optimized APIs
+# 8. Optimized APIs (Coin System Added)
 # ==========================================
 @app.get("/api/user/{uid}")
 async def get_user_info(uid: int):
     user = await db.users.find_one({"user_id": uid})
     is_admin = uid in admin_cache
-    if not user: return {"vip": False, "admin": is_admin}
-    return {"vip": user.get("vip_until", datetime.datetime.utcnow()) > datetime.datetime.utcnow(), "admin": is_admin}
+    if not user: return {"vip": False, "admin": is_admin, "coins": 0}
+    return {
+        "vip": user.get("vip_until", datetime.datetime.utcnow()) > datetime.datetime.utcnow(), 
+        "admin": is_admin,
+        "coins": user.get("coins", 0)
+    }
 
-class PaymentModel(BaseModel):
+class UserActionModel(BaseModel):
     uid: int
-    method: str
-    trx_id: str
-    days: int
-    price: int
     initData: str
 
-@app.post("/api/payment/submit")
-async def submit_payment(data: PaymentModel):
-    if not validate_tg_data(data.initData): return {"ok": False}
-    if await db.payments.find_one({"trx_id": data.trx_id}): return {"ok": False, "msg": "TrxID আগে ব্যবহার করা হয়েছে!"}
-    
-    res = await db.payments.insert_one({"user_id": data.uid, "method": data.method, "trx_id": data.trx_id, "amount": data.price, "days": data.days, "status": "pending"})
-    try:
-        b = InlineKeyboardBuilder()
-        b.button(text="✅ Approve", callback_data=f"trx_approve_{res.inserted_id}")
-        b.button(text="❌ Reject", callback_data=f"trx_reject_{res.inserted_id}")
-        await bot.send_message(OWNER_ID, f"💰 <b>নতুন পেমেন্ট!</b>\nUID: {data.uid}\nTrxID: {data.trx_id}\nAmount: {data.price} TK", reply_markup=b.as_markup(), parse_mode="HTML")
-    except Exception: pass
+@app.post("/api/add_coin")
+async def add_coin_api(d: UserActionModel):
+    if d.uid == 0 or not validate_tg_data(d.initData): return {"ok": False}
+    await db.users.update_one({"user_id": d.uid}, {"$inc": {"coins": 5}})
     return {"ok": True}
 
-class ClaimVipModel(BaseModel):
-    uid: int
-    initData: str
-
-@app.post("/api/claim_vip")
-async def claim_vip_api(d: ClaimVipModel):
+@app.post("/api/buy_vip")
+async def buy_vip_api(d: UserActionModel):
     if d.uid == 0 or not validate_tg_data(d.initData): return {"ok": False}
-    now = datetime.datetime.utcnow()
     user = await db.users.find_one({"user_id": d.uid})
-    current_vip = user.get("vip_until", now) if user else now
+    coins = user.get("coins", 0)
+    
+    if coins < 30: return {"ok": False, "msg": "পর্যাপ্ত কয়েন নেই!"}
+    
+    now = datetime.datetime.utcnow()
+    current_vip = user.get("vip_until", now) if user.get("vip_until") else now
     if current_vip < now: current_vip = now
     new_vip = current_vip + datetime.timedelta(days=1)
-    await db.users.update_one({"user_id": d.uid}, {"$set": {"vip_until": new_vip}})
+    
+    await db.users.update_one({"user_id": d.uid}, {"$inc": {"coins": -30}, "$set": {"vip_until": new_vip}})
     return {"ok": True}
 
 @app.get("/api/trending")
