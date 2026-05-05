@@ -79,7 +79,7 @@ class AdminStates(StatesGroup):
     waiting_for_photo = State()
     waiting_for_title = State()
     waiting_for_quality = State() 
-    waiting_for_category = State() # NEW: ক্যাটাগরির জন্য
+    waiting_for_category = State()
 
 # ==========================================
 # 2. Image Processing (Wide Thumbnails)
@@ -181,7 +181,7 @@ async def video_queue_worker():
             await db.movies.insert_one({
                 "title": auto_title, "quality": "HD", "photo_id": photo_id, 
                 "file_id": aiogram_file_id, "file_type": file_type,
-                "categories": ["Auto Upload"], # অটো আপলোডের ক্যাটাগরি
+                "categories": ["Auto Upload"], 
                 "clicks": 0, "created_at": datetime.datetime.utcnow()
             })
             await bot.delete_message(chat_id=admin_id, message_id=status_msg.message_id)
@@ -687,7 +687,7 @@ async def send_reply(m: types.Message, state: FSMContext):
     except Exception: await m.answer("⚠️ রিপ্লাই পাঠানো যায়নি!")
 
 # ==========================================
-# 7. Web Admin Panel HTML & API (Enhanced)
+# 7. Web Admin Panel HTML & API
 # ==========================================
 @app.get("/admin", response_class=HTMLResponse)
 async def web_admin_panel(auth: bool = Depends(verify_admin)):
@@ -705,7 +705,6 @@ async def web_admin_panel(auth: bool = Depends(verify_admin)):
         <div class="max-w-6xl mx-auto">
             <h1 class="text-3xl font-bold text-red-500 mb-6 border-b border-gray-700 pb-3"><i class="fa-solid fa-screwdriver-wrench"></i> Admin Dashboard</h1>
             
-            <!-- Dashboard Stats -->
             <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8" id="statsBoard">
                 <div class="bg-gray-800 p-6 rounded-xl border border-gray-700 shadow flex items-center gap-4">
                     <div class="bg-blue-600 p-4 rounded-full text-2xl"><i class="fa-solid fa-users"></i></div>
@@ -722,7 +721,6 @@ async def web_admin_panel(auth: bool = Depends(verify_admin)):
             </div>
 
             <div class="bg-gray-800 rounded-xl shadow-lg border border-gray-700 p-6">
-                
                 <div class="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
                     <h2 class="text-xl font-bold text-gray-200"><i class="fa-solid fa-list-ul"></i> Manage Movies</h2>
                     <input type="text" id="adminSearch" placeholder="🔍 Search Movies..." class="bg-gray-700 text-white px-4 py-2 rounded-lg border border-gray-600 focus:outline-none w-full md:w-1/3">
@@ -736,10 +734,7 @@ async def web_admin_panel(auth: bool = Depends(verify_admin)):
                         <tbody id="movieTableBody"><tr><td colspan="5" class="text-center p-8 text-gray-400">Loading...</td></tr></tbody>
                     </table>
                 </div>
-                
-                <!-- Pagination Controls -->
                 <div class="flex justify-center items-center gap-3 mt-6" id="adminPagination"></div>
-
             </div>
         </div>
         <script>
@@ -810,13 +805,7 @@ async def web_admin_panel(auth: bool = Depends(verify_admin)):
                 let newCatStr = prompt("Edit Categories (comma separated):", currentCatStr);
                 if(newCatStr !== null) {
                     let newCategories = newCatStr.split(",").map(c => c.trim()).filter(c => c !== "");
-                    
-                    await fetch('/api/admin/movie/' + title, {
-                        method: 'PUT',
-                        headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({new_categories: newCategories})
-                    });
-                    
+                    await fetch('/api/admin/movie/' + title, { method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({new_categories: newCategories}) });
                     loadAdminData(currentPage);
                 }
             }
@@ -835,8 +824,7 @@ async def web_admin_panel(auth: bool = Depends(verify_admin)):
                 }
             }
             
-            loadStats();
-            loadAdminData(1);
+            loadStats(); loadAdminData(1);
         </script>
     </body>
     </html>
@@ -881,29 +869,23 @@ async def delete_movie_api(title: str, auth: bool = Depends(verify_admin)):
 async def edit_movie_api(title: str, data: dict = Body(...), auth: bool = Depends(verify_admin)):
     if add_clicks := data.get("add_clicks"):
         await db.movies.update_many({"title": title}, {"$inc": {"clicks": int(add_clicks)}})
-        
     if "new_categories" in data:
         await db.movies.update_many({"title": title}, {"$set": {"categories": data["new_categories"]}})
-        
     return {"ok": True}
 
 # ==========================================
-# 8. Web UI (Perfect & Optimized)
+# 8. Web UI (Perfect, Smooth & Optimized)
 # ==========================================
 @app.get("/", response_class=HTMLResponse)
 async def web_ui():
     tg_cfg = await db.settings.find_one({"id": "link_tg"})
     support_cfg = await db.settings.find_one({"id": "link_support"})
     b18_cfg = await db.settings.find_one({"id": "link_18"})
-    bkash_cfg = await db.settings.find_one({"id": "bkash_no"})
-    nagad_cfg = await db.settings.find_one({"id": "nagad_no"})
     dl_cfg = await db.settings.find_one({"id": "direct_links"})
     
     tg_url = tg_cfg['url'] if tg_cfg else "https://t.me/MovieeBD"
     support_link = support_cfg['url'] if support_cfg else "https://t.me/YourSupportUsername"
     link_18 = b18_cfg['url'] if b18_cfg else "https://t.me/MovieeBD"
-    bkash_no = bkash_cfg['number'] if bkash_cfg else "Not Set"
-    nagad_no = nagad_cfg['number'] if nagad_cfg else "Not Set"
     direct_links = dl_cfg.get('links', []) if dl_cfg else []
     dl_json = json.dumps(direct_links)
 
@@ -919,15 +901,16 @@ async def web_ui():
         
         <style>
             * { margin: 0; padding: 0; box-sizing: border-box; }
-            html { scroll-behavior: smooth; }
-            body { background: #0f172a; font-family: sans-serif; color: #fff; overscroll-behavior-y: none; overflow-x: hidden; width: 100%; } 
+            html { -webkit-text-size-adjust: 100%; scroll-behavior: smooth; }
+            /* Fixed Jittering & Scrolling issue here */
+            body { background: #0f172a; font-family: sans-serif; color: #fff; overflow-x: hidden; width: 100%; -webkit-overflow-scrolling: touch; } 
             
-            header { display: flex; justify-content: space-between; align-items: center; padding: 10px; border-bottom: 1px solid #1e293b; position: sticky; top: 0; background: rgba(15, 23, 42, 0.95); backdrop-filter: blur(10px); z-index: 1000; width: 100%; }
+            /* Header Hardware Acceleration added to prevent scroll lag */
+            header { display: flex; justify-content: space-between; align-items: center; padding: 10px; border-bottom: 1px solid #1e293b; position: sticky; top: 0; background: rgba(15, 23, 42, 0.95); backdrop-filter: blur(10px); z-index: 1000; width: 100%; transform: translateZ(0); will-change: transform; }
             .logo { font-size: 18px; font-weight: bold; white-space: nowrap; }
             .logo span { background: red; color: #fff; padding: 2px 4px; border-radius: 4px; margin-left: 3px; font-size: 12px; }
             .header-right { display: flex; align-items: center; gap: 6px; }
             
-            /* Home Button */
             .home-btn { background: linear-gradient(45deg, #3b82f6, #2563eb); color: white; border: none; padding: 6px 10px; border-radius: 6px; font-weight: bold; font-size: 12px; cursor: pointer; display: flex; align-items: center; gap: 4px; box-shadow: 0 2px 5px rgba(0,0,0,0.3); transition: 0.2s; white-space: nowrap; }
             .home-btn:active { transform: scale(0.95); }
 
@@ -936,7 +919,6 @@ async def web_ui():
             
             .menu-btn { background: #1e293b; border: 1px solid #334155; padding: 6px 10px; border-radius: 6px; cursor: pointer; color: white; font-size: 15px; }
             
-            /* MODIFIED DROPDOWN ANIMATION - CLEANER AND NO ZOOM */
             .dropdown-menu { display: none; position: absolute; top: 65px; right: 15px; background: rgba(15, 23, 42, 0.98); backdrop-filter: blur(10px); border: 1px solid #334155; border-radius: 12px; overflow: hidden; box-shadow: 0 10px 25px rgba(0,0,0,0.5); z-index: 2000; width: 240px; animation: simpleFade 0.2s ease-in-out forwards; }
             @keyframes simpleFade { 0% { opacity: 0; transform: translateY(-5px); } 100% { opacity: 1; transform: translateY(0); } }
             
@@ -947,7 +929,6 @@ async def web_ui():
             .search-box { padding: 15px; }
             .search-input { width: 100%; padding: 16px; border-radius: 25px; border: none; outline: none; text-align: center; background: #1e293b; color: #fff; font-size: 18px; font-weight: bold; }
             
-            /* Category UI Added Here */
             .category-container { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 15px 15px; justify-content: center; }
             .cat-btn { background: rgba(30, 41, 59, 0.8); color: #cbd5e1; border: 1px solid #334155; padding: 6px 14px; border-radius: 20px; font-size: 12px; font-weight: bold; cursor: pointer; transition: all 0.2s ease; backdrop-filter: blur(5px); white-space: nowrap; }
             .cat-btn:active { transform: scale(0.95); }
@@ -955,20 +936,17 @@ async def web_ui():
 
             .section-title { padding: 5px 15px 15px; font-size: 20px; font-weight: 900; display: flex; align-items: center; gap: 8px; color:#ff416c; }
             
-            /* Trending Auto Scroll System */
             .trending-container { display: flex; overflow-x: auto; gap: 15px; padding: 0 15px 20px; scroll-behavior: smooth; }
             .trending-container::-webkit-scrollbar { display: none; }
-            .trending-card { min-width: 280px; max-width: 280px; background: transparent; overflow: hidden; cursor: pointer; flex-shrink: 0; position: relative; transition: transform 0.2s; }
+            .trending-card { min-width: 280px; max-width: 280px; background: transparent; overflow: hidden; cursor: pointer; flex-shrink: 0; position: relative; transition: transform 0.2s; transform: translateZ(0); will-change: transform; }
             .trending-card:active { transform: scale(0.98); }
 
-            /* Optimized Wide Grid System for Main Feed */
             .grid { padding: 0 15px 20px; display: flex; flex-direction: column; gap: 20px; }
-            .card { background: transparent; overflow: hidden; cursor: pointer; transition: transform 0.2s; border-radius: 0; }
+            .card { background: transparent; overflow: hidden; cursor: pointer; transition: transform 0.2s; border-radius: 0; transform: translateZ(0); will-change: transform; }
             .card:active { transform: scale(0.98); }
             
-            .post-content { position: relative; padding: 3px; border-radius: 12px; background: linear-gradient(45deg, #ff0000, #ff7300, #fffb00, #48ff00, #00ffd5, #002bff, #7a00ff, #ff00c8, #ff0000); background-size: 400%; animation: glowing 8s linear infinite; }
-            @keyframes glowing { 0% { background-position: 0 0; } 50% { background-position: 400% 0; } 100% { background-position: 0 0; } }
-            
+            /* Jitter Fix: Removed heavy CPU animation 'glowing'. Replaced with beautiful static gradient. */
+            .post-content { position: relative; padding: 3px; border-radius: 12px; background: linear-gradient(45deg, #ff0000, #ff7300, #fffb00, #48ff00, #00ffd5, #002bff, #7a00ff, #ff00c8, #ff0000); background-size: 200%; }
             .post-content img { width: 100%; aspect-ratio: 16/9; height: auto; object-fit: cover; display: block; border-radius: 10px; }
             
             .card-footer { padding: 12px 5px 0; display: flex; align-items: flex-start; gap: 12px; text-align: left; }
@@ -980,13 +958,11 @@ async def web_ui():
             .view-badge { bottom: 10px; left: 10px; background: rgba(0,0,0,0.75); }
             .ep-badge { top: 10px; right: 10px; background: #10b981; }
 
-            /* Clean Pagination */
             .pagination { display: flex; justify-content: center; align-items: center; gap: 8px; padding: 10px 15px 30px; flex-wrap: wrap; }
             .page-btn { background: #1e293b; color: #fff; border: 1px solid #334155; padding: 8px 14px; border-radius: 6px; cursor: pointer; font-weight: bold; outline: none; transition: 0.2s;}
             .page-btn:hover { background: #334155; }
             .page-btn.active { background: #f87171; border-color: #f87171; color: white; }
 
-            /* Premium Developer Credit Section */
             .developer-credit { margin: 10px 15px 110px; padding: 22px 15px; background: linear-gradient(135deg, rgba(30, 41, 59, 0.8), rgba(15, 23, 42, 0.95)); border: 1px solid rgba(56, 189, 248, 0.2); border-radius: 16px; text-align: center; box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4), 0 0 15px rgba(56, 189, 248, 0.1); backdrop-filter: blur(10px); position: relative; overflow: hidden; }
             .developer-credit::before { content: ''; position: absolute; top: 0; left: -100%; width: 50%; height: 100%; background: linear-gradient(90deg, transparent, rgba(255,255,255,0.08), transparent); animation: shine 3s infinite; }
             @keyframes shine { 100% { left: 200%; } }
@@ -1005,19 +981,16 @@ async def web_ui():
             .modal-content { background: #1e293b; width: 92%; max-width: 400px; padding: 25px; border-radius: 20px; text-align: center; border: 1px solid #334155; max-height: 85vh; overflow-y: auto; position: relative; }
             .close-icon { position: absolute; top: 12px; right: 15px; width: 32px; height: 32px; border-radius: 50%; background: #334155; color: #fff; display: flex; align-items: center; justify-content: center; cursor: pointer; }
             
-            /* Bigger Download Buttons inside Quality Modal */
-            .rgb-border { position: relative; background: linear-gradient(45deg, #ff0000, #ff7300, #fffb00, #48ff00, #00ffd5, #002bff, #7a00ff, #ff00c8, #ff0000); background-size: 400%; animation: glowing 8s linear infinite; padding: 4px; border-radius: 14px; margin-bottom: 12px; cursor: pointer; width: 100%; }
+            /* Jitter Fix: Static Gradient applied here too */
+            .rgb-border { position: relative; background: linear-gradient(45deg, #ff0000, #ff7300, #fffb00, #48ff00, #00ffd5, #002bff, #7a00ff, #ff00c8, #ff0000); background-size: 200%; padding: 4px; border-radius: 14px; margin-bottom: 12px; cursor: pointer; width: 100%; }
             .rgb-inner { display: flex; justify-content: space-between; align-items: center; background: #0f172a; padding: 20px 18px; border-radius: 12px; color: white; font-weight: 900; font-size: 18px; }
 
             .btn-submit { background: linear-gradient(45deg, #10b981, #059669); color: white; border: none; padding: 15px 20px; border-radius: 12px; font-weight: bold; width: 100%; font-size: 18px; cursor: pointer; }
             .vip-tag { background: linear-gradient(45deg, #fbbf24, #f59e0b); color: #000; font-size: 12px; padding: 3px 8px; border-radius: 12px; font-weight: bold; display: none; margin-left:5px; }
 
-            .dl-rgb-wrap { position: relative; background: linear-gradient(45deg, #ff0000, #ff7300, #fffb00, #48ff00, #00ffd5, #002bff, #7a00ff, #ff00c8, #ff0000); background-size: 400%; animation: glowing 8s linear infinite; padding: 4px; border-radius: 16px; width: 100%; max-width: 350px; margin: auto; }
+            /* Jitter Fix: Static Gradient applied here too */
+            .dl-rgb-wrap { position: relative; background: linear-gradient(45deg, #ff0000, #ff7300, #fffb00, #48ff00, #00ffd5, #002bff, #7a00ff, #ff00c8, #ff0000); background-size: 200%; padding: 4px; border-radius: 16px; width: 100%; max-width: 350px; margin: auto; }
             .dl-inner-box { background: rgba(15, 23, 42, 0.98); border-radius: 12px; padding: 30px 20px; display: flex; flex-direction: column; align-items: center; gap: 15px; }
-            
-            .method-btn { padding: 12px; width: 48%; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; color: white; font-size: 16px; }
-            .pay-box { background: #0f172a; border: 1px solid #334155; padding: 15px; border-radius: 10px; margin-top:15px; text-align: left; display:none; }
-            .pkg-label { display: block; background: #1e293b; padding: 12px; border-radius: 8px; margin-bottom: 8px; cursor: pointer; border: 1px solid #334155; font-weight: bold; }
         </style>
     </head>
     <body onclick="closeMenu(event)">
@@ -1033,7 +1006,6 @@ async def web_ui():
             </div>
         </header>
         
-        <!-- Enhanced Premium Dropdown Menu -->
         <div id="dropdownMenu" class="dropdown-menu">
             <div style="padding: 12px 15px; border-bottom: 1px solid #334155; display: flex; align-items: center; gap: 10px;">
                 <div style="width: 35px; height: 35px; background: #3b82f6; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 18px;">
@@ -1045,7 +1017,7 @@ async def web_ui():
                 </div>
             </div>
             
-            <a onclick="openVipModal()"><i class="fa-solid fa-crown text-yellow-400"></i> VIP প্যাকেজ কিনুন</a>
+            <a onclick="openVipModal()"><i class="fa-solid fa-crown text-yellow-400"></i> VIP আনলক করুন</a>
             <a onclick="openReferModal()"><i class="fa-solid fa-share-nodes text-blue-400"></i> রেফার ও ইনকাম</a>
             <a onclick="openReqModal()"><i class="fa-solid fa-code-pull-request text-green-400"></i> রিকোয়েস্ট মুভি</a>
             
@@ -1062,10 +1034,8 @@ async def web_ui():
             <input type="text" id="searchInput" class="search-input" placeholder="🔍 মুভি বা ওয়েব সিরিজ খুঁজুন...">
         </div>
 
-        <!-- Category UI -->
         <div id="categoryBox" class="category-container"></div>
 
-        <!-- Trending Section -->
         <div id="trendingWrapper">
             <div class="section-title"><i class="fa-solid fa-bolt text-yellow-400"></i>Trending now</div>
             <div class="trending-container" id="trendingGrid"></div>
@@ -1075,7 +1045,6 @@ async def web_ui():
         <div class="grid" id="movieGrid"></div>
         <div class="pagination" id="paginationBox"></div>
         
-        <!-- Developer Credit Section (Fixed from Bot Admin) -->
         <div class="developer-credit">
             <div class="dev-title"><i class="fa-solid fa-laptop-code"></i> Developed & Deployed By</div>
             <div class="dev-name">Bot Developer</div>
@@ -1120,24 +1089,19 @@ async def web_ui():
             </div>
         </div>
 
-        <!-- VIP Modal -->
+        <!-- NEW VIP Modal (Direct Link Ads System) -->
         <div id="vipModal" class="modal">
             <div class="modal-content">
                 <div class="close-icon" onclick="document.getElementById('vipModal').style.display='none'"><i class="fa-solid fa-xmark"></i></div>
-                <h2 style="color:#fbbf24; font-size: 24px; margin-bottom:15px;"><i class="fa-solid fa-crown"></i> VIP কিনুন</h2>
-                <div style="display:flex; justify-content:space-between; margin-bottom: 15px;">
-                    <button class="method-btn" style="background:#e11471;" onclick="selectPayment('bkash')">bKash</button>
-                    <button class="method-btn" style="background:#f97316;" onclick="selectPayment('nagad')">Nagad</button>
+                <h2 style="color:#fbbf24; font-size: 24px; margin-bottom:15px;"><i class="fa-solid fa-crown"></i> VIP আনলক করুন</h2>
+                <div style="background: rgba(15, 23, 42, 0.9); border-left: 4px solid #3b82f6; padding: 12px; border-radius: 8px; text-align: left; margin-bottom: 20px;">
+                    <p style="color:#cbd5e1; font-size: 14px; line-height: 1.6;">
+                        কোনো টাকা ছাড়াই সম্পূর্ণ ফ্রিতে VIP নিতে পারবেন!<br><br>
+                        <b>কীভাবে?</b><br>
+                        নিচের বাটনে ক্লিক করুন। একটি নতুন পেইজ ওপেন হবে, সেখানে <b>১৫ সেকেন্ড</b> অপেক্ষা করে ফিরে আসলেই পেয়ে যাবেন ২৪ ঘণ্টার ফ্রি VIP!
+                    </p>
                 </div>
-                <div id="payBox" class="pay-box">
-                    <div class="pkg-options">
-                        <label class="pkg-label"><input type="radio" name="vip_pkg" value="7" data-price="10" checked> ৭ দিন - ১০ টাকা</label>
-                        <label class="pkg-label"><input type="radio" name="vip_pkg" value="30" data-price="30"> ১ মাস - ৩০ টাকা</label>
-                    </div>
-                    <p style="color:white; margin-top:10px;">নাম্বারে Send Money করুন: <b id="payNumberText" style="color:#4ade80; font-size:18px;">...</b></p>
-                    <input type="text" id="trxIdInput" class="search-input" style="margin-top:10px;" placeholder="TrxID দিন...">
-                    <button class="btn-submit" style="margin-top:10px;" onclick="submitPayment()">ভেরিফাই করুন</button>
-                </div>
+                <button id="vipAdBtn" class="btn-submit" style="background: linear-gradient(45deg, #ef4444, #f97316);" onclick="executeVipAd()">🔗 অ্যাড দেখে VIP নিন</button>
             </div>
         </div>
 
@@ -1178,8 +1142,6 @@ async def web_ui():
             const DIRECT_LINKS = {{DIRECT_LINKS}};
             const INIT_DATA = tg.initData || "";
             const BOT_UNAME = "{{BOT_USER}}";
-            const BKASH_NO = "{{BKASH_NO}}";
-            const NAGAD_NO = "{{NAGAD_NO}}";
             
             let uid = tg.initDataUnsafe?.user?.id || 0;
             let isUserVip = false;
@@ -1207,6 +1169,10 @@ async def web_ui():
                         document.getElementById('vipBadge').style.display = 'inline-block';
                         document.getElementById('menuStatus').innerText = '👑 VIP User';
                         document.getElementById('menuStatus').style.color = '#fbbf24';
+                    } else {
+                        document.getElementById('vipBadge').style.display = 'none';
+                        document.getElementById('menuStatus').innerText = 'Free User';
+                        document.getElementById('menuStatus').style.color = '#94a3b8';
                     }
                     
                     if(data.admin) {
@@ -1220,7 +1186,6 @@ async def web_ui():
             function toggleMenu(e) { e.stopPropagation(); const m = document.getElementById('dropdownMenu'); m.style.display = m.style.display === 'block' ? 'none' : 'block'; }
             function closeMenu() { document.getElementById('dropdownMenu').style.display = 'none'; }
             
-            // Home Button Function
             function goHome() { 
                 document.getElementById('searchInput').value = ""; 
                 searchQuery = ""; 
@@ -1248,23 +1213,9 @@ async def web_ui():
             }
 
             function openVipModal() { document.getElementById('vipModal').style.display = 'flex'; closeMenu(); }
-            let selectedPayMethod = "";
-            function selectPayment(method) { selectedPayMethod = method; document.getElementById('payBox').style.display = 'block'; document.getElementById('payNumberText').innerText = method === 'bkash' ? BKASH_NO : NAGAD_NO; }
-            async function submitPayment() {
-                const trxId = document.getElementById('trxIdInput').value.trim();
-                if(trxId.length < 5) return tg.showAlert("সঠিক TrxID দিন!");
-                let selectedRadio = document.querySelector('input[name="vip_pkg"]:checked');
-                try {
-                    const res = await fetch('/api/payment/submit', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({uid: uid, method: selectedPayMethod, trx_id: trxId, days: parseInt(selectedRadio.value), price: parseInt(selectedRadio.getAttribute('data-price')), initData: INIT_DATA}) });
-                    const data = await res.json();
-                    if(data.ok) { tg.showAlert("✅ পেমেন্ট রিকোয়েস্ট পাঠানো হয়েছে!"); document.getElementById('vipModal').style.display = 'none'; } 
-                    else { tg.showAlert(data.msg); }
-                } catch(e) {}
-            }
 
             function formatViews(n) { if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M'; if (n >= 1000) return (n / 1000).toFixed(1) + 'K'; return n; }
 
-            // Category Load and Logic
             async function loadCategories() {
                 try {
                     const res = await fetch('/api/categories');
@@ -1286,7 +1237,6 @@ async def web_ui():
                 loadMovies(1);
             }
 
-            // Trending Auto Scroll System
             function startAutoScroll() {
                 if(autoScrollInterval) clearInterval(autoScrollInterval);
                 autoScrollInterval = setInterval(() => {
@@ -1347,7 +1297,6 @@ async def web_ui():
                         </div>`;
                     }).join('');
                     
-                    // Clean Pagination
                     let html = "";
                     if(data.total_pages > 1) {
                         html += `<button class="page-btn" ${currentPage === 1 ? 'disabled style="opacity:0.5;"' : ''} onclick="loadMovies(${currentPage - 1}); window.scrollTo({ top: document.getElementById('recentTitle').offsetTop - 60, behavior: 'smooth' });"><i class="fa-solid fa-angle-left"></i></button>`;
@@ -1394,6 +1343,7 @@ async def web_ui():
                 }
             }
 
+            // Normal Ad System for Downloading
             let linkOpenedAt = 0; let isWaitingForReturn = false; let dlTimerInterval = null;
             function executeDirectLink() {
                 if (!DIRECT_LINKS || DIRECT_LINKS.length === 0) { document.getElementById('directLinkModal').style.display = 'none'; if (onAdCompleteCallback) onAdCompleteCallback(); return; }
@@ -1407,15 +1357,56 @@ async def web_ui():
                 }, 1000);
             }
 
+            // VIP Ad System for Free Premium
+            let vipLinkOpenedAt = 0; let isWaitingForVipReturn = false; let vipTimerInterval = null;
+            function executeVipAd() {
+                if (!DIRECT_LINKS || DIRECT_LINKS.length === 0) { tg.showAlert("⚠️ কোনো অ্যাড পাওয়া যায়নি!"); return; }
+                tg.openLink(DIRECT_LINKS[Math.floor(Math.random() * DIRECT_LINKS.length)]);
+                vipLinkOpenedAt = Date.now(); isWaitingForVipReturn = true;
+                const btn = document.getElementById('vipAdBtn');
+                btn.disabled = true; let timeLeft = 15; btn.style.background = "#475569";
+                vipTimerInterval = setInterval(() => {
+                    timeLeft--; btn.innerText = `⏳ অপেক্ষা করুন... (${timeLeft}s)`;
+                    if (timeLeft <= 0) { clearInterval(vipTimerInterval); btn.innerText = `✅ সম্পন্ন হয়েছে!`; }
+                }, 1000);
+            }
+
             document.addEventListener("visibilitychange", function() {
-                if (document.visibilityState === 'visible' && isWaitingForReturn) {
-                    isWaitingForReturn = false; clearInterval(dlTimerInterval);
-                    if (Date.now() - linkOpenedAt < 14000) {
-                        tg.showAlert("⚠️ আপনাকে অবশ্যই পুরো ১৫ সেকেন্ড অপেক্ষা করতে হবে।");
-                        const btn = document.getElementById('dlClickBtn'); btn.disabled = false; btn.innerText = "🔗 Click Here (Open Link)"; btn.style.background = "linear-gradient(45deg, #ef4444, #f97316)";
-                    } else { document.getElementById('directLinkModal').style.display = 'none'; if (onAdCompleteCallback) onAdCompleteCallback(); }
+                if (document.visibilityState === 'visible') {
+                    // Check Download Ad
+                    if (isWaitingForReturn) {
+                        isWaitingForReturn = false; clearInterval(dlTimerInterval);
+                        if (Date.now() - linkOpenedAt < 14000) {
+                            tg.showAlert("⚠️ আপনাকে অবশ্যই পুরো ১৫ সেকেন্ড অপেক্ষা করতে হবে।");
+                            const btn = document.getElementById('dlClickBtn'); btn.disabled = false; btn.innerText = "🔗 Click Here (Open Link)"; btn.style.background = "linear-gradient(45deg, #ef4444, #f97316)";
+                        } else { document.getElementById('directLinkModal').style.display = 'none'; if (onAdCompleteCallback) onAdCompleteCallback(); }
+                    }
+                    
+                    // Check VIP Ad
+                    if (isWaitingForVipReturn) {
+                        isWaitingForVipReturn = false; clearInterval(vipTimerInterval);
+                        if (Date.now() - vipLinkOpenedAt < 14000) {
+                            tg.showAlert("⚠️ আপনাকে অবশ্যই পুরো ১৫ সেকেন্ড অপেক্ষা করতে হবে।");
+                            const btn = document.getElementById('vipAdBtn'); btn.disabled = false; btn.innerText = "🔗 অ্যাড দেখে VIP নিন"; btn.style.background = "linear-gradient(45deg, #ef4444, #f97316)";
+                        } else { 
+                            claimVipReward(); 
+                        }
+                    }
                 }
             });
+
+            async function claimVipReward() {
+                try {
+                    const res = await fetch('/api/claim_vip', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({uid: uid, initData: INIT_DATA}) });
+                    const data = await res.json();
+                    if(data.ok) { 
+                        document.getElementById('vipModal').style.display = 'none';
+                        tg.showAlert("🎉 অভিনন্দন! আপনি ২৪ ঘণ্টার জন্য ফ্রি VIP পেয়েছেন।");
+                        fetchUserInfo(); 
+                    } else { tg.showAlert("⚠️ কোনো সমস্যা হয়েছে।"); }
+                } catch (e) {}
+                const btn = document.getElementById('vipAdBtn'); btn.disabled = false; btn.innerText = "🔗 অ্যাড দেখে VIP নিন"; btn.style.background = "linear-gradient(45deg, #ef4444, #f97316)";
+            }
 
             async function sendFile(id) {
                 try {
@@ -1430,7 +1421,7 @@ async def web_ui():
     </body>
     </html>
     """
-    html_code = html_code.replace("{{DIRECT_LINKS}}", dl_json).replace("{{TG_LINK}}", tg_url).replace("{{SUPPORT_LINK}}", support_link).replace("{{LINK_18}}", link_18).replace("{{BOT_USER}}", BOT_USERNAME).replace("{{BKASH_NO}}", bkash_no).replace("{{NAGAD_NO}}", nagad_no)
+    html_code = html_code.replace("{{DIRECT_LINKS}}", dl_json).replace("{{TG_LINK}}", tg_url).replace("{{SUPPORT_LINK}}", support_link).replace("{{LINK_18}}", link_18).replace("{{BOT_USER}}", BOT_USERNAME)
     return html_code
 
 # ==========================================
@@ -1463,6 +1454,21 @@ async def submit_payment(data: PaymentModel):
         b.button(text="❌ Reject", callback_data=f"trx_reject_{res.inserted_id}")
         await bot.send_message(OWNER_ID, f"💰 <b>নতুন পেমেন্ট!</b>\nUID: {data.uid}\nTrxID: {data.trx_id}\nAmount: {data.price} TK", reply_markup=b.as_markup(), parse_mode="HTML")
     except Exception: pass
+    return {"ok": True}
+
+class ClaimVipModel(BaseModel):
+    uid: int
+    initData: str
+
+@app.post("/api/claim_vip")
+async def claim_vip_api(d: ClaimVipModel):
+    if d.uid == 0 or not validate_tg_data(d.initData): return {"ok": False}
+    now = datetime.datetime.utcnow()
+    user = await db.users.find_one({"user_id": d.uid})
+    current_vip = user.get("vip_until", now) if user else now
+    if current_vip < now: current_vip = now
+    new_vip = current_vip + datetime.timedelta(days=1)
+    await db.users.update_one({"user_id": d.uid}, {"$set": {"vip_until": new_vip}})
     return {"ok": True}
 
 @app.get("/api/trending")
@@ -1576,7 +1582,6 @@ class ReqModel(BaseModel):
 @app.post("/api/request")
 async def handle_request(data: ReqModel):
     if not validate_tg_data(data.initData): return {"ok": False}
-    # FIXED: Send to all admins in the admin_cache instead of just OWNER_ID
     for admin_id in admin_cache:
         try:
             await bot.send_message(
