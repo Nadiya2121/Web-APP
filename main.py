@@ -784,6 +784,7 @@ async def web_admin_panel(auth: bool = Depends(verify_admin)):
                             <td class="p-4 text-gray-400">${m.clicks} Views</td>
                             <td class="p-4 text-green-400 font-bold">${m.file_count}</td>
                             <td class="p-4 flex gap-2">
+                                <button onclick="editCategory('${encodeURIComponent(m._id)}', '${encodeURIComponent(JSON.stringify(m.categories || []))}')" class="text-blue-400 bg-blue-900 px-3 py-1 rounded transition hover:bg-blue-800">Edit Cat.</button>
                                 <button onclick="addViews('${encodeURIComponent(m._id)}')" class="text-yellow-400 bg-yellow-900 px-3 py-1 rounded transition hover:bg-yellow-800">Boost</button>
                                 <button onclick="deleteMovie('${encodeURIComponent(m._id)}')" class="text-red-400 bg-red-900 px-3 py-1 rounded transition hover:bg-red-800">Delete</button>
                             </td>
@@ -799,6 +800,25 @@ async def web_admin_panel(auth: bool = Depends(verify_admin)):
                     pageHtml += `<button ${currentPage === data.total_pages ? 'disabled class="px-4 py-2 bg-gray-700 text-gray-500 rounded"' : 'class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded text-white" onclick="loadAdminData(' + (currentPage + 1) + ')"'}>Next</button>`;
                 }
                 document.getElementById('adminPagination').innerHTML = pageHtml;
+            }
+
+            async function editCategory(title, currentCatsJson) {
+                let currentCats = [];
+                try { currentCats = JSON.parse(decodeURIComponent(currentCatsJson)); } catch(e) {}
+                let currentCatStr = currentCats.join(", ");
+                
+                let newCatStr = prompt("Edit Categories (comma separated):", currentCatStr);
+                if(newCatStr !== null) {
+                    let newCategories = newCatStr.split(",").map(c => c.trim()).filter(c => c !== "");
+                    
+                    await fetch('/api/admin/movie/' + title, {
+                        method: 'PUT',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({new_categories: newCategories})
+                    });
+                    
+                    loadAdminData(currentPage);
+                }
             }
 
             async function deleteMovie(title) {
@@ -861,6 +881,10 @@ async def delete_movie_api(title: str, auth: bool = Depends(verify_admin)):
 async def edit_movie_api(title: str, data: dict = Body(...), auth: bool = Depends(verify_admin)):
     if add_clicks := data.get("add_clicks"):
         await db.movies.update_many({"title": title}, {"$inc": {"clicks": int(add_clicks)}})
+        
+    if "new_categories" in data:
+        await db.movies.update_many({"title": title}, {"$set": {"categories": data["new_categories"]}})
+        
     return {"ok": True}
 
 # ==========================================
@@ -912,8 +936,10 @@ async def web_ui():
             
             .menu-btn { background: #1e293b; border: 1px solid #334155; padding: 8px 12px; border-radius: 8px; cursor: pointer; color: white; font-size: 18px; }
             
-            .dropdown-menu { display: none; position: absolute; top: 65px; right: 15px; background: rgba(15, 23, 42, 0.98); backdrop-filter: blur(10px); border: 1px solid #334155; border-radius: 12px; overflow: hidden; box-shadow: 0 10px 25px rgba(0,0,0,0.5); z-index: 2000; width: 240px; transform-origin: top right; animation: menuFade 0.2s ease-out forwards; }
-            @keyframes menuFade { 0% { opacity: 0; transform: scale(0.95) translateY(-10px); } 100% { opacity: 1; transform: scale(1) translateY(0); } }
+            /* MODIFIED DROPDOWN ANIMATION - CLEANER AND NO ZOOM */
+            .dropdown-menu { display: none; position: absolute; top: 65px; right: 15px; background: rgba(15, 23, 42, 0.98); backdrop-filter: blur(10px); border: 1px solid #334155; border-radius: 12px; overflow: hidden; box-shadow: 0 10px 25px rgba(0,0,0,0.5); z-index: 2000; width: 240px; animation: simpleFade 0.2s ease-in-out forwards; }
+            @keyframes simpleFade { 0% { opacity: 0; transform: translateY(-5px); } 100% { opacity: 1; transform: translateY(0); } }
+            
             .dropdown-menu a { display: flex; align-items: center; gap: 10px; padding: 12px 15px; color: white; text-decoration: none; font-weight: 600; font-size: 14px; cursor: pointer; transition: background 0.2s ease; border-bottom: 1px solid #334155; }
             .dropdown-menu a:hover, .dropdown-menu a:active { background: rgba(51, 65, 85, 0.5); }
             .dropdown-menu a i { font-size: 16px; width: 20px; text-align: center; }
