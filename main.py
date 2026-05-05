@@ -79,6 +79,7 @@ class AdminStates(StatesGroup):
     waiting_for_photo = State()
     waiting_for_title = State()
     waiting_for_quality = State() 
+    waiting_for_category = State() # NEW: ক্যাটাগরির জন্য
 
 # ==========================================
 # 2. Image Processing (Wide Thumbnails)
@@ -180,6 +181,7 @@ async def video_queue_worker():
             await db.movies.insert_one({
                 "title": auto_title, "quality": "HD", "photo_id": photo_id, 
                 "file_id": aiogram_file_id, "file_type": file_type,
+                "categories": ["Auto Upload"], # অটো আপলোডের ক্যাটাগরি
                 "clicks": 0, "created_at": datetime.datetime.utcnow()
             })
             await bot.delete_message(chat_id=admin_id, message_id=status_msg.message_id)
@@ -548,7 +550,7 @@ async def forward_to_admin(m: types.Message):
 
 
 # ==========================================
-# 5. Movie Upload Logic (With Manual Channel Post)
+# 5. Movie Upload Logic (With Category Update)
 # ==========================================
 @dp.message(F.content_type.in_({'video', 'document'}), lambda m: m.from_user.id in admin_cache)
 async def receive_movie_file(m: types.Message, state: FSMContext):
@@ -601,27 +603,39 @@ async def receive_movie_title(m: types.Message, state: FSMContext):
 
 @dp.message(AdminStates.waiting_for_quality, F.text)
 async def receive_movie_quality(m: types.Message, state: FSMContext):
-    quality = m.text.strip()
+    await state.update_data(quality=m.text.strip())
+    await state.set_state(AdminStates.waiting_for_category)
+    await m.answer("✅ কোয়ালিটি সেভ হয়েছে!\n\nএবার মুভির <b>ক্যাটাগরি</b> লিখে পাঠান।\n<i>(একাধিক হলে কমা দিয়ে লিখুন। যেমন: Bangla Dub, Action, 18+)</i>\n\n<i>(ক্যাটাগরি না দিতে চাইলে 'Skip' লিখুন)</i>", parse_mode="HTML")
+
+@dp.message(AdminStates.waiting_for_category, F.text)
+async def receive_movie_category(m: types.Message, state: FSMContext):
+    cat_text = m.text.strip()
+    if cat_text.lower() in ['skip', 'none', 'no']: categories = []
+    else: categories = [cat.strip() for cat in cat_text.split(",") if cat.strip()]
+    
     data = await state.get_data()
     await state.clear()
     
     title = data["title"]
     photo_id = data["photo_id"]
+    quality = data["quality"]
     
     await db.movies.insert_one({
         "title": title, "quality": quality, "photo_id": photo_id, 
         "file_id": data["file_id"], "file_type": data["file_type"],
+        "categories": categories,
         "clicks": 0, "created_at": datetime.datetime.utcnow()
     })
     
-    await m.answer(f"🎉 <b>{title} [{quality}]</b> অ্যাপে যুক্ত করা হয়েছে!", parse_mode="HTML")
+    cat_display = ", ".join(categories) if categories else "N/A"
+    await m.answer(f"🎉 <b>{title} [{quality}]</b> অ্যাপে যুক্ত করা হয়েছে!\n🏷 ক্যাটাগরি: <b>{cat_display}</b>", parse_mode="HTML")
 
     if CHANNEL_ID:
         try:
             bot_info = await bot.get_me()
             kb = [[types.InlineKeyboardButton(text="📥 ভিডিওটি দেখতে এখানে ক্লিক করুন", url=f"https://t.me/{bot_info.username}?start=new")]]
             markup = types.InlineKeyboardMarkup(inline_keyboard=kb)
-            caption = (f"🔥 <b>নতুন ফাইল যুক্ত হয়েছে!</b>\n\n📌 <b>টাইটেল:</b> {title}\n🏷 <b>কোয়ালিটি:</b> {quality}\n\n👇 <i>বট থেকে ভিডিওটি পেতে নিচের বাটনে ক্লিক করুন।</i>")
+            caption = (f"🔥 <b>নতুন ফাইল যুক্ত হয়েছে!</b>\n\n📌 <b>টাইটেল:</b> {title}\n🏷 <b>কোয়ালিটি:</b> {quality}\n🎭 <b>ক্যাটাগরি:</b> {cat_display}\n\n👇 <i>বট থেকে ভিডিওটি পেতে নিচের বাটনে ক্লিক করুন।</i>")
             await bot.send_photo(chat_id=CHANNEL_ID, photo=photo_id, caption=caption, parse_mode="HTML", reply_markup=markup)
         except Exception: pass
 
@@ -673,7 +687,7 @@ async def send_reply(m: types.Message, state: FSMContext):
     except Exception: await m.answer("⚠️ রিপ্লাই পাঠানো যায়নি!")
 
 # ==========================================
-# 7. Web Admin Panel HTML & API (With Search & Pagination)
+# 7. Web Admin Panel HTML & API (Enhanced)
 # ==========================================
 @app.get("/admin", response_class=HTMLResponse)
 async def web_admin_panel(auth: bool = Depends(verify_admin)):
@@ -683,26 +697,43 @@ async def web_admin_panel(auth: bool = Depends(verify_admin)):
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Admin Panel</title>
+        <title>Admin Panel - BD Viral Link</title>
         <script src="https://cdn.tailwindcss.com"></script>
         <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     </head>
     <body class="bg-gray-900 text-white p-5 font-sans">
-        <div class="max-w-5xl mx-auto">
+        <div class="max-w-6xl mx-auto">
             <h1 class="text-3xl font-bold text-red-500 mb-6 border-b border-gray-700 pb-3"><i class="fa-solid fa-screwdriver-wrench"></i> Admin Dashboard</h1>
+            
+            <!-- Dashboard Stats -->
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8" id="statsBoard">
+                <div class="bg-gray-800 p-6 rounded-xl border border-gray-700 shadow flex items-center gap-4">
+                    <div class="bg-blue-600 p-4 rounded-full text-2xl"><i class="fa-solid fa-users"></i></div>
+                    <div><p class="text-gray-400 text-sm font-bold uppercase">Total Users</p><h3 class="text-2xl font-black" id="stUsers">...</h3></div>
+                </div>
+                <div class="bg-gray-800 p-6 rounded-xl border border-gray-700 shadow flex items-center gap-4">
+                    <div class="bg-green-600 p-4 rounded-full text-2xl"><i class="fa-solid fa-film"></i></div>
+                    <div><p class="text-gray-400 text-sm font-bold uppercase">Total Uploads</p><h3 class="text-2xl font-black" id="stMovies">...</h3></div>
+                </div>
+                <div class="bg-gray-800 p-6 rounded-xl border border-gray-700 shadow flex items-center gap-4">
+                    <div class="bg-yellow-600 p-4 rounded-full text-2xl"><i class="fa-solid fa-eye"></i></div>
+                    <div><p class="text-gray-400 text-sm font-bold uppercase">Total Views</p><h3 class="text-2xl font-black" id="stViews">...</h3></div>
+                </div>
+            </div>
+
             <div class="bg-gray-800 rounded-xl shadow-lg border border-gray-700 p-6">
                 
                 <div class="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
-                    <h2 class="text-xl font-bold text-gray-200">Manage Movies</h2>
+                    <h2 class="text-xl font-bold text-gray-200"><i class="fa-solid fa-list-ul"></i> Manage Movies</h2>
                     <input type="text" id="adminSearch" placeholder="🔍 Search Movies..." class="bg-gray-700 text-white px-4 py-2 rounded-lg border border-gray-600 focus:outline-none w-full md:w-1/3">
                 </div>
 
                 <div class="overflow-x-auto">
                     <table class="w-full text-left text-sm whitespace-nowrap">
                         <thead class="bg-gray-700 text-gray-300">
-                            <tr><th class="p-4">Title</th><th class="p-4">Views</th><th class="p-4">Files</th><th class="p-4">Action</th></tr>
+                            <tr><th class="p-4">Title</th><th class="p-4">Category</th><th class="p-4">Views</th><th class="p-4">Files</th><th class="p-4">Action</th></tr>
                         </thead>
-                        <tbody id="movieTableBody"><tr><td colspan="4" class="text-center p-8 text-gray-400">Loading...</td></tr></tbody>
+                        <tbody id="movieTableBody"><tr><td colspan="5" class="text-center p-8 text-gray-400">Loading...</td></tr></tbody>
                     </table>
                 </div>
                 
@@ -716,6 +747,16 @@ async def web_admin_panel(auth: bool = Depends(verify_admin)):
             let searchQuery = "";
             let searchTimeout = null;
 
+            async function loadStats() {
+                try {
+                    const res = await fetch('/api/admin/stats');
+                    const data = await res.json();
+                    document.getElementById('stUsers').innerText = data.users;
+                    document.getElementById('stMovies').innerText = data.movies;
+                    document.getElementById('stViews').innerText = data.views;
+                } catch(e) {}
+            }
+
             document.getElementById('adminSearch').addEventListener('input', function(e) {
                 clearTimeout(searchTimeout);
                 searchQuery = e.target.value.trim();
@@ -724,19 +765,24 @@ async def web_admin_panel(auth: bool = Depends(verify_admin)):
 
             async function loadAdminData(page = 1) {
                 currentPage = page;
-                document.getElementById('movieTableBody').innerHTML = '<tr><td colspan="4" class="text-center p-8 text-gray-400">Loading...</td></tr>';
+                document.getElementById('movieTableBody').innerHTML = '<tr><td colspan="5" class="text-center p-8 text-gray-400">Loading...</td></tr>';
                 const res = await fetch(`/api/admin/data?page=${currentPage}&q=${encodeURIComponent(searchQuery)}`); 
                 const data = await res.json();
                 
                 let html = '';
                 if(data.movies.length === 0) {
-                    html = '<tr><td colspan="4" class="text-center p-8 text-gray-400">No movies found.</td></tr>';
+                    html = '<tr><td colspan="5" class="text-center p-8 text-gray-400">No movies found.</td></tr>';
                 } else {
                     data.movies.forEach(m => {
+                        let catHtml = m.categories && m.categories.length > 0 
+                            ? m.categories.map(c => `<span class="bg-gray-700 px-2 py-1 rounded text-xs border border-gray-600">${c}</span>`).join(' ') 
+                            : '<span class="text-gray-500">None</span>';
+                        
                         html += `<tr class="border-b border-gray-700 hover:bg-gray-750">
                             <td class="p-4 font-medium">${m._id}</td>
+                            <td class="p-4">${catHtml}</td>
                             <td class="p-4 text-gray-400">${m.clicks} Views</td>
-                            <td class="p-4 text-green-400">${m.file_count}</td>
+                            <td class="p-4 text-green-400 font-bold">${m.file_count}</td>
                             <td class="p-4 flex gap-2">
                                 <button onclick="addViews('${encodeURIComponent(m._id)}')" class="text-yellow-400 bg-yellow-900 px-3 py-1 rounded transition hover:bg-yellow-800">Boost</button>
                                 <button onclick="deleteMovie('${encodeURIComponent(m._id)}')" class="text-red-400 bg-red-900 px-3 py-1 rounded transition hover:bg-red-800">Delete</button>
@@ -746,7 +792,6 @@ async def web_admin_panel(auth: bool = Depends(verify_admin)):
                 }
                 document.getElementById('movieTableBody').innerHTML = html;
 
-                // Pagination Render
                 let pageHtml = "";
                 if(data.total_pages > 1) {
                     pageHtml += `<button ${currentPage === 1 ? 'disabled class="px-4 py-2 bg-gray-700 text-gray-500 rounded"' : 'class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded text-white" onclick="loadAdminData(' + (currentPage - 1) + ')"'}>Prev</button>`;
@@ -759,22 +804,33 @@ async def web_admin_panel(auth: bool = Depends(verify_admin)):
             async function deleteMovie(title) {
                 if(!confirm('Are you sure you want to delete ALL files for this movie?')) return;
                 await fetch('/api/admin/movie/' + title, {method: 'DELETE'}); 
-                loadAdminData(currentPage);
+                loadAdminData(currentPage); loadStats();
             }
 
             async function addViews(title) {
                 let amount = prompt("How many views to add?", "1000");
                 if(amount && !isNaN(amount)) {
                     await fetch('/api/admin/movie/' + title, { method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({add_clicks: parseInt(amount)}) });
-                    loadAdminData(currentPage);
+                    loadAdminData(currentPage); loadStats();
                 }
             }
+            
+            loadStats();
             loadAdminData(1);
         </script>
     </body>
     </html>
     """
     return HTMLResponse(content=html_content)
+
+@app.get("/api/admin/stats")
+async def admin_stats_api(auth: bool = Depends(verify_admin)):
+    user_count = await db.users.count_documents({})
+    movie_count = await db.movies.count_documents({})
+    total_views = 0
+    views_agg = await db.movies.aggregate([{"$group": {"_id": None, "total": {"$sum": "$clicks"}}}]).to_list(1)
+    if views_agg: total_views = views_agg[0]["total"]
+    return {"users": user_count, "movies": movie_count, "views": total_views}
 
 @app.get("/api/admin/data")
 async def get_admin_data(page: int = 1, q: str = "", auth: bool = Depends(verify_admin)):
@@ -784,7 +840,7 @@ async def get_admin_data(page: int = 1, q: str = "", auth: bool = Depends(verify
     
     pipeline = [
         {"$match": match_stage},
-        {"$group": {"_id": "$title", "clicks": {"$sum": "$clicks"}, "file_count": {"$sum": 1}, "created_at": {"$max": "$created_at"}}}, 
+        {"$group": {"_id": "$title", "clicks": {"$sum": "$clicks"}, "file_count": {"$sum": 1}, "created_at": {"$max": "$created_at"}, "categories": {"$first": "$categories"}}}, 
         {"$sort": {"created_at": -1}}, 
         {"$skip": skip}, 
         {"$limit": limit}
@@ -864,6 +920,13 @@ async def web_ui():
             
             .search-box { padding: 15px; }
             .search-input { width: 100%; padding: 16px; border-radius: 25px; border: none; outline: none; text-align: center; background: #1e293b; color: #fff; font-size: 18px; font-weight: bold; }
+            
+            /* Category UI Added Here */
+            .category-container { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 15px 15px; justify-content: center; }
+            .cat-btn { background: rgba(30, 41, 59, 0.8); color: #cbd5e1; border: 1px solid #334155; padding: 6px 14px; border-radius: 20px; font-size: 12px; font-weight: bold; cursor: pointer; transition: all 0.2s ease; backdrop-filter: blur(5px); white-space: nowrap; }
+            .cat-btn:active { transform: scale(0.95); }
+            .cat-btn.active { background: linear-gradient(45deg, #ef4444, #f97316); color: white; border-color: transparent; box-shadow: 0 2px 8px rgba(239, 68, 68, 0.4); }
+
             .section-title { padding: 5px 15px 15px; font-size: 20px; font-weight: 900; display: flex; align-items: center; gap: 8px; color:#ff416c; }
             
             /* Trending Auto Scroll System */
@@ -972,6 +1035,9 @@ async def web_ui():
         <div class="search-box">
             <input type="text" id="searchInput" class="search-input" placeholder="🔍 মুভি বা ওয়েব সিরিজ খুঁজুন...">
         </div>
+
+        <!-- Category UI -->
+        <div id="categoryBox" class="category-container"></div>
 
         <!-- Trending Section -->
         <div id="trendingWrapper">
@@ -1094,6 +1160,7 @@ async def web_ui():
             let loadedMovies = {}; 
             let currentPage = 1; 
             let searchQuery = "";
+            let activeCategory = "";
             let onAdCompleteCallback = null;
             let autoScrollInterval;
 
@@ -1131,6 +1198,11 @@ async def web_ui():
             function goHome() { 
                 document.getElementById('searchInput').value = ""; 
                 searchQuery = ""; 
+                activeCategory = "";
+                document.querySelectorAll('.cat-btn').forEach(b => b.classList.remove('active'));
+                let firstCatBtn = document.querySelector('.cat-btn');
+                if(firstCatBtn) firstCatBtn.classList.add('active');
+                
                 document.getElementById('trendingWrapper').style.display = 'block';
                 loadTrending();
                 loadMovies(1); 
@@ -1165,6 +1237,28 @@ async def web_ui():
             }
 
             function formatViews(n) { if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M'; if (n >= 1000) return (n / 1000).toFixed(1) + 'K'; return n; }
+
+            // Category Load and Logic
+            async function loadCategories() {
+                try {
+                    const res = await fetch('/api/categories');
+                    const cats = await res.json();
+                    if(cats.length === 0) return;
+                    let html = `<button class="cat-btn active" onclick="setCategory('', this)">All</button>`;
+                    cats.forEach(c => { html += `<button class="cat-btn" onclick="setCategory('${c.replace(/'/g, "\\'")}', this)">${c}</button>`; });
+                    document.getElementById('categoryBox').innerHTML = html;
+                } catch(e) {}
+            }
+
+            function setCategory(cat, btnElement) {
+                activeCategory = cat;
+                document.querySelectorAll('.cat-btn').forEach(b => b.classList.remove('active'));
+                btnElement.classList.add('active');
+                searchQuery = ""; 
+                document.getElementById('searchInput').value = "";
+                document.getElementById('trendingWrapper').style.display = cat === "" ? 'block' : 'none';
+                loadMovies(1);
+            }
 
             // Trending Auto Scroll System
             function startAutoScroll() {
@@ -1208,7 +1302,7 @@ async def web_ui():
                 const grid = document.getElementById('movieGrid');
                 grid.innerHTML = "<p style='color:white; text-align:center;'>Loading...</p>";
                 try {
-                    const r = await fetch(`/api/list?page=${currentPage}&q=${encodeURIComponent(searchQuery)}&uid=${uid}`);
+                    const r = await fetch(`/api/list?page=${currentPage}&q=${encodeURIComponent(searchQuery)}&uid=${uid}&cat=${encodeURIComponent(activeCategory)}`);
                     const data = await r.json();
                     if(data.movies.length === 0) return grid.innerHTML = `<p style='text-align:center; color:#fbbf24;'>কোনো মুভি পাওয়া যায়নি!</p>`;
                     
@@ -1248,7 +1342,7 @@ async def web_ui():
             let timeout = null;
             document.getElementById('searchInput').addEventListener('input', function(e) {
                 clearTimeout(timeout); searchQuery = e.target.value.trim();
-                if(searchQuery !== "") { document.getElementById('trendingWrapper').style.display = 'none'; } 
+                if(searchQuery !== "") { document.getElementById('trendingWrapper').style.display = 'none'; activeCategory = ""; document.querySelectorAll('.cat-btn').forEach(b => b.classList.remove('active')); } 
                 else { document.getElementById('trendingWrapper').style.display = 'block'; }
                 timeout = setTimeout(() => loadMovies(1), 500); 
             });
@@ -1305,7 +1399,7 @@ async def web_ui():
                 } catch (e) {}
             }
 
-            fetchUserInfo(); loadTrending(); loadMovies(1); 
+            fetchUserInfo(); loadCategories(); loadTrending(); loadMovies(1); 
         </script>
     </body>
     </html>
@@ -1362,8 +1456,13 @@ async def trending_movies(uid: int = 0):
         for f in m["files"]: f["is_unlocked"] = f["id"] in unlocked_ids
     return movies
 
+@app.get("/api/categories")
+async def get_categories():
+    categories = await db.movies.distinct("categories")
+    return [c for c in categories if c]
+
 @app.get("/api/list")
-async def list_movies(page: int = 1, q: str = "", uid: int = 0):
+async def list_movies(page: int = 1, q: str = "", uid: int = 0, cat: str = ""):
     limit = 10
     skip = (page - 1) * limit
     unlocked_ids = []
@@ -1373,7 +1472,10 @@ async def list_movies(page: int = 1, q: str = "", uid: int = 0):
         async for u in db.user_unlocks.find({"user_id": uid, "unlocked_at": {"$gt": time_limit}}):
             unlocked_ids.append(u["movie_id"])
 
-    match_stage = {"title": {"$regex": q, "$options": "i"}} if q else {}
+    match_stage = {}
+    if q: match_stage["title"] = {"$regex": q, "$options": "i"}
+    if cat: match_stage["categories"] = cat
+
     pipeline = [
         {"$match": match_stage},
         {"$group": {"_id": "$title", "photo_id": {"$first": "$photo_id"}, "clicks": {"$sum": "$clicks"}, "created_at": {"$max": "$created_at"}, "files": {"$push": {"id": {"$toString": "$_id"}, "quality": {"$ifNull": ["$quality", "HD"]}}}}},
@@ -1448,8 +1550,15 @@ class ReqModel(BaseModel):
 @app.post("/api/request")
 async def handle_request(data: ReqModel):
     if not validate_tg_data(data.initData): return {"ok": False}
-    try: await bot.send_message(OWNER_ID, f"🔔 <b>মুভি রিকোয়েস্ট!</b>\nইউজার: {data.uname}\n🎬 মুভি: <b>{data.movie}</b>", parse_mode="HTML")
-    except Exception: pass
+    # FIXED: Send to all admins in the admin_cache instead of just OWNER_ID
+    for admin_id in admin_cache:
+        try:
+            await bot.send_message(
+                admin_id, 
+                f"🔔 <b>নতুন মুভি রিকোয়েস্ট!</b>\n👤 ইউজার: {data.uname} (<code>{data.uid}</code>)\n🎬 মুভি: <b>{data.movie}</b>", 
+                parse_mode="HTML"
+            )
+        except Exception: pass
     return {"ok": True}
 
 # ==========================================
