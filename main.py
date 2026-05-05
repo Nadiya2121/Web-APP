@@ -920,21 +920,21 @@ async def web_ui():
         <style>
             * { margin: 0; padding: 0; box-sizing: border-box; }
             html { scroll-behavior: smooth; }
-            body { background: #0f172a; font-family: sans-serif; color: #fff; overscroll-behavior-y: none; } 
+            body { background: #0f172a; font-family: sans-serif; color: #fff; overscroll-behavior-y: none; overflow-x: hidden; width: 100%; } 
             
-            header { display: flex; justify-content: space-between; align-items: center; padding: 15px; border-bottom: 1px solid #1e293b; position: sticky; top: 0; background: rgba(15, 23, 42, 0.95); backdrop-filter: blur(10px); z-index: 1000; }
-            .logo { font-size: 24px; font-weight: bold; }
-            .logo span { background: red; color: #fff; padding: 2px 6px; border-radius: 5px; margin-left: 5px; font-size: 16px; }
-            .header-right { display: flex; align-items: center; gap: 10px; }
+            header { display: flex; justify-content: space-between; align-items: center; padding: 10px; border-bottom: 1px solid #1e293b; position: sticky; top: 0; background: rgba(15, 23, 42, 0.95); backdrop-filter: blur(10px); z-index: 1000; width: 100%; }
+            .logo { font-size: 18px; font-weight: bold; white-space: nowrap; }
+            .logo span { background: red; color: #fff; padding: 2px 4px; border-radius: 4px; margin-left: 3px; font-size: 12px; }
+            .header-right { display: flex; align-items: center; gap: 6px; }
             
             /* Home Button */
-            .home-btn { background: linear-gradient(45deg, #3b82f6, #2563eb); color: white; border: none; padding: 8px 12px; border-radius: 8px; font-weight: bold; font-size: 14px; cursor: pointer; display: flex; align-items: center; gap: 5px; box-shadow: 0 2px 5px rgba(0,0,0,0.3); transition: 0.2s; }
+            .home-btn { background: linear-gradient(45deg, #3b82f6, #2563eb); color: white; border: none; padding: 6px 10px; border-radius: 6px; font-weight: bold; font-size: 12px; cursor: pointer; display: flex; align-items: center; gap: 4px; box-shadow: 0 2px 5px rgba(0,0,0,0.3); transition: 0.2s; white-space: nowrap; }
             .home-btn:active { transform: scale(0.95); }
 
-            .user-info { display: flex; align-items: center; gap: 8px; background: #1e293b; padding: 6px 14px; border-radius: 25px; font-weight: bold; font-size: 14px; border: 1px solid #334155; }
-            .user-info img { width: 28px; height: 28px; border-radius: 50%; object-fit: cover; }
+            .user-info { display: flex; align-items: center; gap: 4px; background: #1e293b; padding: 4px 10px; border-radius: 20px; font-weight: bold; font-size: 12px; border: 1px solid #334155; white-space: nowrap; }
+            .user-info img { width: 24px; height: 24px; border-radius: 50%; object-fit: cover; }
             
-            .menu-btn { background: #1e293b; border: 1px solid #334155; padding: 8px 12px; border-radius: 8px; cursor: pointer; color: white; font-size: 18px; }
+            .menu-btn { background: #1e293b; border: 1px solid #334155; padding: 6px 10px; border-radius: 6px; cursor: pointer; color: white; font-size: 15px; }
             
             /* MODIFIED DROPDOWN ANIMATION - CLEANER AND NO ZOOM */
             .dropdown-menu { display: none; position: absolute; top: 65px; right: 15px; background: rgba(15, 23, 42, 0.98); backdrop-filter: blur(10px); border: 1px solid #334155; border-radius: 12px; overflow: hidden; box-shadow: 0 10px 25px rgba(0,0,0,0.5); z-index: 2000; width: 240px; animation: simpleFade 0.2s ease-in-out forwards; }
