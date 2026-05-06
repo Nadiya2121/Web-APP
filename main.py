@@ -1229,7 +1229,7 @@ async def web_ui():
             </div>
         </div>
 
-        <!-- Success Modal -->
+        <!-- Success Modal (Kept for fallback but won't be triggered on normal flow) -->
         <div id="successModal" class="modal">
             <div class="modal-content">
                 <i class="fa-solid fa-circle-check" style="font-size:80px; color:#4ade80;"></i>
@@ -1557,12 +1557,26 @@ async def web_ui():
                 }
             }
 
+            // 🛑🛑 UPDATED SENDFILE FUNCTION 🛑🛑
             async function sendFile(id) {
+                tg.MainButton.text = "⏳ ফাইলটি পাঠানো হচ্ছে...";
+                tg.MainButton.show();
+                
                 try {
                     const res = await fetch('/api/send', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({userId: uid, movieId: id, initData: INIT_DATA}) });
                     const data = await res.json();
-                    if(data.ok) { document.getElementById('successModal').style.display = 'flex'; }
-                } catch (e) {}
+                    
+                    tg.MainButton.hide();
+                    
+                    if(data.ok) { 
+                        tg.close(); 
+                    } else {
+                        tg.showAlert("⚠️ ফাইলটি পাঠাতে সমস্যা হয়েছে। এরর: " + (data.msg || "Unknown error"));
+                    }
+                } catch (e) {
+                    tg.MainButton.hide();
+                    tg.showAlert("⚠️ নেটওয়ার্ক সমস্যা! আবার চেষ্টা করুন।");
+                }
             }
 
             fetchUserInfo(); loadCategories(); loadTrending(); loadMovies(1); 
@@ -1686,9 +1700,11 @@ class SendRequestModel(BaseModel):
     movieId: str
     initData: str
 
+# 🛑🛑 UPDATED API ENDPOINT 🛑🛑
 @app.post("/api/send")
 async def send_file(d: SendRequestModel):
-    if d.userId == 0 or not validate_tg_data(d.initData): return {"ok": False}
+    if d.userId == 0 or not validate_tg_data(d.initData): 
+        return {"ok": False, "msg": "Authentication Failed"}
     try:
         m = await db.movies.find_one({"_id": ObjectId(d.movieId)})
         if m:
@@ -1702,6 +1718,7 @@ async def send_file(d: SendRequestModel):
             is_protected = protect_cfg['status'] if protect_cfg else True
 
             caption = (f"🎥 <b>{m['title']} [{m.get('quality', 'HD')}]</b>\n\n📥 Join: @TGLinkBase")
+            
             if m.get("file_type") == "video":
                 sent_msg = await bot.send_video(d.userId, m['file_id'], caption=caption, parse_mode="HTML", protect_content=is_protected)
             else:
@@ -1712,8 +1729,13 @@ async def send_file(d: SendRequestModel):
             
             if sent_msg and not is_vip:
                 await db.auto_delete.insert_one({"chat_id": d.userId, "message_id": sent_msg.message_id, "delete_at": now + datetime.timedelta(minutes=del_minutes)})
-    except Exception: pass
-    return {"ok": True}
+            
+            return {"ok": True}
+        else:
+            return {"ok": False, "msg": "Movie not found"}
+            
+    except Exception as e:
+        return {"ok": False, "msg": str(e)}
 
 class ReqModel(BaseModel):
     uid: int
