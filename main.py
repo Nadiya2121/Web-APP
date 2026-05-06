@@ -224,7 +224,8 @@ async def init_db():
 
 def validate_tg_data(init_data: str) -> bool:
     try:
-        parsed_data = dict(urllib.parse.parseqsl(init_data))
+        # 🛑 FIXED BUG: parseqsl -> parse_qsl
+        parsed_data = dict(urllib.parse.parse_qsl(init_data))
         hash_val = parsed_data.pop('hash', None)
         auth_date = int(parsed_data.get('auth_date', 0))
         if not hash_val or time.time() - auth_date > 86400: return False
@@ -1231,16 +1232,6 @@ async def web_ui():
                 <h2 style="color:white; font-size: 22px; margin-bottom:15px;">মুভি রিকোয়েস্ট 🗳️</h2>
                 <input type="text" id="reqText" class="search-input" placeholder="মুভির নাম...">
                 <button class="btn-submit" style="margin-top:10px;" onclick="sendReq()">রিকোয়েস্ট পাঠান</button>
-            </div>
-        </div>
-
-        <!-- Success Modal (Left intact just in case, but replaced by auto-close) -->
-        <div id="successModal" class="modal">
-            <div class="modal-content">
-                <i class="fa-solid fa-circle-check" style="font-size:80px; color:#4ade80;"></i>
-                <h2 style="margin:20px 0 10px; color:white; font-size: 26px;">সম্পন্ন হয়েছে!</h2>
-                <p style="color: #4ade80; font-size: 17px; font-weight: bold;">✅ ফাইলটি বটের ইনবক্সে পাঠানো হয়েছে।</p>
-                <button class="btn-submit" style="margin-top:20px;" onclick="tg.close()">বটে ফিরে যান</button>
             </div>
         </div>
 
