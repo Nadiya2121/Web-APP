@@ -53,6 +53,10 @@ CHANNEL_ID = os.getenv("CHANNEL_ID", "")
 ADMIN_PASS = os.getenv("ADMIN_PASS", "admin123") 
 BOT_USERNAME = "BDViralLinkProBot" # আপনার বটের ইউজারনেম
 
+# 🛑 ULTIMATE ANTI-BAN: Database Channel ID
+_db_ch = os.getenv("DB_CHANNEL_ID", "")
+DB_CHANNEL_ID = int(_db_ch) if _db_ch.lstrip('-').isdigit() else None
+
 bot = Bot(token=TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
 app = FastAPI()
@@ -177,12 +181,28 @@ async def video_queue_worker():
                 await bot.edit_message_text("❌ <b>Screenshot তৈরি করতে সমস্যা হয়েছে!</b>", chat_id=admin_id, message_id=status_msg.message_id, parse_mode="HTML")
                 continue
                 
+            # 🛑 DB Channel Routing
+            db_file_id = None
+            db_photo_id = None
+            photo_id = None
+            
+            if DB_CHANNEL_ID:
+                try:
+                    copied_vid = await bot.copy_message(chat_id=DB_CHANNEL_ID, from_chat_id=chat_id, message_id=message_id)
+                    db_file_id = copied_vid.message_id
+                    
+                    copied_photo = await bot.send_photo(DB_CHANNEL_ID, FSInputFile(collage_path))
+                    db_photo_id = copied_photo.message_id
+                    photo_id = copied_photo.photo[-1].file_id
+                except Exception: pass
+            
             photo_msg = await bot.send_photo(admin_id, photo=FSInputFile(collage_path), caption=f"✅ <b>{auto_title}</b> Successfully Uploaded!")
-            photo_id = photo_msg.photo[-1].file_id
+            if not photo_id: photo_id = photo_msg.photo[-1].file_id
             
             await db.movies.insert_one({
                 "title": auto_title, "quality": "HD", "photo_id": photo_id, 
                 "file_id": aiogram_file_id, "file_type": file_type,
+                "db_file_id": db_file_id, "db_photo_id": db_photo_id, # DB Channel info
                 "categories": ["Auto Upload"], 
                 "clicks": 0, "created_at": datetime.datetime.utcnow()
             })
@@ -299,7 +319,7 @@ async def start_cmd(message: types.Message, state: FSMContext):
             "🔸 সাপোর্ট লিংক: <code>/setsupport লিংক</code>\n"
             "🔸 পেমেন্ট নাম্বার: <code>/setbkash নাম্বার</code> | <code>/setnagad নাম্বার</code>\n"
             "🔸 প্রোটেকশন: <code>/protect on/off</code> | অটো-ডিলিট: <code>/settime [মিনিট]</code>\n"
-            "🔸 অ্যাড টাইম: <code>/setadtime [সেকেন্ড]</code>\n"  # 🛑 NEW COMMAND ADDED
+            "🔸 অ্যাড টাইম: <code>/setadtime [সেকেন্ড]</code>\n" 
             "🔸 স্ট্যাটাস: <code>/stats</code> | ব্রডকাস্ট: <code>/cast</code>\n"
             "🔸 মুভি ডিলিট: <code>/delmovie মুভির নাম</code> | <code>/delallmovies</code>\n"
             "🔸 ব্যান: <code>/ban ID</code> | আনব্যান: <code>/unban ID</code>\n"
@@ -312,7 +332,6 @@ async def start_cmd(message: types.Message, state: FSMContext):
         
     await message.answer(text, reply_markup=markup, parse_mode="HTML", disable_web_page_preview=True)
 
-# 🛑 NEW FEATURE: Admin Command to Set Ad Waiting Time
 @dp.message(Command("setadtime"))
 async def set_ad_time(m: types.Message):
     if m.from_user.id not in admin_cache: return
@@ -549,14 +568,12 @@ async def execute_broadcast(m: types.Message, state: FSMContext):
         except Exception: pass
     await m.answer(f"✅ সম্পন্ন! সর্বমোট <b>{success}</b> জনকে মেসেজ পাঠানো হয়েছে।", parse_mode="HTML")
 
-# 🛑 FIXED: Now all admins will receive messages from users, not just the owner
 @dp.message(lambda m: m.chat.type == "private" and m.from_user.id not in admin_cache and (m.text is None or not m.text.startswith("/")))
 async def forward_to_admin(m: types.Message):
     builder = InlineKeyboardBuilder()
     builder.button(text="✍️ রিপ্লাই দিন", callback_data=f"reply_{m.from_user.id}")
     markup = builder.as_markup()
     
-    # ডাটাবেস থেকে সব অ্যাডমিনের আইডি বের করা হচ্ছে
     all_admins = set([OWNER_ID])
     async for a in db.admins.find(): 
         all_admins.add(a["user_id"])
@@ -588,7 +605,16 @@ async def receive_movie_file(m: types.Message, state: FSMContext):
     else:
         fid = m.video.file_id if m.video else m.document.file_id
         ftype = "video" if m.video else "document"
-        await state.update_data(file_id=fid, file_type=ftype)
+        
+        # 🛑 DB Channel Routing
+        db_file_id = None
+        if DB_CHANNEL_ID:
+            try:
+                copied = await bot.copy_message(chat_id=DB_CHANNEL_ID, from_chat_id=m.chat.id, message_id=m.message_id)
+                db_file_id = copied.message_id
+            except Exception: pass
+            
+        await state.update_data(file_id=fid, file_type=ftype, db_file_id=db_file_id)
         
         kb = [
             [types.InlineKeyboardButton(text="🎬 নতুন মুভি/সিরিজ যুক্ত করুন", callback_data="upload_new")],
@@ -612,7 +638,7 @@ async def search_series_for_episode(m: types.Message, state: FSMContext):
     query = m.text.strip()
     pipeline = [
         {"$match": {"title": {"$regex": query, "$options": "i"}}},
-        {"$group": {"_id": "$title", "photo_id": {"$first": "$photo_id"}, "categories": {"$first": "$categories"}}},
+        {"$group": {"_id": "$title", "photo_id": {"$first": "$photo_id"}, "db_photo_id": {"$first": "$db_photo_id"}, "categories": {"$first": "$categories"}}},
         {"$limit": 10}
     ]
     results = await db.movies.aggregate(pipeline).to_list(10)
@@ -638,6 +664,7 @@ async def selected_series_cb(c: types.CallbackQuery, state: FSMContext):
     await state.update_data(
         title=selected["_id"],
         photo_id=selected["photo_id"],
+        db_photo_id=selected.get("db_photo_id"),
         categories=selected.get("categories", [])
     )
     
@@ -655,6 +682,7 @@ async def finalize_new_episode(m: types.Message, state: FSMContext):
     await db.movies.insert_one({
         "title": title, "quality": quality, "photo_id": photo_id, 
         "file_id": data["file_id"], "file_type": data["file_type"],
+        "db_file_id": data.get("db_file_id"), "db_photo_id": data.get("db_photo_id"),
         "categories": categories,
         "clicks": 0, "created_at": datetime.datetime.utcnow()
     })
@@ -685,13 +713,24 @@ async def receive_movie_photo(m: types.Message, state: FSMContext):
     loop = asyncio.get_event_loop()
     success = await loop.run_in_executor(None, make_wide_thumbnail, temp_in, temp_out)
     
+    db_photo_id = None
+    target_file = temp_out if success else temp_in
+    
+    # 🛑 DB Channel Routing
+    if DB_CHANNEL_ID:
+        try:
+            copied_photo = await bot.send_photo(DB_CHANNEL_ID, FSInputFile(target_file))
+            db_photo_id = copied_photo.message_id
+            photo_id = copied_photo.photo[-1].file_id
+        except Exception: pass
+    
     if success:
         sent_photo = await m.answer_photo(FSInputFile(temp_out), caption="✅ <b>পোস্টার রেডি!</b>\nএবার <b>টাইটেল (নাম)</b> লিখে পাঠান।", parse_mode="HTML")
-        await state.update_data(photo_id=sent_photo.photo[-1].file_id)
+        if not DB_CHANNEL_ID: photo_id = sent_photo.photo[-1].file_id
     else:
-        await state.update_data(photo_id=photo_id)
         await m.answer("✅ পোস্টার পেয়েছি! এবার <b>টাইটেল (নাম)</b> লিখে পাঠান।", parse_mode="HTML")
         
+    await state.update_data(photo_id=photo_id, db_photo_id=db_photo_id)
     await state.set_state(AdminStates.waiting_for_title)
     await bot.delete_message(m.chat.id, status_msg.message_id)
     
@@ -726,6 +765,7 @@ async def receive_movie_category(m: types.Message, state: FSMContext):
     await db.movies.insert_one({
         "title": title, "quality": quality, "photo_id": photo_id, 
         "file_id": data["file_id"], "file_type": data["file_type"],
+        "db_file_id": data.get("db_file_id"), "db_photo_id": data.get("db_photo_id"),
         "categories": categories,
         "clicks": 0, "created_at": datetime.datetime.utcnow()
     })
@@ -1158,7 +1198,7 @@ async def web_ui():
         <div class="developer-credit">
             <div class="dev-title"><i class="fa-solid fa-laptop-code"></i> Developed & Deployed By</div>
             <div class="dev-name">Bot Developer</div>
-            <div class="dev-desc">আপনিও কি আপনার চ্যানেল বা গ্রুপের জন্য এমন হাই-কোয়ালিটি এবং প্রিমিয়াম মুভি বট বানাতে চান? আজই আমাদের সাথে যোগাযোগ করুন।</div>
+            <div class="dev-desc">আপনিও কি আপনার চ্যানেল বা গ্রুপের জন্য এমন হাই-কোয়ালিটি এবং প্রিমিয়াম মুভি বট বানাতে চান? আজইমাদের সাথে যোগাযোগ করুন।</div>
             <button class="dev-btn" onclick="window.open('https://t.me/ProBotDeveloperBot', '_blank')">
                 <i class="fa-brands fa-telegram"></i> Contact Developer
             </button>
@@ -1269,7 +1309,7 @@ async def web_ui():
             const DIRECT_LINKS = {{DIRECT_LINKS}};
             const INIT_DATA = tg.initData || "";
             const BOT_UNAME = "{{BOT_USER}}";
-            const AD_WAIT_TIME = {{AD_TIME}}; // 🛑 DYNAMIC AD TIMER FROM DB
+            const AD_WAIT_TIME = {{AD_TIME}}; 
             
             let uid = tg.initDataUnsafe?.user?.id || 0;
             let isUserVip = false;
@@ -1491,10 +1531,6 @@ async def web_ui():
                 document.getElementById('qualityModal').style.display = 'flex';
             }
 
-            // ==========================================
-            // 🛑 FIXED: BACKGROUND TIMER & INSTANT REDIRECT
-            // ==========================================
-
             let currentFileId = null; 
 
             function handleQualityClick(fileId, isUnlocked) {
@@ -1508,7 +1544,6 @@ async def web_ui():
                 }
             }
 
-            // --- ডাউনলোড অ্যাড সিস্টেম ---
             let linkOpenedAt = 0;
             let isWaitingForReturn = false;
             let dlTimerInterval = null;
@@ -1537,7 +1572,6 @@ async def web_ui():
                 let timeLeft = AD_WAIT_TIME; 
                 btn.style.background = "#475569";
                 
-                // শুধুমাত্র UI আপডেটের জন্য ইন্টারভ্যাল। আসল লজিক Date.now() তে
                 dlTimerInterval = setInterval(() => {
                     timeLeft--; 
                     if(timeLeft > 0) {
@@ -1553,7 +1587,6 @@ async def web_ui():
                 }, 1000);
             }
 
-            // --- কয়েন অ্যাড সিস্টেম ---
             let coinLinkOpenedAt = 0; 
             let isWaitingForCoinReturn = false; 
             let coinTimerInterval = null;
@@ -1593,37 +1626,31 @@ async def web_ui():
                 }, 1000);
             }
 
-            // --- 🛑 FIXED: ব্যাকগ্রাউন্ড থেকে ফিরে আসার অটো ডিটেকশন (ইনস্ট্যান্ট রিডাইরেক্ট) ---
             document.addEventListener("visibilitychange", function() {
                 if (document.visibilityState === 'visible') {
                     let now = Date.now();
                     
-                    // ফাইল ডাউনলোডের জন্য ব্যাক করলে
                     if (isWaitingForReturn) {
                         isWaitingForReturn = false; 
                         clearInterval(dlTimerInterval);
                         
                         let elapsedSeconds = (now - linkOpenedAt) / 1000;
-                        
-                        if (elapsedSeconds < AD_WAIT_TIME - 1) { // 1 sec margin
-                            tg.showAlert(`⚠️ আপনাকে অবশ্যই পুরো ${AD_WAIT_TIME} সেকেন্ড লিংকে অপেক্ষা করতে হবে।\n(আপনি মাত্র ${Math.floor(elapsedSeconds)} সেকেন্ড ছিলেন)`);
+                        if (elapsedSeconds < AD_WAIT_TIME - 1) { 
+                            tg.showAlert(`⚠️ আপনাকে অবশ্যই পুরো ${AD_WAIT_TIME} সেকেন্ড লিংকে অপেক্ষা করতে হবে।`);
                             resetDlButton();
                         } else { 
-                            // 🛑 INSTANT MAGIC: কোনো ক্লিক ছাড়াই সোজা সেন্ড এবং ক্লোজ
                             document.getElementById('directLinkModal').style.display = 'none'; 
                             if (currentFileId) sendFileAndClose(currentFileId); 
                         }
                     }
                     
-                    // কয়েন অ্যাডের জন্য ব্যাক করলে
                     if (isWaitingForCoinReturn) {
                         isWaitingForCoinReturn = false; 
                         clearInterval(coinTimerInterval);
                         
                         let elapsedSeconds = (now - coinLinkOpenedAt) / 1000;
-                        
                         if (elapsedSeconds < AD_WAIT_TIME - 1) {
-                            tg.showAlert(`⚠️ আপনাকে অবশ্যই পুরো ${AD_WAIT_TIME} সেকেন্ড লিংকে অপেক্ষা করতে হবে।\n(আপনি মাত্র ${Math.floor(elapsedSeconds)} সেকেন্ড ছিলেন)`);
+                            tg.showAlert(`⚠️ আপনাকে অবশ্যই পুরো ${AD_WAIT_TIME} সেকেন্ড লিংকে অপেক্ষা করতে হবে।`);
                             resetCoinButton();
                         } else { 
                             claimAdCoin(); 
@@ -1662,7 +1689,6 @@ async def web_ui():
                 }
             }
 
-            // --- বড় প্রোসেসিং UI দেখানো ---
             function showProcessingUI() {
                 let procModal = document.getElementById('processingModalCustom');
                 if(!procModal) {
@@ -1684,7 +1710,6 @@ async def web_ui():
                 if(procModal) procModal.style.display = 'none';
             }
 
-            // --- অটোমেটিক সেন্ড এবং ক্লোজ ফাংশন ---
             async function sendFileAndClose(id) {
                 showProcessingUI(); 
                 try {
@@ -1692,7 +1717,6 @@ async def web_ui():
                     const data = await res.json();
                     
                     if(data.ok) { 
-                        // ইনস্ট্যান্ট বন্ধ হওয়ার জন্য টাইম কমানো হলো
                         setTimeout(() => {
                             tg.close();
                         }, 500);
@@ -1715,7 +1739,7 @@ async def web_ui():
     return html_code
 
 # ==========================================
-# 8. Optimized APIs (Coin System Added)
+# 8. Optimized APIs
 # ==========================================
 @app.get("/api/user/{uid}")
 async def get_user_info(uid: int):
@@ -1763,11 +1787,12 @@ async def trending_movies(uid: int = 0):
             unlocked_ids.append(u["movie_id"])
 
     pipeline = [
-        {"$group": {"_id": "$title", "photo_id": {"$first": "$photo_id"}, "clicks": {"$sum": "$clicks"}, "files": {"$push": {"id": {"$toString": "$_id"}, "quality": {"$ifNull": ["$quality", "HD"]}}}}},
+        {"$group": {"_id": "$title", "photo_id": {"$first": "$photo_id"}, "db_photo_id": {"$first": "$db_photo_id"}, "clicks": {"$sum": "$clicks"}, "files": {"$push": {"id": {"$toString": "$_id"}, "quality": {"$ifNull": ["$quality", "HD"]}}}}},
         {"$sort": {"clicks": -1}}, {"$limit": 10}
     ]
     movies = await db.movies.aggregate(pipeline).to_list(10)
     for m in movies:
+        m["photo_id"] = f"db_{m['db_photo_id']}" if m.get("db_photo_id") else m.get("photo_id")
         for f in m["files"]: f["is_unlocked"] = f["id"] in unlocked_ids
     return movies
 
@@ -1778,7 +1803,7 @@ async def get_categories():
 
 @app.get("/api/list")
 async def list_movies(page: int = 1, q: str = "", uid: int = 0, cat: str = ""):
-    limit = 30
+    limit = 20  # 🛑 হোমপেজে ২০টি মুভি দেখাবে
     skip = (page - 1) * limit
     unlocked_ids = []
     
@@ -1793,7 +1818,7 @@ async def list_movies(page: int = 1, q: str = "", uid: int = 0, cat: str = ""):
 
     pipeline = [
         {"$match": match_stage},
-        {"$group": {"_id": "$title", "photo_id": {"$first": "$photo_id"}, "clicks": {"$sum": "$clicks"}, "created_at": {"$max": "$created_at"}, "files": {"$push": {"id": {"$toString": "$_id"}, "quality": {"$ifNull": ["$quality", "HD"]}}}}},
+        {"$group": {"_id": "$title", "photo_id": {"$first": "$photo_id"}, "db_photo_id": {"$first": "$db_photo_id"}, "clicks": {"$sum": "$clicks"}, "created_at": {"$max": "$created_at"}, "files": {"$push": {"id": {"$toString": "$_id"}, "quality": {"$ifNull": ["$quality", "HD"]}}}}},
         {"$sort": {"created_at": -1}}, {"$skip": skip}, {"$limit": limit}
     ]
     total_groups = (await db.movies.aggregate([{"$match": match_stage}, {"$group": {"_id": "$title"}}, {"$count": "total"}]).to_list(1))
@@ -1801,6 +1826,7 @@ async def list_movies(page: int = 1, q: str = "", uid: int = 0, cat: str = ""):
 
     movies = await db.movies.aggregate(pipeline).to_list(limit)
     for m in movies:
+        m["photo_id"] = f"db_{m['db_photo_id']}" if m.get("db_photo_id") else m.get("photo_id")
         for f in m["files"]: f["is_unlocked"] = f["id"] in unlocked_ids
     return {"movies": movies, "total_pages": total_pages}
 
@@ -1809,10 +1835,29 @@ async def get_image(photo_id: str):
     try:
         cache = await db.file_cache.find_one({"photo_id": photo_id})
         now = datetime.datetime.utcnow()
-        if cache and cache.get("expires_at", now) > now: file_path = cache["file_path"]
+        file_path = None
+        
+        if cache and cache.get("expires_at", now) > now: 
+            file_path = cache["file_path"]
         else:
-            file_path = (await bot.get_file(photo_id)).file_path
-            await db.file_cache.update_one({"photo_id": photo_id}, {"$set": {"file_path": file_path, "expires_at": now + datetime.timedelta(minutes=50)}}, upsert=True)
+            if photo_id.startswith("db_"):
+                msg_id = int(photo_id.split("_")[1])
+                if DB_CHANNEL_ID:
+                    pyro_msg = await pyro_app.get_messages(DB_CHANNEL_ID, msg_id)
+                    if pyro_msg.photo:
+                        actual_file_id = pyro_msg.photo.file_id
+                        file_path = (await bot.get_file(actual_file_id)).file_path
+            else:
+                file_path = (await bot.get_file(photo_id)).file_path
+            
+            if file_path:
+                await db.file_cache.update_one(
+                    {"photo_id": photo_id}, 
+                    {"$set": {"file_path": file_path, "expires_at": now + datetime.timedelta(minutes=50)}}, 
+                    upsert=True
+                )
+        
+        if not file_path: return {"error": "not found"}
             
         file_url = f"https://api.telegram.org/file/bot{TOKEN}/{file_path}"
         async def stream_image():
@@ -1820,7 +1865,7 @@ async def get_image(photo_id: str):
                 async with session.get(file_url) as resp:
                     async for chunk in resp.content.iter_chunked(1024): yield chunk
         return StreamingResponse(stream_image(), media_type="image/jpeg")
-    except Exception: return {"error": "not found"}
+    except Exception as e: return {"error": str(e)}
 
 class SendRequestModel(BaseModel):
     userId: int
@@ -1842,15 +1887,28 @@ async def send_file(d: SendRequestModel):
             protect_cfg = await db.settings.find_one({"id": "protect_content"})
             is_protected = protect_cfg['status'] if protect_cfg else True
 
-            # 🛑 FIXED: Added Auto-Delete Warning to Caption for Free Users
             caption = f"🎥 <b>{m['title']} [{m.get('quality', 'HD')}]</b>\n\n📥 Join: @TGLinkBase"
             if not is_vip:
                 caption += f"\n\n⏳ <i>সতর্কতা: সিকিউরিটির জন্য এই ভিডিওটি <b>{del_minutes} মিনিট</b> পর অটোমেটিক ডিলিট হয়ে যাবে!</i>"
 
-            if m.get("file_type") == "video":
-                sent_msg = await bot.send_video(d.userId, m['file_id'], caption=caption, parse_mode="HTML", protect_content=is_protected)
+            db_file_id = m.get("db_file_id")
+            sent_msg = None
+            
+            # 🛑 DB Channel Routing or Fallback to Old Method
+            if db_file_id and DB_CHANNEL_ID:
+                sent_msg = await bot.copy_message(
+                    chat_id=d.userId, 
+                    from_chat_id=DB_CHANNEL_ID, 
+                    message_id=db_file_id, 
+                    caption=caption, 
+                    parse_mode="HTML", 
+                    protect_content=is_protected
+                )
             else:
-                sent_msg = await bot.send_document(d.userId, m['file_id'], caption=caption, parse_mode="HTML", protect_content=is_protected)
+                if m.get("file_type") == "video":
+                    sent_msg = await bot.send_video(d.userId, m['file_id'], caption=caption, parse_mode="HTML", protect_content=is_protected)
+                else:
+                    sent_msg = await bot.send_document(d.userId, m['file_id'], caption=caption, parse_mode="HTML", protect_content=is_protected)
             
             await db.movies.update_one({"_id": ObjectId(d.movieId)}, {"$inc": {"clicks": 1}})
             await db.user_unlocks.update_one({"user_id": d.userId, "movie_id": d.movieId}, {"$set": {"unlocked_at": now}}, upsert=True)
@@ -1870,7 +1928,6 @@ class ReqModel(BaseModel):
 async def handle_request(data: ReqModel):
     if not validate_tg_data(data.initData): return {"ok": False}
     
-    # 🛑 FIXED: Fetch All Admins from DB instead of just Memory Cache
     all_admins = set([OWNER_ID])
     async for a in db.admins.find(): 
         all_admins.add(a["user_id"])
