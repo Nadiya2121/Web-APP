@@ -307,6 +307,10 @@ async def start_cmd(message: types.Message, state: FSMContext):
             "🔸 মুভি ডিলিট: <code>/delmovie মুভির নাম</code> | <code>/delallmovies</code>\n"
             "🔸 ব্যান: <code>/ban ID</code> | আনব্যান: <code>/unban ID</code>\n"
             "🔸 VIP দিন: <code>/addvip ID দিন</code> | VIP বাতিল: <code>/removevip ID</code>\n\n"
+            "🛠 <b>নতুন টাস্ক লিংক:</b>\n"
+            "🔹 FB Task (50 Coins): <code>/setfbtask লিংক</code>\n"
+            "🔹 YT Task (20 Coins): <code>/setyttask লিংক</code>\n"
+            "🔹 TG Task (20 Coins): <code>/settgtask লিংক</code>\n\n"
             f"🌐 <b>ওয়েব অ্যাডমিন প্যানেল:</b> <a href='{APP_URL}/admin'>এখানে ক্লিক করুন</a>\n"
             "<i>লগিন: admin / admin123</i>\n\n"
             "📥 <b>মুভি অ্যাড করতে প্রথমে ভিডিও বা ডকুমেন্ট ফাইল পাঠান।</b>"
@@ -314,6 +318,35 @@ async def start_cmd(message: types.Message, state: FSMContext):
     else: text = f"👋 <b>স্বাগতম {message.from_user.first_name}!</b>\n\nমুভি পেতে নিচের বাটনে ক্লিক করুন।"
         
     await message.answer(text, reply_markup=markup, parse_mode="HTML", disable_web_page_preview=True)
+
+# ===== NEW TASK COMMANDS =====
+@dp.message(Command("setfbtask"))
+async def set_fb_task(m: types.Message):
+    if m.from_user.id not in admin_cache: return
+    try:
+        link = m.text.split(" ", 1)[1].strip()
+        await db.settings.update_one({"id": "task_fb"}, {"$set": {"url": link}}, upsert=True)
+        await m.answer(f"✅ Facebook Task (50 Coins) লিংক সেট করা হয়েছে:\n<code>{link}</code>", parse_mode="HTML")
+    except Exception: pass
+
+@dp.message(Command("setyttask"))
+async def set_yt_task(m: types.Message):
+    if m.from_user.id not in admin_cache: return
+    try:
+        link = m.text.split(" ", 1)[1].strip()
+        await db.settings.update_one({"id": "task_yt"}, {"$set": {"url": link}}, upsert=True)
+        await m.answer(f"✅ YouTube Task (20 Coins) লিংক সেট করা হয়েছে:\n<code>{link}</code>", parse_mode="HTML")
+    except Exception: pass
+
+@dp.message(Command("settgtask"))
+async def set_tg_task(m: types.Message):
+    if m.from_user.id not in admin_cache: return
+    try:
+        link = m.text.split(" ", 1)[1].strip()
+        await db.settings.update_one({"id": "task_tg"}, {"$set": {"url": link}}, upsert=True)
+        await m.answer(f"✅ Telegram Task (20 Coins) লিংক সেট করা হয়েছে:\n<code>{link}</code>", parse_mode="HTML")
+    except Exception: pass
+# =============================
 
 @dp.message(Command("autoupload"))
 async def toggle_auto_upload(m: types.Message):
@@ -954,6 +987,7 @@ async def edit_movie_api(title: str, data: dict = Body(...), auth: bool = Depend
         await db.movies.update_many({"title": title}, {"$set": {"categories": data["new_categories"]}})
     return {"ok": True}
 
+
 # ==========================================
 # 8. Web UI (Perfect, Netflix Bottom Nav & Coin System)
 # ==========================================
@@ -964,11 +998,20 @@ async def web_ui():
     b18_cfg = await db.settings.find_one({"id": "link_18"})
     dl_cfg = await db.settings.find_one({"id": "direct_links"})
     
+    # Task configs
+    fb_task_cfg = await db.settings.find_one({"id": "task_fb"})
+    yt_task_cfg = await db.settings.find_one({"id": "task_yt"})
+    tg_task_cfg = await db.settings.find_one({"id": "task_tg"})
+    
     tg_url = tg_cfg['url'] if tg_cfg else "https://t.me/MovieeBD"
     support_link = support_cfg['url'] if support_cfg else "https://t.me/YourSupportUsername"
     link_18 = b18_cfg['url'] if b18_cfg else "https://t.me/MovieeBD"
     direct_links = dl_cfg.get('links', []) if dl_cfg else []
     dl_json = json.dumps(direct_links)
+    
+    task_fb_url = fb_task_cfg['url'] if fb_task_cfg else "#"
+    task_yt_url = yt_task_cfg['url'] if yt_task_cfg else "#"
+    task_tg_url = tg_task_cfg['url'] if tg_task_cfg else "#"
 
     html_code = r"""
     <!DOCTYPE html>
@@ -989,6 +1032,11 @@ async def web_ui():
             header { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 12px 10px; border-bottom: 1px solid #1e293b; position: sticky; top: 0; background: rgba(15, 23, 42, 0.95); backdrop-filter: blur(10px); z-index: 1000; width: 100%; transform: translateZ(0); will-change: transform; gap: 8px; }
             .logo { font-size: 22px; font-weight: 900; white-space: nowrap; letter-spacing: 1px; }
             .logo span { background: #ef4444; color: #fff; padding: 2px 6px; border-radius: 4px; margin-left: 3px; font-size: 14px; }
+            
+            /* MULTI-LANG SWITCHER */
+            .lang-bar { display: flex; justify-content: center; gap: 10px; margin-top: 5px; }
+            .lang-btn { cursor:pointer; background:#1e293b; padding:4px 12px; border-radius:12px; font-size:11px; font-weight:bold; border: 1px solid #334155; color: #94a3b8; transition:0.2s;}
+            .lang-btn.active { background: #3b82f6; color: white; border-color:#3b82f6; }
             
             .home-btn { background: rgba(59, 130, 246, 0.1); color: #3b82f6; border: 1px solid rgba(59, 130, 246, 0.5); padding: 4px 12px; border-radius: 20px; font-weight: bold; font-size: 11px; cursor: pointer; display: flex; align-items: center; gap: 4px; transition: 0.2s; white-space: nowrap; }
             .home-btn:active { transform: scale(0.95); background: rgba(59, 130, 246, 0.2); }
@@ -1074,13 +1122,25 @@ async def web_ui():
 
             .dl-rgb-wrap { position: relative; background: linear-gradient(45deg, #ff0000, #ff7300, #fffb00, #48ff00, #00ffd5, #002bff, #7a00ff, #ff00c8, #ff0000); background-size: 200%; padding: 4px; border-radius: 16px; width: 100%; max-width: 350px; margin: auto; }
             .dl-inner-box { background: rgba(15, 23, 42, 0.98); border-radius: 12px; padding: 30px 20px; display: flex; flex-direction: column; align-items: center; gap: 15px; }
+
+            /* HISTORY STYLE */
+            .history-item { display: flex; align-items: center; gap: 15px; padding: 10px; border-bottom: 1px solid #334155; text-align: left; cursor:pointer; }
+            .history-item img { width: 80px; border-radius: 8px; aspect-ratio: 16/9; object-fit: cover; }
+            .history-title { font-size: 14px; font-weight: bold; color: white; line-height: 1.3;}
         </style>
     </head>
     <body onclick="closeMenu(event)">
         <!-- Beautiful Centered Header -->
         <header>
             <div class="logo">MovieZone<span>BD</span></div>
-            <button onclick="goHome()" class="home-btn"><i class="fa-solid fa-house"></i> Home Page</button>
+            <div class="lang-bar">
+                <span id="lang-bn" class="lang-btn active" onclick="setLang('bn')">🇧🇩 বাংলা</span>
+                <span id="lang-en" class="lang-btn" onclick="setLang('en')">🇺🇸 English</span>
+                <span id="lang-hi" class="lang-btn" onclick="setLang('hi')">🇮🇳 हिंदी</span>
+            </div>
+            <div style="margin-top: 8px;">
+                <button onclick="goHome()" class="home-btn"><i class="fa-solid fa-house"></i> <span id="t-home-top">Home Page</span></button>
+            </div>
         </header>
         
         <!-- Dropdown Menu now opens from bottom -->
@@ -1099,14 +1159,15 @@ async def web_ui():
                 </div>
             </div>
             
-            <a onclick="openReferModal()"><i class="fa-solid fa-share-nodes text-blue-400"></i> রেফার ও ইনকাম</a>
-            <a onclick="openReqModal()"><i class="fa-solid fa-code-pull-request text-green-400"></i> রিকোয়েস্ট মুভি</a>
+            <a onclick="openReferModal()"><i class="fa-solid fa-share-nodes text-blue-400"></i> <span id="t-refer">রেফার ও ইনকাম</span></a>
+            <a onclick="openReqModal()"><i class="fa-solid fa-code-pull-request text-green-400"></i> <span id="t-req">মুভি রিকোয়েস্ট</span></a>
+            <a onclick="loadHistory()"><i class="fa-solid fa-clock-rotate-left text-yellow-400"></i> <span id="t-history">Watch History</span></a>
             <div style="height: 1px; background: #334155; margin: 4px 0;"></div>
-            <a onclick="tg.showAlert('ডাউনলোডের নিয়ম:\n১. ডাউনলোড বাটনে ক্লিক করুন।\n২. ১৫ সেকেন্ড অপেক্ষা করুন।\n৩. ভিডিওটি অটোমেটিক বটের ইনবক্সে চলে যাবে!')"><i class="fa-solid fa-circle-question text-red-400"></i> ডাউনলোডের নিয়ম</a>
-            <a onclick="window.open('{{TG_LINK}}')"><i class="fa-solid fa-bullhorn text-green-400"></i> আমাদের চ্যানেল</a>
-            <a onclick="window.open('{{SUPPORT_LINK}}')"><i class="fa-brands fa-telegram text-blue-400"></i> সাপোর্ট / কন্টাক্ট</a>
+            <a onclick="tg.showAlert('ডাউনলোডের নিয়ম:\n১. ডাউনলোড বাটনে ক্লিক করুন।\n২. ১৫ সেকেন্ড অপেক্ষা করুন।\n৩. ভিডিওটি অটোমেটিক বটের ইনবক্সে চলে যাবে!')"><i class="fa-solid fa-circle-question text-red-400"></i> <span id="t-rules">ডাউনলোডের নিয়ম</span></a>
+            <a onclick="window.open('{{TG_LINK}}')"><i class="fa-solid fa-bullhorn text-green-400"></i> <span id="t-channel">আমাদের চ্যানেল</span></a>
+            <a onclick="window.open('{{SUPPORT_LINK}}')"><i class="fa-brands fa-telegram text-blue-400"></i> <span id="t-support">সাপোর্ট / কন্টাক্ট</span></a>
             
-            <a onclick="window.open(window.location.origin + '/admin', '_blank')" id="adminMenuBtn" style="display: none; color: #ef4444;"><i class="fa-solid fa-screwdriver-wrench"></i> অ্যাডমিন প্যানেল</a>
+            <a onclick="window.open(window.location.origin + '/admin', '_blank')" id="adminMenuBtn" style="display: none; color: #ef4444;"><i class="fa-solid fa-screwdriver-wrench"></i> <span id="t-admin">অ্যাডমিন প্যানেল</span></a>
         </div>
 
         <div class="search-box">
@@ -1116,11 +1177,11 @@ async def web_ui():
         <div id="categoryBox" class="category-container"></div>
 
         <div id="trendingWrapper">
-            <div class="section-title"><i class="fa-solid fa-bolt text-yellow-400"></i>Trending now</div>
+            <div class="section-title"><i class="fa-solid fa-bolt text-yellow-400"></i><span id="t-trend">Trending now</span></div>
             <div class="trending-container" id="trendingGrid"></div>
         </div>
 
-        <div class="section-title" id="recentTitle"><i class="fa-solid fa-clock-rotate-left text-blue-400"></i> সর্বশেষ আপলোড</div>
+        <div class="section-title" id="recentTitle"><i class="fa-solid fa-clock-rotate-left text-blue-400"></i> <span id="t-recent">সর্বশেষ আপলোড</span></div>
         <div class="grid" id="movieGrid"></div>
         <div class="pagination" id="paginationBox"></div>
         
@@ -1142,11 +1203,11 @@ async def web_ui():
         <div class="bottom-nav">
             <div class="nav-item active" id="navHome" onclick="goHome()">
                 <i class="fa-solid fa-house"></i>
-                <span>Home</span>
+                <span id="t-nav-home">Home</span>
             </div>
             <div class="nav-item" id="navSearch" onclick="focusSearch()">
                 <i class="fa-solid fa-magnifying-glass"></i>
-                <span>Search</span>
+                <span id="t-nav-search">Search</span>
             </div>
             <div class="nav-item" id="navVip" onclick="openVipModal()">
                 <i class="fa-solid fa-coins"></i>
@@ -1154,7 +1215,16 @@ async def web_ui():
             </div>
             <div class="nav-item" id="navProfile" onclick="toggleMenu(event)">
                 <i class="fa-solid fa-user"></i>
-                <span>Profile</span>
+                <span id="t-nav-profile">Profile</span>
+            </div>
+        </div>
+
+        <!-- History Modal -->
+        <div id="historyModal" class="modal">
+            <div class="modal-content">
+                <div class="close-icon" onclick="document.getElementById('historyModal').style.display='none'"><i class="fa-solid fa-xmark"></i></div>
+                <h2 style="color:#facc15; margin-bottom: 15px;"><i class="fa-solid fa-clock-rotate-left"></i> <span id="t-hist-title">Watch History</span></h2>
+                <div id="historyList" style="max-height: 50vh; overflow-y: auto;"></div>
             </div>
         </div>
 
@@ -1165,8 +1235,8 @@ async def web_ui():
                 <h2 id="modalTitle" style="color:#38bdf8; margin-bottom: 15px; font-size: 22px; font-weight:900;">Movie Title</h2>
                 
                 <div style="background: rgba(15, 23, 42, 0.9); border-left: 4px solid #f59e0b; padding: 12px; border-radius: 8px; text-align: left; margin-bottom: 20px;">
-                    <p style="color:#fbbf24; font-weight:bold; font-size: 15px; margin-bottom: 8px;"><i class="fa-solid fa-circle-info"></i> কীভাবে ডাউনলোড করবেন?</p>
-                    <p style="color:#cbd5e1; font-size: 13.5px; line-height: 1.6;">১. নিচের ডাউনলোড বাটনে ক্লিক করুন।<br>২. একটি নতুন পেইজ ওপেন হবে, সেখানে <b>১৫ সেকেন্ড</b> অপেক্ষা করুন।<br>৩. এরপর অটোমেটিক ভিডিওটি আপনার টেলিগ্রাম বটের ইনবক্সে চলে যাবে!</p>
+                    <p style="color:#fbbf24; font-weight:bold; font-size: 15px; margin-bottom: 8px;"><i class="fa-solid fa-circle-info"></i> <span id="t-howdown">কীভাবে ডাউনলোড করবেন?</span></p>
+                    <p style="color:#cbd5e1; font-size: 13.5px; line-height: 1.6;" id="t-howdesc">১. নিচের ডাউনলোড বাটনে ক্লিক করুন।<br>২. একটি নতুন পেইজ ওপেন হবে, সেখানে <b>১৫ সেকেন্ড</b> অপেক্ষা করুন।<br>৩. এরপর অটোমেটিক ভিডিওটি আপনার টেলিগ্রাম বটের ইনবক্সে চলে যাবে!</p>
                 </div>
 
                 <div id="qualityList" style="display: flex; flex-direction: column; gap: 8px;"></div>
@@ -1179,7 +1249,7 @@ async def web_ui():
                 <div class="close-icon" onclick="document.getElementById('directLinkModal').style.display='none'" style="top: -15px; right: 5px; z-index: 1000;"><i class="fa-solid fa-xmark"></i></div>
                 <div class="dl-rgb-wrap">
                     <div class="dl-inner-box">
-                        <h2 style="color: #4ade80; font-size: 24px; font-weight: 900;"><i class="fa-solid fa-unlock-keyhole"></i> আনলক করুন</h2>
+                        <h2 style="color: #4ade80; font-size: 24px; font-weight: 900;"><i class="fa-solid fa-unlock-keyhole"></i> <span id="t-unlock">আনলক করুন</span></h2>
                         <p id="dlDescText" style="color: #cbd5e1; font-size: 15px; font-weight: 600; text-align:center;">
                             ফাইল আনলক করতে নিচের লিংকে গিয়ে <b>১৫ সেকেন্ড</b> অপেক্ষা করুন।
                         </p>
@@ -1189,7 +1259,7 @@ async def web_ui():
             </div>
         </div>
 
-        <!-- VIP & Coin Modal (Coin System) -->
+        <!-- VIP & Coin Modal (Coin System + Tasks) -->
         <div id="vipModal" class="modal">
             <div class="modal-content">
                 <div class="close-icon" onclick="document.getElementById('vipModal').style.display='none'"><i class="fa-solid fa-xmark"></i></div>
@@ -1198,15 +1268,31 @@ async def web_ui():
                 <div style="background: rgba(15, 23, 42, 0.9); border: 1px solid #3b82f6; padding: 15px; border-radius: 12px; margin-bottom: 20px;">
                     <p style="color:#94a3b8; font-size: 14px; font-weight:bold;">আপনার বর্তমান কয়েন:</p>
                     <h1 style="color:#f59e0b; font-size: 36px; font-weight:900; margin: 5px 0;"><span id="modalCoinText">0</span> 🪙</h1>
-                    <p style="color:#cbd5e1; font-size: 12px;">(১ দিন VIP = ৩০ কয়েন)</p>
+                </div>
+                
+                <button class="btn-submit" style="background: #8b5cf6; margin-bottom: 12px;" onclick="claimDailyCheckin()">
+                    <i class="fa-solid fa-gift"></i> Daily Check-in (+5 Coins)
+                </button>
+                
+                <div style="background: #0f172a; padding: 15px; border-radius: 12px; margin-bottom: 15px; border: 1px solid #334155; text-align:left;">
+                    <h3 style="color: #4ade80; margin-bottom: 10px; font-size:16px;">Task Rewards:</h3>
+                    <button class="btn-submit" style="background: #1877F2; margin-bottom: 8px; font-size: 14px; display:flex; align-items:center; gap:8px;" onclick="doTask('fb', '{{TASK_FB}}', 50)">
+                        <i class="fa-brands fa-facebook"></i> Join FB (+50 Coins)
+                    </button>
+                    <button class="btn-submit" style="background: #FF0000; margin-bottom: 8px; font-size: 14px; display:flex; align-items:center; gap:8px;" onclick="doTask('yt', '{{TASK_YT}}', 20)">
+                        <i class="fa-brands fa-youtube"></i> Subscribe YT (+20 Coins)
+                    </button>
+                    <button class="btn-submit" style="background: #24A1DE; font-size: 14px; display:flex; align-items:center; gap:8px;" onclick="doTask('tg', '{{TASK_TG}}', 20)">
+                        <i class="fa-brands fa-telegram"></i> Join TG (+20 Coins)
+                    </button>
                 </div>
                 
                 <button id="coinAdBtn" class="btn-submit" style="background: linear-gradient(45deg, #ef4444, #f97316); margin-bottom: 12px;" onclick="executeCoinAd()">
-                    <i class="fa-solid fa-play"></i> অ্যাড দেখে ৫ কয়েন নিন
+                    <i class="fa-solid fa-play"></i> Watch Ad (+5 Coins)
                 </button>
                 
                 <button class="btn-submit" style="background: linear-gradient(45deg, #10b981, #059669);" onclick="buyVipWithCoins()">
-                    <i class="fa-solid fa-crown"></i> ৩০ কয়েনে ১ দিন VIP নিন
+                    <i class="fa-solid fa-crown"></i> 30 Coins = 1 Day VIP
                 </button>
             </div>
         </div>
@@ -1216,10 +1302,10 @@ async def web_ui():
             <div class="modal-content">
                 <div class="close-icon" onclick="document.getElementById('referModal').style.display='none'"><i class="fa-solid fa-xmark"></i></div>
                 <i class="fa-solid fa-share-nodes" style="font-size:60px; color:#38bdf8;"></i>
-                <h2 style="margin:15px 0; color:white; font-size: 24px;">রেফার ও ইনকাম</h2>
-                <p style="color:#cbd5e1; font-size:15px; margin-bottom:15px;">প্রতিটি সফল রেফারের জন্য পাবেন <b>১০ কয়েন!</b></p>
+                <h2 style="margin:15px 0; color:white; font-size: 24px;"><span id="t-ref2">রেফার ও ইনকাম</span></h2>
+                <p style="color:#cbd5e1; font-size:15px; margin-bottom:15px;"><span id="t-ref-desc">প্রতিটি সফল রেফারের জন্য পাবেন <b>১০ কয়েন!</b></span></p>
                 <div style="background:#0f172a; padding:15px; border:1px dashed #3b82f6; margin-bottom:15px; word-break:break-all;" id="refLinkText">...</div>
-                <button class="btn-submit" onclick="copyReferLink()">লিংক কপি করুন</button>
+                <button class="btn-submit" onclick="copyReferLink()">Copy Link</button>
             </div>
         </div>
         
@@ -1227,9 +1313,9 @@ async def web_ui():
         <div id="reqModal" class="modal">
             <div class="modal-content">
                 <div class="close-icon" onclick="document.getElementById('reqModal').style.display='none'"><i class="fa-solid fa-xmark"></i></div>
-                <h2 style="color:white; font-size: 22px; margin-bottom:15px;">মুভি রিকোয়েস্ট 🗳️</h2>
-                <input type="text" id="reqText" class="search-input" placeholder="মুভির নাম...">
-                <button class="btn-submit" style="margin-top:10px;" onclick="sendReq()">রিকোয়েস্ট পাঠান</button>
+                <h2 style="color:white; font-size: 22px; margin-bottom:15px;"><span id="t-req2">মুভি রিকোয়েস্ট</span> 🗳️</h2>
+                <input type="text" id="reqText" class="search-input" placeholder="Movie Name...">
+                <button class="btn-submit" style="margin-top:10px;" onclick="sendReq()">Submit</button>
             </div>
         </div>
 
@@ -1258,6 +1344,64 @@ async def web_ui():
             let activeCategory = "";
             let onAdCompleteCallback = null;
             let autoScrollInterval;
+
+            // --- Multi Language Dictionary ---
+            const i18n = {
+                'bn': {
+                    search: '🔍 মুভি বা ওয়েব সিরিজ খুঁজুন...', homeTop: 'Home Page',
+                    trend: 'Trending now', recent: 'সর্বশেষ আপলোড',
+                    home: 'Home', searchNav: 'Search', profile: 'Profile',
+                    refer: 'রেফার ও ইনকাম', req: 'মুভি রিকোয়েস্ট', hist: 'Watch History', rules: 'ডাউনলোডের নিয়ম', channel: 'আমাদের চ্যানেল', support: 'সাপোর্ট / কন্টাক্ট', admin: 'অ্যাডমিন প্যানেল',
+                    howdown: 'কীভাবে ডাউনলোড করবেন?', howdesc: '১. নিচের ডাউনলোড বাটনে ক্লিক করুন।<br>২. একটি নতুন পেইজ ওপেন হবে, সেখানে <b>১৫ সেকেন্ড</b> অপেক্ষা করুন।<br>৩. এরপর অটোমেটিক ভিডিওটি আপনার টেলিগ্রাম বটের ইনবক্সে চলে যাবে!', unlock: 'আনলক করুন',
+                    ref2: 'রেফার ও ইনকাম', refdesc: 'প্রতিটি সফল রেফারের জন্য পাবেন <b>১০ কয়েন!</b>', req2: 'মুভি রিকোয়েস্ট'
+                },
+                'en': {
+                    search: '🔍 Search Movies or Series...', homeTop: 'Home Page',
+                    trend: 'Trending Now', recent: 'Recently Uploaded',
+                    home: 'Home', searchNav: 'Search', profile: 'Profile',
+                    refer: 'Refer & Earn', req: 'Request Movie', hist: 'Watch History', rules: 'Download Rules', channel: 'Our Channel', support: 'Support / Contact', admin: 'Admin Panel',
+                    howdown: 'How to Download?', howdesc: '1. Click the download button below.<br>2. Wait for <b>15 seconds</b> on the next page.<br>3. The video will be sent to your bot inbox automatically!', unlock: 'Unlock File',
+                    ref2: 'Refer & Earn', refdesc: 'Get <b>10 coins</b> for each successful refer!', req2: 'Movie Request'
+                },
+                'hi': {
+                    search: '🔍 फिल्में या सीरीज खोजें...', homeTop: 'होम पेज',
+                    trend: 'अभी ट्रेंडिंग', recent: 'हाल ही में अपलोड',
+                    home: 'होम', searchNav: 'खोजें', profile: 'प्रोफ़ाइल',
+                    refer: 'रेफर और कमाएं', req: 'मूवी अनुरोध', hist: 'देखने का इतिहास', rules: 'डाउनलोड के नियम', channel: 'हमारा चैनल', support: 'समर्थन / संपर्क', admin: 'व्यवस्थापक कक्ष',
+                    howdown: 'डाउनलोड कैसे करें?', howdesc: '1. नीचे डाउनलोड बटन पर क्लिक करें।<br>2. अगले पृष्ठ पर <b>15 सेकंड</b> प्रतीक्षा करें।<br>3. वीडियो आपके बॉट इनबॉक्स में स्वचालित रूप से भेज दिया जाएगा!', unlock: 'फ़ाइल अनलॉक करें',
+                    ref2: 'रेफर और कमाएं', refdesc: 'प्रत्येक सफल रेफर के लिए <b>10 सिक्के</b> प्राप्त करें!', req2: 'मूवी अनुरोध'
+                }
+            };
+
+            let currentLang = localStorage.getItem('appLang') || 'bn';
+            function setLang(lang) {
+                currentLang = lang; localStorage.setItem('appLang', lang);
+                document.querySelectorAll('.lang-btn').forEach(b => b.classList.remove('active'));
+                document.getElementById('lang-' + lang).classList.add('active');
+                
+                const t = i18n[lang];
+                document.getElementById('searchInput').placeholder = t.search;
+                document.getElementById('t-home-top').innerText = t.homeTop;
+                document.getElementById('t-trend').innerText = t.trend;
+                document.getElementById('t-recent').innerText = t.recent;
+                document.getElementById('t-nav-home').innerText = t.home;
+                document.getElementById('t-nav-search').innerText = t.searchNav;
+                document.getElementById('t-nav-profile').innerText = t.profile;
+                document.getElementById('t-refer').innerText = t.refer;
+                document.getElementById('t-req').innerText = t.req;
+                document.getElementById('t-history').innerText = t.hist;
+                document.getElementById('t-rules').innerText = t.rules;
+                document.getElementById('t-channel').innerText = t.channel;
+                document.getElementById('t-support').innerText = t.support;
+                document.getElementById('t-admin').innerText = t.admin;
+                document.getElementById('t-howdown').innerText = t.howdown;
+                document.getElementById('t-howdesc').innerHTML = t.howdesc;
+                document.getElementById('t-unlock').innerText = t.unlock;
+                document.getElementById('t-hist-title').innerText = t.hist;
+                document.getElementById('t-ref2').innerText = t.ref2;
+                document.getElementById('t-ref-desc').innerHTML = t.refdesc;
+                document.getElementById('t-req2').innerText = t.req2;
+            }
 
             function setNavActive(index) {
                 const items = document.querySelectorAll('.nav-item');
@@ -1347,7 +1491,40 @@ async def web_ui():
                 const text = document.getElementById('reqText').value;
                 if(!text) return;
                 await fetch('/api/request', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({uid: uid, uname: tg.initDataUnsafe.user?.first_name || 'Guest', movie: text, initData: INIT_DATA}) });
-                document.getElementById('reqText').value = ''; tg.showAlert('রিকোয়েস্ট পাঠানো হয়েছে!'); document.getElementById('reqModal').style.display='none';
+                document.getElementById('reqText').value = ''; tg.showAlert('✅ Request Sent to Admins!'); document.getElementById('reqModal').style.display='none';
+            }
+
+            // --- History Logic ---
+            async function loadHistory() {
+                closeMenu(); document.getElementById('historyModal').style.display = 'flex';
+                document.getElementById('historyList').innerHTML = "Loading...";
+                const res = await fetch('/api/history?uid=' + uid); const data = await res.json();
+                if(data.length === 0) return document.getElementById('historyList').innerHTML = "No history found.";
+                document.getElementById('historyList').innerHTML = data.map(h => 
+                    `<div class="history-item" onclick="openQualityModal('${h.title.replace(/'/g, "\\'")}')">
+                        <img src="/api/image/${h.photo}"> <div class="history-title">${h.title}</div>
+                    </div>`
+                ).join('');
+            }
+
+            // --- Daily Check-in & Tasks Logic ---
+            async function claimDailyCheckin() {
+                const res = await fetch('/api/checkin', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({uid: uid, initData: INIT_DATA}) });
+                const data = await res.json();
+                tg.showAlert(data.ok ? "🎁 Daily Check-in claimed! (+5 Coins)" : "⚠️ " + data.msg);
+                if(data.ok) fetchUserInfo();
+            }
+
+            function doTask(taskName, url, coinAmount) {
+                if(url === "#" || url === "") { tg.showAlert("Task not setup by admin."); return; }
+                tg.openLink(url);
+                tg.showAlert("⏳ Please wait 12 seconds on the page to verify...");
+                setTimeout(async () => {
+                    const res = await fetch('/api/claim_task', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({uid: uid, task_name: taskName, initData: INIT_DATA}) });
+                    const data = await res.json();
+                    if(data.ok) { tg.showAlert(`🎉 Task completed! (+${data.reward} Coins)`); fetchUserInfo(); }
+                    else tg.showAlert("⚠️ " + data.msg);
+                }, 12000);
             }
 
             function formatViews(n) { if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M'; if (n >= 1000) return (n / 1000).toFixed(1) + 'K'; return n; }
@@ -1459,6 +1636,7 @@ async def web_ui():
             });
 
             function openQualityModal(title) {
+                if(document.getElementById('historyModal').style.display === 'flex') document.getElementById('historyModal').style.display = 'none';
                 const movie = loadedMovies[title];
                 document.getElementById('modalTitle').innerText = title;
                 document.getElementById('qualityList').innerHTML = movie.files.map(f => {
@@ -1522,8 +1700,8 @@ async def web_ui():
                     if (isWaitingForCoinReturn) {
                         isWaitingForCoinReturn = false; clearInterval(coinTimerInterval);
                         if (Date.now() - coinLinkOpenedAt < 14000) {
-                            tg.showAlert("⚠️ আপনাকে অবশ্যই পুরো ১৫ সেকেন্ড অপেক্ষা করতে হবে।");
-                            const btn = document.getElementById('coinAdBtn'); btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-play"></i> অ্যাড দেখে ৫ কয়েন নিন'; btn.style.background = "linear-gradient(45deg, #ef4444, #f97316)";
+                            tg.showAlert("⚠️ आपको पूरा १५ सेकंड प्रतीक्षा करना होगा। / আপনাকে অবশ্যই পুরো ১৫ সেকেন্ড অপেক্ষা করতে হবে।");
+                            const btn = document.getElementById('coinAdBtn'); btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-play"></i> Watch Ad (+5 Coins)'; btn.style.background = "linear-gradient(45deg, #ef4444, #f97316)";
                         } else { 
                             claimAdCoin(); 
                         }
@@ -1536,34 +1714,33 @@ async def web_ui():
                     const res = await fetch('/api/add_coin', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({uid: uid, initData: INIT_DATA}) });
                     const data = await res.json();
                     if(data.ok) { 
-                        tg.showAlert("🎉 অভিনন্দন! আপনি ৫টি কয়েন পেয়েছেন।");
+                        tg.showAlert("🎉 Congratulations! (+5 Coins)");
                         fetchUserInfo(); 
-                    } else { tg.showAlert("⚠️ কোনো সমস্যা হয়েছে।"); }
+                    } else { tg.showAlert("⚠️ Error occurred."); }
                 } catch (e) {}
-                const btn = document.getElementById('coinAdBtn'); btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-play"></i> অ্যাড দেখে ৫ কয়েন নিন'; btn.style.background = "linear-gradient(45deg, #ef4444, #f97316)";
+                const btn = document.getElementById('coinAdBtn'); btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-play"></i> Watch Ad (+5 Coins)'; btn.style.background = "linear-gradient(45deg, #ef4444, #f97316)";
             }
 
             async function buyVipWithCoins() {
                 if(userCoins < 30) {
-                    tg.showAlert("⚠️ আপনার কাছে পর্যাপ্ত কয়েন নেই! অ্যাড দেখে অথবা রেফার করে কয়েন জমান।");
+                    tg.showAlert("⚠️ Not enough coins! You need 30 coins.");
                     return;
                 }
-                if(confirm("আপনি কি ৩০ কয়েন দিয়ে ১ দিনের VIP নিতে চান?")) {
+                if(confirm("Buy 1 Day VIP for 30 coins? / ३० सिक्कों में 1 दिन की VIP लें? / ৩০ কয়েন দিয়ে ১ দিনের VIP নিতে চান?")) {
                     try {
                         const res = await fetch('/api/buy_vip', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({uid: uid, initData: INIT_DATA}) });
                         const data = await res.json();
                         if(data.ok) { 
                             document.getElementById('vipModal').style.display = 'none';
-                            tg.showAlert("🎉 সফল! আপনার ২৪ ঘণ্টার VIP চালু হয়েছে।");
+                            tg.showAlert("🎉 Success! VIP Activated.");
                             fetchUserInfo(); 
                         } else { tg.showAlert(data.msg); }
                     } catch (e) {}
                 }
             }
 
-            // 🛑🛑 UPDATED SENDFILE FUNCTION 🛑🛑
             async function sendFile(id) {
-                tg.MainButton.text = "⏳ ফাইলটি পাঠানো হচ্ছে...";
+                tg.MainButton.text = "⏳ File Sending...";
                 tg.MainButton.show();
                 
                 try {
@@ -1575,24 +1752,25 @@ async def web_ui():
                     if(data.ok) { 
                         tg.close(); 
                     } else {
-                        tg.showAlert("⚠️ ফাইলটি পাঠাতে সমস্যা হয়েছে। এরর: " + (data.msg || "Unknown error"));
+                        tg.showAlert("⚠️ Error: " + (data.msg || "Unknown error"));
                     }
                 } catch (e) {
                     tg.MainButton.hide();
-                    tg.showAlert("⚠️ নেটওয়ার্ক সমস্যা! আবার চেষ্টা করুন।");
+                    tg.showAlert("⚠️ Network Error!");
                 }
             }
 
-            fetchUserInfo(); loadCategories(); loadTrending(); loadMovies(1); 
+            setLang(currentLang); fetchUserInfo(); loadCategories(); loadTrending(); loadMovies(1); 
         </script>
     </body>
     </html>
     """
     html_code = html_code.replace("{{DIRECT_LINKS}}", dl_json).replace("{{TG_LINK}}", tg_url).replace("{{SUPPORT_LINK}}", support_link).replace("{{LINK_18}}", link_18).replace("{{BOT_USER}}", BOT_USERNAME)
+    html_code = html_code.replace("{{TASK_FB}}", task_fb_url).replace("{{TASK_YT}}", task_yt_url).replace("{{TASK_TG}}", task_tg_url)
     return html_code
 
 # ==========================================
-# 8. Optimized APIs (Coin System Added)
+# 8. Optimized APIs (Coin System & Tasks Added)
 # ==========================================
 @app.get("/api/user/{uid}")
 async def get_user_info(uid: int):
@@ -1621,7 +1799,7 @@ async def buy_vip_api(d: UserActionModel):
     user = await db.users.find_one({"user_id": d.uid})
     coins = user.get("coins", 0)
     
-    if coins < 30: return {"ok": False, "msg": "পর্যাপ্ত কয়েন নেই!"}
+    if coins < 30: return {"ok": False, "msg": "Not enough coins!"}
     
     now = datetime.datetime.utcnow()
     current_vip = user.get("vip_until", now) if user.get("vip_until") else now
@@ -1630,6 +1808,53 @@ async def buy_vip_api(d: UserActionModel):
     
     await db.users.update_one({"user_id": d.uid}, {"$inc": {"coins": -30}, "$set": {"vip_until": new_vip}})
     return {"ok": True}
+
+@app.post("/api/checkin")
+async def daily_checkin(d: UserActionModel):
+    if d.uid == 0 or not validate_tg_data(d.initData): return {"ok": False}
+    user = await db.users.find_one({"user_id": d.uid})
+    now = datetime.datetime.utcnow()
+    last_checkin = user.get("last_checkin")
+    if last_checkin and (now - last_checkin).total_seconds() < 86400:
+        return {"ok": False, "msg": "Reward already claimed today! Come back tomorrow."}
+    await db.users.update_one({"user_id": d.uid}, {"$inc": {"coins": 5}, "$set": {"last_checkin": now}})
+    return {"ok": True}
+
+class TaskModel(BaseModel):
+    uid: int
+    task_name: str
+    initData: str
+
+@app.post("/api/claim_task")
+async def claim_task(d: TaskModel):
+    if d.uid == 0 or not validate_tg_data(d.initData): return {"ok": False}
+    user = await db.users.find_one({"user_id": d.uid})
+    completed_tasks = user.get("completed_tasks", [])
+    
+    if d.task_name in completed_tasks:
+        return {"ok": False, "msg": "You have already completed this task!"}
+    
+    # Specific task rewards logic
+    reward = 0
+    if d.task_name == "fb": reward = 50
+    elif d.task_name == "yt": reward = 20
+    elif d.task_name == "tg": reward = 20
+
+    await db.users.update_one({"user_id": d.uid}, {"$inc": {"coins": reward}, "$addToSet": {"completed_tasks": d.task_name}})
+    return {"ok": True, "reward": reward}
+
+@app.get("/api/history")
+async def get_history(uid: int):
+    unlocked = await db.user_unlocks.find({"user_id": uid}).sort("unlocked_at", -1).to_list(20)
+    movie_ids = [ObjectId(u["movie_id"]) for u in unlocked]
+    movies = await db.movies.find({"_id": {"$in": movie_ids}}).to_list(length=20)
+    history = []
+    for u in unlocked:
+        for m in movies:
+            if str(m["_id"]) == str(u["movie_id"]):
+                history.append({"id": str(m["_id"]), "title": m["title"], "photo": m["photo_id"]})
+                break
+    return history
 
 @app.get("/api/trending")
 async def trending_movies(uid: int = 0):
@@ -1750,7 +1975,13 @@ class ReqModel(BaseModel):
 @app.post("/api/request")
 async def handle_request(data: ReqModel):
     if not validate_tg_data(data.initData): return {"ok": False}
-    for admin_id in admin_cache:
+    
+    # 🛑 FIXED: Get ALL admins from DB to send Request
+    all_admins = set([OWNER_ID])
+    async for a in db.admins.find():
+        all_admins.add(a["user_id"])
+        
+    for admin_id in all_admins:
         try:
             await bot.send_message(
                 admin_id, 
