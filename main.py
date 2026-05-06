@@ -1415,22 +1415,32 @@ async def web_ui(response: Response):
                     const res = await fetch('/api/requests?t=' + new Date().getTime());
                     const data = await res.json();
                     let html = '';
+                    
                     if(data.length === 0) {
-                        html = '<p style="color:#cbd5e1; font-size:13px; text-align:center;">কোনো পেন্ডিং রিকোয়েস্ট নেই।</p>';
+                        html = '<p style="color:#cbd5e1; font-size:13px; text-align:center; padding:10px;">কোনো পেন্ডিং রিকোয়েস্ট নেই।</p>';
                     } else {
                         data.forEach(r => {
-                            let delBtn = isAdmin ? `<button onclick="deleteReq('${r._id}')" style="background:#ef4444; color:white; border:none; padding:6px 10px; border-radius:6px; font-size:12px; cursor:pointer;"><i class="fa-solid fa-trash"></i></button>` : '';
-                            html += `<div style="background:#0f172a; padding:10px 12px; border-radius:8px; border:1px solid #334155; display:flex; justify-content:space-between; align-items:center;">
+                            let isMyReq = (r.uid === uid);
+                            let myBadge = isMyReq ? `<span style="background:#38bdf8; color:black; font-size:10px; font-weight:bold; padding:2px 6px; border-radius:10px; margin-left:6px;">Your Req</span>` : '';
+                            let delBtn = isAdmin ? `<button onclick="deleteReq('${r._id}')" style="background:#ef4444; color:white; border:none; padding:6px 12px; border-radius:6px; font-size:12px; cursor:pointer;"><i class="fa-solid fa-trash"></i></button>` : '';
+                            
+                            html += `<div style="background: rgba(30, 41, 59, 0.8); padding:10px 12px; border-radius:8px; border:1px solid #334155; display:flex; justify-content:space-between; align-items:center; margin-bottom: 8px;">
                                 <div>
-                                    <div style="color:white; font-weight:bold; font-size:14px;">${r.movie}</div>
-                                    <div style="color:#64748b; font-size:11px;">Req by: ${r.uname}</div>
+                                    <div style="color:white; font-weight:bold; font-size:14px; margin-bottom: 3px;">
+                                        ${r.movie} ${myBadge}
+                                    </div>
+                                    <div style="color:#94a3b8; font-size:11px;">
+                                        <i class="fa-solid fa-user"></i> Req by: ${r.uname}
+                                    </div>
                                 </div>
                                 ${delBtn}
                             </div>`;
                         });
                     }
                     document.getElementById('reqListContainer').innerHTML = html;
-                } catch(e) {}
+                } catch(e) {
+                    console.log("Req Load Error", e);
+                }
             }
             
             async function deleteReq(id) {
@@ -1447,11 +1457,39 @@ async def web_ui(response: Response):
 
             async function sendReq() {
                 const text = document.getElementById('reqText').value.trim();
-                if(!text) return;
-                await fetch('/api/request', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({uid: uid, uname: tg.initDataUnsafe.user?.first_name || 'Guest', movie: text, initData: INIT_DATA}) });
-                document.getElementById('reqText').value = ''; 
-                tg.showAlert('✅ রিকোয়েস্ট পাঠানো হয়েছে!'); 
-                loadRequests(); // Refresh the list instantly
+                if(!text) {
+                    tg.showAlert('⚠️ অনুগ্রহ করে মুভির নাম লিখুন!');
+                    return;
+                }
+                
+                document.getElementById('reqText').value = 'অপেক্ষা করুন...';
+                
+                try {
+                    const res = await fetch('/api/request', { 
+                        method: 'POST', 
+                        headers: {'Content-Type': 'application/json'}, 
+                        body: JSON.stringify({
+                            uid: uid, 
+                            uname: tg.initDataUnsafe?.user?.first_name || 'Guest', 
+                            movie: text, 
+                            initData: INIT_DATA
+                        }) 
+                    });
+                    
+                    const data = await res.json();
+                    
+                    if(data.ok) {
+                        document.getElementById('reqText').value = ''; 
+                        tg.showAlert('✅ আপনার রিকোয়েস্ট অ্যাডমিনদের কাছে পাঠানো হয়েছে!'); 
+                        loadRequests();
+                    } else {
+                        document.getElementById('reqText').value = text;
+                        tg.showAlert('⚠️ রিকোয়েস্ট পাঠাতে সমস্যা হয়েছে! বট থেকে আবার ট্রাই করুন।'); 
+                    }
+                } catch(e) {
+                    document.getElementById('reqText').value = text;
+                    tg.showAlert('⚠️ নেটওয়ার্ক সমস্যা! আপনার ইন্টারনেট কানেকশন চেক করুন।');
+                }
             }
 
             function formatViews(n) { if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M'; if (n >= 1000) return (n / 1000).toFixed(1) + 'K'; return n; }
@@ -1837,10 +1875,13 @@ class ReqModel(BaseModel):
 async def handle_request(data: ReqModel):
     if not validate_tg_data(data.initData): return {"ok": False}
     
+    safe_uname = html.escape(data.uname) if data.uname else "Guest"
+    safe_movie = html.escape(data.movie)
+    
     new_req = await db.requests.insert_one({
         "uid": data.uid,
-        "uname": data.uname,
-        "movie": data.movie,
+        "uname": safe_uname,
+        "movie": safe_movie,
         "status": "pending",
         "created_at": datetime.datetime.utcnow()
     })
@@ -1854,20 +1895,23 @@ async def handle_request(data: ReqModel):
     ]
     markup = types.InlineKeyboardMarkup(inline_keyboard=kb)
 
+    success_count = 0
     for admin_id in admin_cache:
         try:
             await bot.send_message(
-                admin_id, 
-                f"🔔 <b>নতুন মুভি রিকোয়েস্ট!</b>\n\n"
-                f"👤 <b>ইউজার:</b> <a href='tg://user?id={data.uid}'>{data.uname}</a> (<code>{data.uid}</code>)\n"
-                f"🎬 <b>মুভি:</b> <code>{data.movie}</code>\n"
-                f"📊 <b>স্ট্যাটাস:</b> ⏳ Pending", 
+                chat_id=admin_id, 
+                text=(f"🔔 <b>নতুন মুভি রিকোয়েস্ট!</b>\n\n"
+                      f"👤 <b>ইউজার:</b> <a href='tg://user?id={data.uid}'>{safe_uname}</a> (<code>{data.uid}</code>)\n"
+                      f"🎬 <b>মুভি:</b> <code>{safe_movie}</code>\n"
+                      f"📊 <b>স্ট্যাটাস:</b> ⏳ Pending"), 
                 parse_mode="HTML",
                 reply_markup=markup
             )
-        except Exception: pass
+            success_count += 1
+        except Exception: 
+            pass
         
-    return {"ok": True}
+    return {"ok": True, "admins_notified": success_count}
 
 @app.get("/api/requests")
 async def get_pending_requests():
