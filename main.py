@@ -538,14 +538,29 @@ async def execute_broadcast(m: types.Message, state: FSMContext):
         except Exception: pass
     await m.answer(f"✅ সম্পন্ন! সর্বমোট <b>{success}</b> জনকে মেসেজ পাঠানো হয়েছে।", parse_mode="HTML")
 
+# 🛑 UPDATE 1: Forward messages to ALL admins safely
 @dp.message(lambda m: m.chat.type == "private" and m.from_user.id not in admin_cache and not m.text.startswith("/"))
 async def forward_to_admin(m: types.Message):
     try:
         builder = InlineKeyboardBuilder()
         builder.button(text="✍️ রিপ্লাই দিন", callback_data=f"reply_{m.from_user.id}")
-        await bot.send_message(OWNER_ID, f"📩 <b>Message from <a href='tg://user?id={m.from_user.id}'>{m.from_user.first_name}</a></b>:\n\n{m.text or 'Media file'}", parse_mode="HTML", reply_markup=builder.as_markup())
-    except Exception: pass
+        markup = builder.as_markup()
+        
+        safe_name = html.escape(m.from_user.first_name) if m.from_user.first_name else "User"
+        msg_text = html.escape(m.text) if m.text else "Media file"
 
+        for admin_id in admin_cache:
+            try:
+                await bot.send_message(
+                    chat_id=admin_id, 
+                    text=f"📩 <b>Message from <a href='tg://user?id={m.from_user.id}'>{safe_name}</a></b>:\n\n{msg_text}", 
+                    parse_mode="HTML", 
+                    reply_markup=markup
+                )
+            except Exception:
+                pass
+    except Exception: 
+        pass
 
 # ==========================================
 # 5. Movie Upload Logic (With Episode Support)
@@ -1410,6 +1425,7 @@ async def web_ui(response: Response):
                 closeMenu(); 
             }
             
+            // 🛑 UPDATE 2: UI Request load system
             async function loadRequests() {
                 try {
                     const res = await fetch('/api/requests?t=' + new Date().getTime());
@@ -1417,20 +1433,20 @@ async def web_ui(response: Response):
                     let html = '';
                     
                     if(data.length === 0) {
-                        html = '<p style="color:#cbd5e1; font-size:13px; text-align:center; padding:10px;">কোনো পেন্ডিং রিকোয়েস্ট নেই।</p>';
+                        html = '<p style="color:#cbd5e1; font-size:13px; text-align:center; padding:10px;">কোনো পেন্ডিং রিকোয়েস্ট নেই। আপনি প্রথম রিকোয়েস্ট করতে পারেন!</p>';
                     } else {
                         data.forEach(r => {
                             let isMyReq = (r.uid === uid);
-                            let myBadge = isMyReq ? `<span style="background:#38bdf8; color:black; font-size:10px; font-weight:bold; padding:2px 6px; border-radius:10px; margin-left:6px;">Your Req</span>` : '';
-                            let delBtn = isAdmin ? `<button onclick="deleteReq('${r._id}')" style="background:#ef4444; color:white; border:none; padding:6px 12px; border-radius:6px; font-size:12px; cursor:pointer;"><i class="fa-solid fa-trash"></i></button>` : '';
+                            let myBadge = isMyReq ? `<span style="background:#38bdf8; color:black; font-size:9px; font-weight:bold; padding:2px 6px; border-radius:10px; margin-left:6px; vertical-align:middle;">Your Req</span>` : '';
+                            let delBtn = isAdmin ? `<button onclick="deleteReq('${r._id}')" style="background:#ef4444; color:white; border:none; padding:8px 12px; border-radius:6px; font-size:12px; cursor:pointer; transition:0.2s;"><i class="fa-solid fa-trash"></i></button>` : '';
                             
-                            html += `<div style="background: rgba(30, 41, 59, 0.8); padding:10px 12px; border-radius:8px; border:1px solid #334155; display:flex; justify-content:space-between; align-items:center; margin-bottom: 8px;">
-                                <div>
-                                    <div style="color:white; font-weight:bold; font-size:14px; margin-bottom: 3px;">
+                            html += `<div style="background: rgba(30, 41, 59, 0.8); padding:12px 15px; border-radius:10px; border:1px solid #334155; display:flex; justify-content:space-between; align-items:center; margin-bottom: 8px;">
+                                <div style="text-align: left;">
+                                    <div style="color:#f8fafc; font-weight:bold; font-size:15px; margin-bottom: 3px;">
                                         ${r.movie} ${myBadge}
                                     </div>
-                                    <div style="color:#94a3b8; font-size:11px;">
-                                        <i class="fa-solid fa-user"></i> Req by: ${r.uname}
+                                    <div style="color:#94a3b8; font-size:12px;">
+                                        <i class="fa-solid fa-user" style="font-size:10px;"></i> Req by: <span style="color:#cbd5e1;">${r.uname}</span>
                                     </div>
                                 </div>
                                 ${delBtn}
@@ -1439,7 +1455,7 @@ async def web_ui(response: Response):
                     }
                     document.getElementById('reqListContainer').innerHTML = html;
                 } catch(e) {
-                    console.log("Req Load Error", e);
+                    console.error("Req Load Error", e);
                 }
             }
             
@@ -1455,10 +1471,17 @@ async def web_ui(response: Response):
                 } catch(e) {}
             }
 
+            // 🛑 UPDATE 3: Fixed SendReq logic with specific error alerts
             async function sendReq() {
                 const text = document.getElementById('reqText').value.trim();
+                
                 if(!text) {
                     tg.showAlert('⚠️ অনুগ্রহ করে মুভির নাম লিখুন!');
+                    return;
+                }
+                
+                if(!INIT_DATA) {
+                    tg.showAlert('⚠️ দয়া করে টেলিগ্রাম বট থেকে অ্যাপটি ওপেন করুন!');
                     return;
                 }
                 
@@ -1480,11 +1503,15 @@ async def web_ui(response: Response):
                     
                     if(data.ok) {
                         document.getElementById('reqText').value = ''; 
-                        tg.showAlert('✅ আপনার রিকোয়েস্ট অ্যাডমিনদের কাছে পাঠানো হয়েছে!'); 
+                        tg.showAlert('✅ আপনার রিকোয়েস্ট সফলভাবে সকল অ্যাডমিনদের কাছে পাঠানো হয়েছে!'); 
                         loadRequests();
                     } else {
                         document.getElementById('reqText').value = text;
-                        tg.showAlert('⚠️ রিকোয়েস্ট পাঠাতে সমস্যা হয়েছে! বট থেকে আবার ট্রাই করুন।'); 
+                        if(data.error === 'auth') {
+                            tg.showAlert('⚠️ সেশন এক্সপায়ার হয়ে গেছে! দয়া করে অ্যাপটি কেটে দিয়ে বটের মেনু থেকে আবার ওপেন করুন।');
+                        } else {
+                            tg.showAlert('⚠️ সার্ভার এরর! দয়া করে কিছুক্ষণ পর আবার ট্রাই করুন।'); 
+                        }
                     }
                 } catch(e) {
                     document.getElementById('reqText').value = text;
@@ -1863,7 +1890,7 @@ async def send_file(d: SendRequestModel):
 
 
 # ==========================================
-# 🛑 উন্নত রিকোয়েস্ট সিস্টেম (APIs)
+# 🛑 UPDATE 4: Fixed API Request Handler
 # ==========================================
 class ReqModel(BaseModel):
     uid: int
@@ -1873,45 +1900,47 @@ class ReqModel(BaseModel):
 
 @app.post("/api/request")
 async def handle_request(data: ReqModel):
-    if not validate_tg_data(data.initData): return {"ok": False}
+    if not data.initData or not validate_tg_data(data.initData): 
+        return {"ok": False, "error": "auth"}
     
-    safe_uname = html.escape(data.uname) if data.uname else "Guest"
-    safe_movie = html.escape(data.movie)
-    
-    new_req = await db.requests.insert_one({
-        "uid": data.uid,
-        "uname": safe_uname,
-        "movie": safe_movie,
-        "status": "pending",
-        "created_at": datetime.datetime.utcnow()
-    })
-    req_id = str(new_req.inserted_id)
-
-    kb = [
-        [
-            types.InlineKeyboardButton(text="✅ আপলোড করা হয়েছে", callback_data=f"req_done_{req_id}"),
-            types.InlineKeyboardButton(text="❌ বাতিল করুন", callback_data=f"req_reject_{req_id}")
-        ]
-    ]
-    markup = types.InlineKeyboardMarkup(inline_keyboard=kb)
-
-    success_count = 0
-    for admin_id in admin_cache:
-        try:
-            await bot.send_message(
-                chat_id=admin_id, 
-                text=(f"🔔 <b>নতুন মুভি রিকোয়েস্ট!</b>\n\n"
-                      f"👤 <b>ইউজার:</b> <a href='tg://user?id={data.uid}'>{safe_uname}</a> (<code>{data.uid}</code>)\n"
-                      f"🎬 <b>মুভি:</b> <code>{safe_movie}</code>\n"
-                      f"📊 <b>স্ট্যাটাস:</b> ⏳ Pending"), 
-                parse_mode="HTML",
-                reply_markup=markup
-            )
-            success_count += 1
-        except Exception: 
-            pass
+    try:
+        safe_uname = html.escape(data.uname) if data.uname else "Guest"
+        safe_movie = html.escape(data.movie)
         
-    return {"ok": True, "admins_notified": success_count}
+        new_req = await db.requests.insert_one({
+            "uid": data.uid,
+            "uname": safe_uname,
+            "movie": safe_movie,
+            "status": "pending",
+            "created_at": datetime.datetime.utcnow()
+        })
+        req_id = str(new_req.inserted_id)
+
+        kb = [
+            [
+                types.InlineKeyboardButton(text="✅ আপলোড করা হয়েছে", callback_data=f"req_done_{req_id}"),
+                types.InlineKeyboardButton(text="❌ বাতিল করুন", callback_data=f"req_reject_{req_id}")
+            ]
+        ]
+        markup = types.InlineKeyboardMarkup(inline_keyboard=kb)
+
+        for admin_id in admin_cache:
+            try:
+                await bot.send_message(
+                    chat_id=admin_id, 
+                    text=(f"🔔 <b>নতুন মুভি রিকোয়েস্ট!</b>\n\n"
+                          f"👤 <b>ইউজার:</b> <a href='tg://user?id={data.uid}'>{safe_uname}</a> (<code>{data.uid}</code>)\n"
+                          f"🎬 <b>মুভি:</b> <code>{safe_movie}</code>\n"
+                          f"📊 <b>স্ট্যাটাস:</b> ⏳ Pending"), 
+                    parse_mode="HTML",
+                    reply_markup=markup
+                )
+            except Exception: 
+                pass
+            
+        return {"ok": True}
+    except Exception as e:
+        return {"ok": False, "error": "server"}
 
 @app.get("/api/requests")
 async def get_pending_requests():
