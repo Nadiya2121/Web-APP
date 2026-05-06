@@ -1070,6 +1070,11 @@ async def web_ui():
 
             .dl-rgb-wrap { position: relative; background: linear-gradient(45deg, #ff0000, #ff7300, #fffb00, #48ff00, #00ffd5, #002bff, #7a00ff, #ff00c8, #ff0000); background-size: 200%; padding: 4px; border-radius: 16px; width: 100%; max-width: 350px; margin: auto; }
             .dl-inner-box { background: rgba(15, 23, 42, 0.98); border-radius: 12px; padding: 30px 20px; display: flex; flex-direction: column; align-items: center; gap: 15px; }
+            
+            .spinner-new { width: 65px; height: 65px; border: 5px solid rgba(255,255,255,0.1); border-left-color: #10b981; border-radius: 50%; animation: spin-fast 1s linear infinite; margin: 0 auto 15px; }
+            @keyframes spin-fast { 100% { transform: rotate(360deg); } }
+            .big-processing-text { font-size: 26px; font-weight: 900; color: #4ade80; animation: pulse 1.5s infinite; }
+            @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
         </style>
     </head>
     <body onclick="closeMenu(event)">
@@ -1098,7 +1103,7 @@ async def web_ui():
             <a onclick="openReferModal()"><i class="fa-solid fa-share-nodes text-blue-400"></i> রেফার ও ইনকাম</a>
             <a onclick="openReqModal()"><i class="fa-solid fa-code-pull-request text-green-400"></i> রিকোয়েস্ট মুভি</a>
             <div style="height: 1px; background: #334155; margin: 4px 0;"></div>
-            <a onclick="tg.showAlert('ডাউনলোডের নিয়ম:\n১. ডাউনলোড বাটনে ক্লিক করুন।\n২. ১৫ সেকেন্ড অপেক্ষা করুন।\n৩. ভিডিওটি অটোমেটিক বটের ইনবক্সে চলে যাবে!')"><i class="fa-solid fa-circle-question text-red-400"></i> ডাউনলোডের নিয়ম</a>
+            <a onclick="tg.showAlert('ডাউনলোডের নিয়ম:\n১. ডাউনলোড বাটনে ক্লিক করুন।\n২. ১০ সেকেন্ড অপেক্ষা করুন।\n৩. ভিডিওটি অটোমেটিক বটের ইনবক্সে চলে যাবে!')"><i class="fa-solid fa-circle-question text-red-400"></i> ডাউনলোডের নিয়ম</a>
             <a onclick="window.open('{{TG_LINK}}')"><i class="fa-solid fa-bullhorn text-green-400"></i> আমাদের চ্যানেল</a>
             <a onclick="window.open('{{SUPPORT_LINK}}')"><i class="fa-brands fa-telegram text-blue-400"></i> সাপোর্ট / কন্টাক্ট</a>
             
@@ -1162,7 +1167,7 @@ async def web_ui():
                 
                 <div style="background: rgba(15, 23, 42, 0.9); border-left: 4px solid #f59e0b; padding: 12px; border-radius: 8px; text-align: left; margin-bottom: 20px;">
                     <p style="color:#fbbf24; font-weight:bold; font-size: 15px; margin-bottom: 8px;"><i class="fa-solid fa-circle-info"></i> কীভাবে ডাউনলোড করবেন?</p>
-                    <p style="color:#cbd5e1; font-size: 13.5px; line-height: 1.6;">১. নিচের ডাউনলোড বাটনে ক্লিক করুন।<br>২. একটি নতুন পেইজ ওপেন হবে, সেখানে <b>১৫ সেকেন্ড</b> অপেক্ষা করুন।<br>৩. এরপর অটোমেটিক ভিডিওটি আপনার টেলিগ্রাম বটের ইনবক্সে চলে যাবে!</p>
+                    <p style="color:#cbd5e1; font-size: 13.5px; line-height: 1.6;">১. নিচের ডাউনলোড বাটনে ক্লিক করুন।<br>২. একটি নতুন পেইজ ওপেন হবে, সেখানে <b>১০ সেকেন্ড</b> অপেক্ষা করুন।<br>৩. এরপর অটোমেটিক ভিডিওটি আপনার টেলিগ্রাম বটের ইনবক্সে চলে যাবে!</p>
                 </div>
 
                 <div id="qualityList" style="display: flex; flex-direction: column; gap: 8px;"></div>
@@ -1177,7 +1182,7 @@ async def web_ui():
                     <div class="dl-inner-box">
                         <h2 style="color: #4ade80; font-size: 24px; font-weight: 900;"><i class="fa-solid fa-unlock-keyhole"></i> আনলক করুন</h2>
                         <p id="dlDescText" style="color: #cbd5e1; font-size: 15px; font-weight: 600; text-align:center;">
-                            ফাইল আনলক করতে নিচের লিংকে গিয়ে <b>১৫ সেকেন্ড</b> অপেক্ষা করুন।
+                            ফাইল আনলক করতে নিচের লিংকে গিয়ে <b>১০ সেকেন্ড</b> অপেক্ষা করুন।
                         </p>
                         <button id="dlClickBtn" class="btn-submit" style="background: linear-gradient(45deg, #ef4444, #f97316); margin-top: 10px;" onclick="executeDirectLink()">🔗 Click Here (Open Link)</button>
                     </div>
@@ -1229,7 +1234,7 @@ async def web_ui():
             </div>
         </div>
 
-        <!-- Success Modal -->
+        <!-- Success Modal (Left intact just in case, but replaced by auto-close) -->
         <div id="successModal" class="modal">
             <div class="modal-content">
                 <i class="fa-solid fa-circle-check" style="font-size:80px; color:#4ade80;"></i>
@@ -1252,7 +1257,6 @@ async def web_ui():
             let currentPage = 1; 
             let searchQuery = "";
             let activeCategory = "";
-            let onAdCompleteCallback = null;
             let autoScrollInterval;
 
             function setNavActive(index) {
@@ -1466,62 +1470,146 @@ async def web_ui():
                 document.getElementById('qualityModal').style.display = 'flex';
             }
 
+            // ==========================================
+            // 🛑 NEW 10s AUTO-CLOSE & SEND SYSTEM
+            // ==========================================
+
+            let currentFileId = null; 
+
             function handleQualityClick(fileId, isUnlocked) {
                 document.getElementById('qualityModal').style.display = 'none';
-                if(isUnlocked || isUserVip) { sendFile(fileId); } 
-                else { 
-                    onAdCompleteCallback = () => sendFile(fileId);
+                if(isUnlocked || isUserVip) { 
+                    sendFileAndClose(fileId); 
+                } else { 
+                    currentFileId = fileId; 
                     document.getElementById('directLinkModal').style.display = 'flex';
+                    resetDlButton();
                 }
             }
 
-            // Normal Ad System for Downloading
-            let linkOpenedAt = 0; let isWaitingForReturn = false; let dlTimerInterval = null;
-            function executeDirectLink() {
-                if (!DIRECT_LINKS || DIRECT_LINKS.length === 0) { document.getElementById('directLinkModal').style.display = 'none'; if (onAdCompleteCallback) onAdCompleteCallback(); return; }
-                tg.openLink(DIRECT_LINKS[Math.floor(Math.random() * DIRECT_LINKS.length)]);
-                linkOpenedAt = Date.now(); isWaitingForReturn = true;
+            // --- ডাউনলোড অ্যাড সিস্টেম (১০ সেকেন্ড) ---
+            let linkOpenedAt = 0;
+            let isWaitingForReturn = false;
+            let dlTimerInterval = null;
+
+            function resetDlButton() {
                 const btn = document.getElementById('dlClickBtn');
-                btn.disabled = true; let timeLeft = 15; btn.style.background = "#475569";
+                btn.onclick = executeDirectLink;
+                btn.innerText = "🔗 Click Here (Open Link)";
+                btn.style.background = "linear-gradient(45deg, #ef4444, #f97316)";
+                btn.disabled = false;
+            }
+
+            function executeDirectLink() {
+                if (!DIRECT_LINKS || DIRECT_LINKS.length === 0) { 
+                    document.getElementById('directLinkModal').style.display = 'none'; 
+                    if (currentFileId) sendFileAndClose(currentFileId); 
+                    return; 
+                }
+                
+                tg.openLink(DIRECT_LINKS[Math.floor(Math.random() * DIRECT_LINKS.length)]);
+                linkOpenedAt = Date.now(); 
+                isWaitingForReturn = true;
+                
+                const btn = document.getElementById('dlClickBtn');
+                btn.disabled = true; 
+                let timeLeft = 10; 
+                btn.style.background = "#475569";
+                
                 dlTimerInterval = setInterval(() => {
-                    timeLeft--; btn.innerText = `⏳ অপেক্ষা করুন... (${timeLeft}s)`;
-                    if (timeLeft <= 0) { clearInterval(dlTimerInterval); btn.innerText = `✅ সম্পন্ন হয়েছে!`; }
+                    timeLeft--; 
+                    btn.innerText = `⏳ অপেক্ষা করুন... (${timeLeft}s)`;
+                    
+                    if (timeLeft <= 0) { 
+                        clearInterval(dlTimerInterval); 
+                        isWaitingForReturn = false; 
+                        
+                        btn.innerText = `✅ ফাইলটি বক্সে পাঠান`;
+                        btn.style.background = "linear-gradient(45deg, #10b981, #059669)";
+                        btn.disabled = false;
+                        
+                        btn.onclick = function() {
+                            document.getElementById('directLinkModal').style.display = 'none';
+                            if (currentFileId) sendFileAndClose(currentFileId);
+                        };
+                    }
                 }, 1000);
             }
 
-            // Coin Ad System (+5 Coins)
-            let coinLinkOpenedAt = 0; let isWaitingForCoinReturn = false; let coinTimerInterval = null;
+            // --- কয়েন অ্যাড সিস্টেম (১০ সেকেন্ড) ---
+            let coinLinkOpenedAt = 0; 
+            let isWaitingForCoinReturn = false; 
+            let coinTimerInterval = null;
+
+            function resetCoinButton() {
+                const btn = document.getElementById('coinAdBtn');
+                btn.disabled = false;
+                btn.onclick = executeCoinAd;
+                btn.innerHTML = '<i class="fa-solid fa-play"></i> অ্যাড দেখে ৫ কয়েন নিন';
+                btn.style.background = "linear-gradient(45deg, #ef4444, #f97316)";
+            }
+
             function executeCoinAd() {
                 if (!DIRECT_LINKS || DIRECT_LINKS.length === 0) { tg.showAlert("⚠️ কোনো অ্যাড পাওয়া যায়নি!"); return; }
                 tg.openLink(DIRECT_LINKS[Math.floor(Math.random() * DIRECT_LINKS.length)]);
-                coinLinkOpenedAt = Date.now(); isWaitingForCoinReturn = true;
+                
+                coinLinkOpenedAt = Date.now(); 
+                isWaitingForCoinReturn = true;
+                
                 const btn = document.getElementById('coinAdBtn');
-                btn.disabled = true; let timeLeft = 15; btn.style.background = "#475569";
+                btn.disabled = true; 
+                let timeLeft = 10; 
+                btn.style.background = "#475569";
+                
                 coinTimerInterval = setInterval(() => {
-                    timeLeft--; btn.innerHTML = `<i class="fa-solid fa-play"></i> অপেক্ষা করুন... (${timeLeft}s)`;
-                    if (timeLeft <= 0) { clearInterval(coinTimerInterval); btn.innerHTML = `<i class="fa-solid fa-check"></i> সম্পন্ন হয়েছে!`; }
+                    timeLeft--; 
+                    btn.innerHTML = `<i class="fa-solid fa-play"></i> অপেক্ষা করুন... (${timeLeft}s)`;
+                    
+                    if (timeLeft <= 0) { 
+                        clearInterval(coinTimerInterval); 
+                        isWaitingForCoinReturn = false;
+                        
+                        btn.innerHTML = `<i class="fa-solid fa-check"></i> ৫ কয়েন সংগ্রহ করুন`;
+                        btn.style.background = "linear-gradient(45deg, #10b981, #059669)";
+                        btn.disabled = false;
+                        
+                        btn.onclick = function() {
+                            claimAdCoin();
+                            resetCoinButton();
+                        };
+                    }
                 }, 1000);
             }
 
+            // --- ফিরে আসার অটো ডিটেকশন ---
             document.addEventListener("visibilitychange", function() {
                 if (document.visibilityState === 'visible') {
-                    // Check Download Ad
+                    
+                    // ফাইল ডাউনলোডের জন্য ব্যাক করলে
                     if (isWaitingForReturn) {
-                        isWaitingForReturn = false; clearInterval(dlTimerInterval);
-                        if (Date.now() - linkOpenedAt < 14000) {
-                            tg.showAlert("⚠️ আপনাকে অবশ্যই পুরো ১৫ সেকেন্ড অপেক্ষা করতে হবে।");
-                            const btn = document.getElementById('dlClickBtn'); btn.disabled = false; btn.innerText = "🔗 Click Here (Open Link)"; btn.style.background = "linear-gradient(45deg, #ef4444, #f97316)";
-                        } else { document.getElementById('directLinkModal').style.display = 'none'; if (onAdCompleteCallback) onAdCompleteCallback(); }
+                        isWaitingForReturn = false; 
+                        clearInterval(dlTimerInterval);
+                        
+                        if (Date.now() - linkOpenedAt < 9000) { 
+                            tg.showAlert("⚠️ আপনাকে অবশ্যই পুরো ১০ সেকেন্ড লিংকে অপেক্ষা করতে হবে।");
+                            resetDlButton();
+                        } else { 
+                            document.getElementById('directLinkModal').style.display = 'none'; 
+                            if (currentFileId) sendFileAndClose(currentFileId); 
+                        }
                     }
                     
-                    // Check Coin Ad
+                    // কয়েন অ্যাডের জন্য ব্যাক করলে
                     if (isWaitingForCoinReturn) {
-                        isWaitingForCoinReturn = false; clearInterval(coinTimerInterval);
-                        if (Date.now() - coinLinkOpenedAt < 14000) {
-                            tg.showAlert("⚠️ আপনাকে অবশ্যই পুরো ১৫ সেকেন্ড অপেক্ষা করতে হবে।");
-                            const btn = document.getElementById('coinAdBtn'); btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-play"></i> অ্যাড দেখে ৫ কয়েন নিন'; btn.style.background = "linear-gradient(45deg, #ef4444, #f97316)";
+                        isWaitingForCoinReturn = false; 
+                        clearInterval(coinTimerInterval);
+                        
+                        if (Date.now() - coinLinkOpenedAt < 9000) {
+                            tg.showAlert("⚠️ আপনাকে অবশ্যই পুরো ১০ সেকেন্ড অপেক্ষা করতে হবে।");
+                            resetCoinButton();
                         } else { 
                             claimAdCoin(); 
+                            resetCoinButton();
                         }
                     }
                 }
@@ -1536,7 +1624,6 @@ async def web_ui():
                         fetchUserInfo(); 
                     } else { tg.showAlert("⚠️ কোনো সমস্যা হয়েছে।"); }
                 } catch (e) {}
-                const btn = document.getElementById('coinAdBtn'); btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-play"></i> অ্যাড দেখে ৫ কয়েন নিন'; btn.style.background = "linear-gradient(45deg, #ef4444, #f97316)";
             }
 
             async function buyVipWithCoins() {
@@ -1557,12 +1644,47 @@ async def web_ui():
                 }
             }
 
-            async function sendFile(id) {
+            // --- বড় প্রোসেসিং UI দেখানো ---
+            function showProcessingUI() {
+                let procModal = document.getElementById('processingModalCustom');
+                if(!procModal) {
+                    procModal = document.createElement('div');
+                    procModal.id = 'processingModalCustom';
+                    procModal.style.cssText = 'position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.95); z-index:9999; display:flex; align-items:center; justify-content:center; flex-direction:column; backdrop-filter: blur(5px);';
+                    procModal.innerHTML = `
+                        <div class="spinner-new"></div>
+                        <div class="big-processing-text">ফাইল পাঠানো হচ্ছে...</div>
+                        <div style="color:#cbd5e1; margin-top:15px; font-size:16px; font-weight:bold;">অপেক্ষা করুন, বক্সে ফাইল যাচ্ছে!</div>
+                    `;
+                    document.body.appendChild(procModal);
+                }
+                procModal.style.display = 'flex';
+            }
+
+            function hideProcessingUI() {
+                let procModal = document.getElementById('processingModalCustom');
+                if(procModal) procModal.style.display = 'none';
+            }
+
+            // --- অটোমেটিক সেন্ড এবং ক্লোজ ফাংশন ---
+            async function sendFileAndClose(id) {
+                showProcessingUI(); 
                 try {
                     const res = await fetch('/api/send', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({userId: uid, movieId: id, initData: INIT_DATA}) });
                     const data = await res.json();
-                    if(data.ok) { document.getElementById('successModal').style.display = 'flex'; }
-                } catch (e) {}
+                    
+                    if(data.ok) { 
+                        setTimeout(() => {
+                            tg.close();
+                        }, 1200);
+                    } else {
+                        hideProcessingUI();
+                        tg.showAlert("⚠️ সেশন এক্সপায়ার হয়েছে! দয়া করে মিনি অ্যাপটি কেটে আবার ওপেন করুন।");
+                    }
+                } catch (e) {
+                    hideProcessingUI();
+                    tg.showAlert("⚠️ ইন্টারনেট সংযোগ সমস্যা! আবার চেষ্টা করুন।");
+                }
             }
 
             fetchUserInfo(); loadCategories(); loadTrending(); loadMovies(1); 
