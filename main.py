@@ -224,7 +224,6 @@ async def init_db():
 
 def validate_tg_data(init_data: str) -> bool:
     try:
-        # 🛑 FIXED BUG: parseqsl -> parse_qsl
         parsed_data = dict(urllib.parse.parse_qsl(init_data))
         hash_val = parsed_data.pop('hash', None)
         auth_date = int(parsed_data.get('auth_date', 0))
@@ -300,6 +299,7 @@ async def start_cmd(message: types.Message, state: FSMContext):
             "🔸 সাপোর্ট লিংক: <code>/setsupport লিংক</code>\n"
             "🔸 পেমেন্ট নাম্বার: <code>/setbkash নাম্বার</code> | <code>/setnagad নাম্বার</code>\n"
             "🔸 প্রোটেকশন: <code>/protect on/off</code> | অটো-ডিলিট: <code>/settime [মিনিট]</code>\n"
+            "🔸 অ্যাড টাইম: <code>/setadtime [সেকেন্ড]</code>\n"  # 🛑 NEW COMMAND ADDED
             "🔸 স্ট্যাটাস: <code>/stats</code> | ব্রডকাস্ট: <code>/cast</code>\n"
             "🔸 মুভি ডিলিট: <code>/delmovie মুভির নাম</code> | <code>/delallmovies</code>\n"
             "🔸 ব্যান: <code>/ban ID</code> | আনব্যান: <code>/unban ID</code>\n"
@@ -311,6 +311,17 @@ async def start_cmd(message: types.Message, state: FSMContext):
     else: text = f"👋 <b>স্বাগতম {message.from_user.first_name}!</b>\n\nমুভি পেতে নিচের বাটনে ক্লিক করুন।"
         
     await message.answer(text, reply_markup=markup, parse_mode="HTML", disable_web_page_preview=True)
+
+# 🛑 NEW FEATURE: Admin Command to Set Ad Waiting Time
+@dp.message(Command("setadtime"))
+async def set_ad_time(m: types.Message):
+    if m.from_user.id not in admin_cache: return
+    try:
+        secs = int(m.text.split(" ")[1])
+        await db.settings.update_one({"id": "ad_time"}, {"$set": {"seconds": secs}}, upsert=True)
+        await m.answer(f"✅ অ্যাড ওয়েটিং টাইম <b>{secs} সেকেন্ড</b> সেট করা হয়েছে।", parse_mode="HTML")
+    except Exception: 
+        await m.answer("⚠️ সঠিক নিয়ম: <code>/setadtime ১৫</code>", parse_mode="HTML")
 
 @dp.message(Command("autoupload"))
 async def toggle_auto_upload(m: types.Message):
@@ -961,6 +972,10 @@ async def web_ui():
     b18_cfg = await db.settings.find_one({"id": "link_18"})
     dl_cfg = await db.settings.find_one({"id": "direct_links"})
     
+    # 🛑 FETCH ADMIN AD_TIME SETTING
+    ad_time_cfg = await db.settings.find_one({"id": "ad_time"})
+    ad_wait_seconds = ad_time_cfg['seconds'] if ad_time_cfg else 10
+    
     tg_url = tg_cfg['url'] if tg_cfg else "https://t.me/MovieeBD"
     support_link = support_cfg['url'] if support_cfg else "https://t.me/YourSupportUsername"
     link_18 = b18_cfg['url'] if b18_cfg else "https://t.me/MovieeBD"
@@ -1104,7 +1119,7 @@ async def web_ui():
             <a onclick="openReferModal()"><i class="fa-solid fa-share-nodes text-blue-400"></i> রেফার ও ইনকাম</a>
             <a onclick="openReqModal()"><i class="fa-solid fa-code-pull-request text-green-400"></i> রিকোয়েস্ট মুভি</a>
             <div style="height: 1px; background: #334155; margin: 4px 0;"></div>
-            <a onclick="tg.showAlert('ডাউনলোডের নিয়ম:\n১. ডাউনলোড বাটনে ক্লিক করুন।\n২. ১০ সেকেন্ড অপেক্ষা করুন।\n৩. ভিডিওটি অটোমেটিক বটের ইনবক্সে চলে যাবে!')"><i class="fa-solid fa-circle-question text-red-400"></i> ডাউনলোডের নিয়ম</a>
+            <a onclick="tg.showAlert(`ডাউনলোডের নিয়ম:\n১. ডাউনলোড বাটনে ক্লিক করুন।\n২. লিংকে গিয়ে ${AD_WAIT_TIME} সেকেন্ড অপেক্ষা করুন।\n৩. মিনি অ্যাপে ব্যাক করলেই ভিডিও অটোমেটিক বটের ইনবক্সে চলে যাবে!`)"><i class="fa-solid fa-circle-question text-red-400"></i> ডাউনলোডের নিয়ম</a>
             <a onclick="window.open('{{TG_LINK}}')"><i class="fa-solid fa-bullhorn text-green-400"></i> আমাদের চ্যানেল</a>
             <a onclick="window.open('{{SUPPORT_LINK}}')"><i class="fa-brands fa-telegram text-blue-400"></i> সাপোর্ট / কন্টাক্ট</a>
             
@@ -1168,7 +1183,7 @@ async def web_ui():
                 
                 <div style="background: rgba(15, 23, 42, 0.9); border-left: 4px solid #f59e0b; padding: 12px; border-radius: 8px; text-align: left; margin-bottom: 20px;">
                     <p style="color:#fbbf24; font-weight:bold; font-size: 15px; margin-bottom: 8px;"><i class="fa-solid fa-circle-info"></i> কীভাবে ডাউনলোড করবেন?</p>
-                    <p style="color:#cbd5e1; font-size: 13.5px; line-height: 1.6;">১. নিচের ডাউনলোড বাটনে ক্লিক করুন।<br>২. একটি নতুন পেইজ ওপেন হবে, সেখানে <b>১০ সেকেন্ড</b> অপেক্ষা করুন।<br>৩. এরপর অটোমেটিক ভিডিওটি আপনার টেলিগ্রাম বটের ইনবক্সে চলে যাবে!</p>
+                    <p style="color:#cbd5e1; font-size: 13.5px; line-height: 1.6;">১. নিচের ডাউনলোড বাটনে ক্লিক করুন।<br>২. একটি নতুন পেইজ ওপেন হবে, সেখানে <b>{{AD_TIME}} সেকেন্ড</b> অপেক্ষা করুন।<br>৩. এরপর শুধু ব্যাক করে মিনি অ্যাপে আসলেই অটোমেটিক ভিডিওটি আপনার বটের ইনবক্সে চলে যাবে!</p>
                 </div>
 
                 <div id="qualityList" style="display: flex; flex-direction: column; gap: 8px;"></div>
@@ -1183,7 +1198,7 @@ async def web_ui():
                     <div class="dl-inner-box">
                         <h2 style="color: #4ade80; font-size: 24px; font-weight: 900;"><i class="fa-solid fa-unlock-keyhole"></i> আনলক করুন</h2>
                         <p id="dlDescText" style="color: #cbd5e1; font-size: 15px; font-weight: 600; text-align:center;">
-                            ফাইল আনলক করতে নিচের লিংকে গিয়ে <b>১০ সেকেন্ড</b> অপেক্ষা করুন।
+                            ফাইল আনলক করতে নিচের লিংকে গিয়ে <b>{{AD_TIME}} সেকেন্ড</b> অপেক্ষা করুন।
                         </p>
                         <button id="dlClickBtn" class="btn-submit" style="background: linear-gradient(45deg, #ef4444, #f97316); margin-top: 10px;" onclick="executeDirectLink()">🔗 Click Here (Open Link)</button>
                     </div>
@@ -1240,6 +1255,7 @@ async def web_ui():
             const DIRECT_LINKS = {{DIRECT_LINKS}};
             const INIT_DATA = tg.initData || "";
             const BOT_UNAME = "{{BOT_USER}}";
+            const AD_WAIT_TIME = {{AD_TIME}}; // 🛑 DYNAMIC AD TIMER FROM DB
             
             let uid = tg.initDataUnsafe?.user?.id || 0;
             let isUserVip = false;
@@ -1462,7 +1478,7 @@ async def web_ui():
             }
 
             // ==========================================
-            // 🛑 NEW 10s AUTO-CLOSE & SEND SYSTEM
+            // 🛑 FIXED: BACKGROUND TIMER & INSTANT REDIRECT
             // ==========================================
 
             let currentFileId = null; 
@@ -1478,7 +1494,7 @@ async def web_ui():
                 }
             }
 
-            // --- ডাউনলোড অ্যাড সিস্টেম (১০ সেকেন্ড) ---
+            // --- ডাউনলোড অ্যাড সিস্টেম ---
             let linkOpenedAt = 0;
             let isWaitingForReturn = false;
             let dlTimerInterval = null;
@@ -1504,30 +1520,26 @@ async def web_ui():
                 
                 const btn = document.getElementById('dlClickBtn');
                 btn.disabled = true; 
-                let timeLeft = 10; 
+                let timeLeft = AD_WAIT_TIME; 
                 btn.style.background = "#475569";
                 
+                // শুধুমাত্র UI আপডেটের জন্য ইন্টারভ্যাল। আসল লজিক Date.now() তে
                 dlTimerInterval = setInterval(() => {
                     timeLeft--; 
-                    btn.innerText = `⏳ অপেক্ষা করুন... (${timeLeft}s)`;
-                    
-                    if (timeLeft <= 0) { 
-                        clearInterval(dlTimerInterval); 
-                        isWaitingForReturn = false; 
-                        
-                        btn.innerText = `✅ ফাইলটি বক্সে পাঠান`;
-                        btn.style.background = "linear-gradient(45deg, #10b981, #059669)";
-                        btn.disabled = false;
-                        
-                        btn.onclick = function() {
+                    if(timeLeft > 0) {
+                        btn.innerText = `⏳ অপেক্ষা করুন... (${timeLeft}s)`;
+                    } else {
+                        clearInterval(dlTimerInterval);
+                        if(isWaitingForReturn) {
+                            isWaitingForReturn = false;
                             document.getElementById('directLinkModal').style.display = 'none';
                             if (currentFileId) sendFileAndClose(currentFileId);
-                        };
+                        }
                     }
                 }, 1000);
             }
 
-            // --- কয়েন অ্যাড সিস্টেম (১০ সেকেন্ড) ---
+            // --- কয়েন অ্যাড সিস্টেম ---
             let coinLinkOpenedAt = 0; 
             let isWaitingForCoinReturn = false; 
             let coinTimerInterval = null;
@@ -1549,42 +1561,41 @@ async def web_ui():
                 
                 const btn = document.getElementById('coinAdBtn');
                 btn.disabled = true; 
-                let timeLeft = 10; 
+                let timeLeft = AD_WAIT_TIME; 
                 btn.style.background = "#475569";
                 
                 coinTimerInterval = setInterval(() => {
                     timeLeft--; 
-                    btn.innerHTML = `<i class="fa-solid fa-play"></i> অপেক্ষা করুন... (${timeLeft}s)`;
-                    
-                    if (timeLeft <= 0) { 
-                        clearInterval(coinTimerInterval); 
-                        isWaitingForCoinReturn = false;
-                        
-                        btn.innerHTML = `<i class="fa-solid fa-check"></i> ৫ কয়েন সংগ্রহ করুন`;
-                        btn.style.background = "linear-gradient(45deg, #10b981, #059669)";
-                        btn.disabled = false;
-                        
-                        btn.onclick = function() {
+                    if(timeLeft > 0) {
+                        btn.innerHTML = `<i class="fa-solid fa-play"></i> অপেক্ষা করুন... (${timeLeft}s)`;
+                    } else {
+                        clearInterval(coinTimerInterval);
+                        if(isWaitingForCoinReturn) {
+                            isWaitingForCoinReturn = false;
                             claimAdCoin();
                             resetCoinButton();
-                        };
+                        }
                     }
                 }, 1000);
             }
 
-            // --- ফিরে আসার অটো ডিটেকশন ---
+            // --- 🛑 FIXED: ব্যাকগ্রাউন্ড থেকে ফিরে আসার অটো ডিটেকশন (ইনস্ট্যান্ট রিডাইরেক্ট) ---
             document.addEventListener("visibilitychange", function() {
                 if (document.visibilityState === 'visible') {
+                    let now = Date.now();
                     
                     // ফাইল ডাউনলোডের জন্য ব্যাক করলে
                     if (isWaitingForReturn) {
                         isWaitingForReturn = false; 
                         clearInterval(dlTimerInterval);
                         
-                        if (Date.now() - linkOpenedAt < 9000) { 
-                            tg.showAlert("⚠️ আপনাকে অবশ্যই পুরো ১০ সেকেন্ড লিংকে অপেক্ষা করতে হবে।");
+                        let elapsedSeconds = (now - linkOpenedAt) / 1000;
+                        
+                        if (elapsedSeconds < AD_WAIT_TIME - 1) { // 1 sec margin
+                            tg.showAlert(`⚠️ আপনাকে অবশ্যই পুরো ${AD_WAIT_TIME} সেকেন্ড লিংকে অপেক্ষা করতে হবে।\n(আপনি মাত্র ${Math.floor(elapsedSeconds)} সেকেন্ড ছিলেন)`);
                             resetDlButton();
                         } else { 
+                            // 🛑 INSTANT MAGIC: কোনো ক্লিক ছাড়াই সোজা সেন্ড এবং ক্লোজ
                             document.getElementById('directLinkModal').style.display = 'none'; 
                             if (currentFileId) sendFileAndClose(currentFileId); 
                         }
@@ -1595,8 +1606,10 @@ async def web_ui():
                         isWaitingForCoinReturn = false; 
                         clearInterval(coinTimerInterval);
                         
-                        if (Date.now() - coinLinkOpenedAt < 9000) {
-                            tg.showAlert("⚠️ আপনাকে অবশ্যই পুরো ১০ সেকেন্ড অপেক্ষা করতে হবে।");
+                        let elapsedSeconds = (now - coinLinkOpenedAt) / 1000;
+                        
+                        if (elapsedSeconds < AD_WAIT_TIME - 1) {
+                            tg.showAlert(`⚠️ আপনাকে অবশ্যই পুরো ${AD_WAIT_TIME} সেকেন্ড লিংকে অপেক্ষা করতে হবে।\n(আপনি মাত্র ${Math.floor(elapsedSeconds)} সেকেন্ড ছিলেন)`);
                             resetCoinButton();
                         } else { 
                             claimAdCoin(); 
@@ -1665,9 +1678,10 @@ async def web_ui():
                     const data = await res.json();
                     
                     if(data.ok) { 
+                        // ইনস্ট্যান্ট বন্ধ হওয়ার জন্য টাইম কমানো হলো
                         setTimeout(() => {
                             tg.close();
-                        }, 1200);
+                        }, 500);
                     } else {
                         hideProcessingUI();
                         tg.showAlert("⚠️ সেশন এক্সপায়ার হয়েছে! দয়া করে মিনি অ্যাপটি কেটে আবার ওপেন করুন।");
@@ -1683,7 +1697,7 @@ async def web_ui():
     </body>
     </html>
     """
-    html_code = html_code.replace("{{DIRECT_LINKS}}", dl_json).replace("{{TG_LINK}}", tg_url).replace("{{SUPPORT_LINK}}", support_link).replace("{{LINK_18}}", link_18).replace("{{BOT_USER}}", BOT_USERNAME)
+    html_code = html_code.replace("{{DIRECT_LINKS}}", dl_json).replace("{{TG_LINK}}", tg_url).replace("{{SUPPORT_LINK}}", support_link).replace("{{LINK_18}}", link_18).replace("{{BOT_USER}}", BOT_USERNAME).replace("{{AD_TIME}}", str(ad_wait_seconds))
     return html_code
 
 # ==========================================
@@ -1814,7 +1828,11 @@ async def send_file(d: SendRequestModel):
             protect_cfg = await db.settings.find_one({"id": "protect_content"})
             is_protected = protect_cfg['status'] if protect_cfg else True
 
-            caption = (f"🎥 <b>{m['title']} [{m.get('quality', 'HD')}]</b>\n\n📥 Join: @TGLinkBase")
+            # 🛑 FIXED: Added Auto-Delete Warning to Caption for Free Users
+            caption = f"🎥 <b>{m['title']} [{m.get('quality', 'HD')}]</b>\n\n📥 Join: @TGLinkBase"
+            if not is_vip:
+                caption += f"\n\n⏳ <i>সতর্কতা: সিকিউরিটির জন্য এই ভিডিওটি <b>{del_minutes} মিনিট</b> পর অটোমেটিক ডিলিট হয়ে যাবে!</i>"
+
             if m.get("file_type") == "video":
                 sent_msg = await bot.send_video(d.userId, m['file_id'], caption=caption, parse_mode="HTML", protect_content=is_protected)
             else:
@@ -1837,7 +1855,13 @@ class ReqModel(BaseModel):
 @app.post("/api/request")
 async def handle_request(data: ReqModel):
     if not validate_tg_data(data.initData): return {"ok": False}
-    for admin_id in admin_cache:
+    
+    # 🛑 FIXED: Fetch All Admins from DB instead of just Memory Cache
+    all_admins = set([OWNER_ID])
+    async for a in db.admins.find(): 
+        all_admins.add(a["user_id"])
+        
+    for admin_id in all_admins:
         try:
             await bot.send_message(
                 admin_id, 
