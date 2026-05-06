@@ -221,6 +221,7 @@ async def init_db():
     await db.movies.create_index("created_at")
     await db.auto_delete.create_index("delete_at")
     await db.payments.create_index("trx_id", unique=True)
+    await db.requests.create_index("status")
 
 def validate_tg_data(init_data: str) -> bool:
     try:
@@ -764,6 +765,55 @@ async def send_reply(m: types.Message, state: FSMContext):
     except Exception: await m.answer("⚠️ রিপ্লাই পাঠানো যায়নি!")
 
 # ==========================================
+# 🛑 রিকোয়েস্ট বাটন হ্যান্ডেলার (Admin Actions)
+# ==========================================
+@dp.callback_query(F.data.startswith("req_"))
+async def handle_movie_request_cb(c: types.CallbackQuery):
+    if c.from_user.id not in admin_cache: return
+    
+    action_type = c.data.split("_")[1] # done or reject
+    req_id = c.data.split("_")[2]
+    
+    req = await db.requests.find_one({"_id": ObjectId(req_id)})
+    if not req:
+        return await c.answer("⚠️ এই রিকোয়েস্টটি ডাটাবেসে পাওয়া যায়নি!", show_alert=True)
+    
+    if req["status"] != "pending":
+        return await c.answer("⚠️ এই রিকোয়েস্টটি ইতিমধ্যে অন্য একজন অ্যাডমিন প্রসেস করেছেন!", show_alert=True)
+
+    uid = req["uid"]
+    movie_name = req["movie"]
+    admin_name = c.from_user.first_name
+
+    if action_type == "done":
+        await db.requests.update_one({"_id": ObjectId(req_id)}, {"$set": {"status": "uploaded", "handled_by": c.from_user.id}})
+        try:
+            bot_info = await bot.get_me()
+            kb = [[types.InlineKeyboardButton(text="🎬 বট ওপেন করুন", url=f"https://t.me/{bot_info.username}")]]
+            markup = types.InlineKeyboardMarkup(inline_keyboard=kb)
+            await bot.send_message(
+                uid, 
+                f"🎉 <b>সুখবর!</b>\n\nআপনি যে <b>'{movie_name}'</b> মুভিটির রিকোয়েস্ট করেছিলেন, সেটি আপলোড করা হয়েছে। অ্যাপে গিয়ে সার্চ করুন!", 
+                parse_mode="HTML",
+                reply_markup=markup
+            )
+        except Exception: pass
+
+        new_text = c.message.text.replace("⏳ Pending", f"✅ Uploaded (by {admin_name})")
+        await c.message.edit_text(new_text, parse_mode="HTML")
+        await c.answer("✅ সফলভাবে ইউজারকে নোটিফিকেশন পাঠানো হয়েছে!")
+
+    elif action_type == "reject":
+        await db.requests.update_one({"_id": ObjectId(req_id)}, {"$set": {"status": "rejected", "handled_by": c.from_user.id}})
+        try:
+            await bot.send_message(uid, f"❌ <b>দুঃখিত!</b>\nআপনার <b>'{movie_name}'</b> মুভিটির রিকোয়েস্ট বাতিল করা হয়েছে। এটি হয়তো পাওয়া যায়নি বা অন্য সমস্যা আছে।", parse_mode="HTML")
+        except: pass
+
+        new_text = c.message.text.replace("⏳ Pending", f"❌ Rejected (by {admin_name})")
+        await c.message.edit_text(new_text, parse_mode="HTML")
+        await c.answer("❌ রিকোয়েস্টটি বাতিল করা হয়েছে!")
+
+# ==========================================
 # 7. Web Admin Panel HTML & API
 # ==========================================
 @app.get("/admin", response_class=HTMLResponse)
@@ -1219,13 +1269,23 @@ async def web_ui():
             </div>
         </div>
         
-        <!-- Request Modal -->
+        <!-- Updated Request Modal with Request List -->
         <div id="reqModal" class="modal">
             <div class="modal-content">
                 <div class="close-icon" onclick="document.getElementById('reqModal').style.display='none'"><i class="fa-solid fa-xmark"></i></div>
                 <h2 style="color:white; font-size: 22px; margin-bottom:15px;">মুভি রিকোয়েস্ট 🗳️</h2>
-                <input type="text" id="reqText" class="search-input" placeholder="মুভির নাম...">
-                <button class="btn-submit" style="margin-top:10px;" onclick="sendReq()">রিকোয়েস্ট পাঠান</button>
+                
+                <div style="display:flex; gap:10px; margin-bottom: 20px;">
+                    <input type="text" id="reqText" class="search-input" style="flex-grow:1; padding: 12px; font-size: 14px;" placeholder="নতুন মুভির নাম...">
+                    <button class="btn-submit" style="width:auto; padding: 0 15px;" onclick="sendReq()"><i class="fa-solid fa-paper-plane"></i></button>
+                </div>
+                
+                <div style="text-align:left; border-top: 1px solid #334155; padding-top:15px;">
+                    <h3 style="color:#94a3b8; font-size: 14px; margin-bottom:10px;">সাম্প্রতিক রিকোয়েস্ট সমূহ:</h3>
+                    <div id="reqListContainer" style="max-height: 200px; overflow-y: auto; display:flex; flex-direction:column; gap:8px;">
+                        <!-- JS injected list -->
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -1234,7 +1294,7 @@ async def web_ui():
             <div class="modal-content">
                 <i class="fa-solid fa-circle-check" style="font-size:80px; color:#4ade80;"></i>
                 <h2 style="margin:20px 0 10px; color:white; font-size: 26px;">সম্পন্ন হয়েছে!</h2>
-                <p style="color: #4ade80; font-size: 17px; font-weight: bold;">✅ ফাইলটি বটের ইনবক্সে পাঠানো হয়েছে।</p>
+                <p style="color: #4ade80; font-size: 17px; font-weight: bold;">✅ ফাইলটি বটের ইনবক্সে পাঠানো হয়েছে.</p>
                 <button class="btn-submit" style="margin-top:20px;" onclick="tg.close()">বটে ফিরে যান</button>
             </div>
         </div>
@@ -1247,6 +1307,7 @@ async def web_ui():
             
             let uid = tg.initDataUnsafe?.user?.id || 0;
             let isUserVip = false;
+            let isAdmin = false;
             let userCoins = 0;
             let loadedMovies = {}; 
             let currentPage = 1; 
@@ -1268,6 +1329,7 @@ async def web_ui():
                     const res = await fetch('/api/user/' + uid);
                     const data = await res.json();
                     isUserVip = data.vip;
+                    isAdmin = data.admin;
                     userCoins = data.coins || 0;
                     
                     let firstName = tg.initDataUnsafe?.user?.first_name || 'Guest';
@@ -1287,7 +1349,7 @@ async def web_ui():
                         document.getElementById('menuStatus').style.color = '#94a3b8';
                     }
                     
-                    if(data.admin) {
+                    if(isAdmin) {
                         document.getElementById('adminMenuBtn').style.display = 'flex';
                     }
 
@@ -1337,13 +1399,55 @@ async def web_ui():
 
             function openReferModal() { document.getElementById('referModal').style.display = 'flex'; closeMenu(); }
             function copyReferLink() { navigator.clipboard.writeText(document.getElementById('refLinkText').innerText); tg.showAlert("✅ কপি হয়েছে!"); }
-            function openReqModal() { document.getElementById('reqModal').style.display = 'flex'; closeMenu(); }
             
+            function openReqModal() { 
+                document.getElementById('reqModal').style.display = 'flex'; 
+                loadRequests();
+                closeMenu(); 
+            }
+            
+            async function loadRequests() {
+                try {
+                    const res = await fetch('/api/requests');
+                    const data = await res.json();
+                    let html = '';
+                    if(data.length === 0) {
+                        html = '<p style="color:#cbd5e1; font-size:13px; text-align:center;">কোনো পেন্ডিং রিকোয়েস্ট নেই।</p>';
+                    } else {
+                        data.forEach(r => {
+                            let delBtn = isAdmin ? `<button onclick="deleteReq('${r._id}')" style="background:#ef4444; color:white; border:none; padding:6px 10px; border-radius:6px; font-size:12px; cursor:pointer;"><i class="fa-solid fa-trash"></i></button>` : '';
+                            html += `<div style="background:#0f172a; padding:10px 12px; border-radius:8px; border:1px solid #334155; display:flex; justify-content:space-between; align-items:center;">
+                                <div>
+                                    <div style="color:white; font-weight:bold; font-size:14px;">${r.movie}</div>
+                                    <div style="color:#64748b; font-size:11px;">Req by: ${r.uname}</div>
+                                </div>
+                                ${delBtn}
+                            </div>`;
+                        });
+                    }
+                    document.getElementById('reqListContainer').innerHTML = html;
+                } catch(e) {}
+            }
+            
+            async function deleteReq(id) {
+                if(!confirm("Are you sure to delete this request?")) return;
+                try {
+                    await fetch('/api/requests/' + id, {
+                        method: 'DELETE',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({uid: uid, initData: INIT_DATA})
+                    });
+                    loadRequests();
+                } catch(e) {}
+            }
+
             async function sendReq() {
-                const text = document.getElementById('reqText').value;
+                const text = document.getElementById('reqText').value.trim();
                 if(!text) return;
                 await fetch('/api/request', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({uid: uid, uname: tg.initDataUnsafe.user?.first_name || 'Guest', movie: text, initData: INIT_DATA}) });
-                document.getElementById('reqText').value = ''; tg.showAlert('রিকোয়েস্ট পাঠানো হয়েছে!'); document.getElementById('reqModal').style.display='none';
+                document.getElementById('reqText').value = ''; 
+                tg.showAlert('রিকোয়েস্ট পাঠানো হয়েছে!'); 
+                loadRequests(); // Refresh the list instantly
             }
 
             function formatViews(n) { if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M'; if (n >= 1000) return (n / 1000).toFixed(1) + 'K'; return n; }
@@ -1715,6 +1819,10 @@ async def send_file(d: SendRequestModel):
     except Exception: pass
     return {"ok": True}
 
+
+# ==========================================
+# 🛑 উন্নত রিকোয়েস্ট সিস্টেম (APIs)
+# ==========================================
 class ReqModel(BaseModel):
     uid: int
     uname: str
@@ -1724,15 +1832,58 @@ class ReqModel(BaseModel):
 @app.post("/api/request")
 async def handle_request(data: ReqModel):
     if not validate_tg_data(data.initData): return {"ok": False}
+    
+    new_req = await db.requests.insert_one({
+        "uid": data.uid,
+        "uname": data.uname,
+        "movie": data.movie,
+        "status": "pending",
+        "created_at": datetime.datetime.utcnow()
+    })
+    req_id = str(new_req.inserted_id)
+
+    kb = [
+        [
+            types.InlineKeyboardButton(text="✅ আপলোড করা হয়েছে", callback_data=f"req_done_{req_id}"),
+            types.InlineKeyboardButton(text="❌ বাতিল করুন", callback_data=f"req_reject_{req_id}")
+        ]
+    ]
+    markup = types.InlineKeyboardMarkup(inline_keyboard=kb)
+
     for admin_id in admin_cache:
         try:
             await bot.send_message(
                 admin_id, 
-                f"🔔 <b>নতুন মুভি রিকোয়েস্ট!</b>\n👤 ইউজার: {data.uname} (<code>{data.uid}</code>)\n🎬 মুভি: <b>{data.movie}</b>", 
-                parse_mode="HTML"
+                f"🔔 <b>নতুন মুভি রিকোয়েস্ট!</b>\n\n"
+                f"👤 <b>ইউজার:</b> <a href='tg://user?id={data.uid}'>{data.uname}</a> (<code>{data.uid}</code>)\n"
+                f"🎬 <b>মুভি:</b> <code>{data.movie}</code>\n"
+                f"📊 <b>স্ট্যাটাস:</b> ⏳ Pending", 
+                parse_mode="HTML",
+                reply_markup=markup
             )
         except Exception: pass
+        
     return {"ok": True}
+
+@app.get("/api/requests")
+async def get_pending_requests():
+    # শুধু পেন্ডিং রিকোয়েস্টগুলোই দেখাবে Web App এ (আপলোড হলে গায়েব হয়ে যাবে)
+    requests = await db.requests.find({"status": "pending"}).sort("created_at", -1).to_list(50)
+    for r in requests:
+        r["_id"] = str(r["_id"])
+    return requests
+
+class DeleteReqModel(BaseModel):
+    uid: int
+    initData: str
+
+@app.delete("/api/requests/{req_id}")
+async def delete_request_api(req_id: str, data: DeleteReqModel):
+    if not validate_tg_data(data.initData): return {"ok": False}
+    if data.uid not in admin_cache: return {"ok": False, "msg": "Unauthorized"}
+    await db.requests.delete_one({"_id": ObjectId(req_id)})
+    return {"ok": True}
+
 
 # ==========================================
 # 9. Main Application Startup
