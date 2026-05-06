@@ -80,6 +80,8 @@ class AdminStates(StatesGroup):
     waiting_for_title = State()
     waiting_for_quality = State() 
     waiting_for_category = State()
+    waiting_for_series_search = State()
+    waiting_for_episode_quality = State()
 
 # ==========================================
 # 2. Image Processing (Wide Thumbnails)
@@ -222,7 +224,7 @@ async def init_db():
 
 def validate_tg_data(init_data: str) -> bool:
     try:
-        parsed_data = dict(urllib.parse.parse_qsl(init_data))
+        parsed_data = dict(urllib.parse.parseqsl(init_data))
         hash_val = parsed_data.pop('hash', None)
         auth_date = int(parsed_data.get('auth_date', 0))
         if not hash_val or time.time() - auth_date > 86400: return False
@@ -545,7 +547,7 @@ async def forward_to_admin(m: types.Message):
 
 
 # ==========================================
-# 5. Movie Upload Logic (With Category Update)
+# 5. Movie Upload Logic (With Episode Support)
 # ==========================================
 @dp.message(F.content_type.in_({'video', 'document'}), lambda m: m.from_user.id in admin_cache)
 async def receive_movie_file(m: types.Message, state: FSMContext):
@@ -560,9 +562,89 @@ async def receive_movie_file(m: types.Message, state: FSMContext):
     else:
         fid = m.video.file_id if m.video else m.document.file_id
         ftype = "video" if m.video else "document"
-        await state.set_state(AdminStates.waiting_for_photo)
         await state.update_data(file_id=fid, file_type=ftype)
-        await m.answer("✅ ফাইল পেয়েছি! এবার মুভির <b>পোস্টার (Photo)</b> সেন্ড করুন।", parse_mode="HTML")
+        
+        kb = [
+            [types.InlineKeyboardButton(text="🎬 নতুন মুভি/সিরিজ যুক্ত করুন", callback_data="upload_new")],
+            [types.InlineKeyboardButton(text="➕ আগের সিরিজের নতুন এপিসোড", callback_data="upload_episode")]
+        ]
+        markup = types.InlineKeyboardMarkup(inline_keyboard=kb)
+        await m.answer("✅ ফাইল পেয়েছি! এটি কি নতুন কোনো মুভি নাকি আগের কোনো সিরিজের নতুন এপিসোড?", reply_markup=markup)
+
+@dp.callback_query(F.data == "upload_new")
+async def upload_new_cb(c: types.CallbackQuery, state: FSMContext):
+    await state.set_state(AdminStates.waiting_for_photo)
+    await c.message.edit_text("✅ <b>নতুন মুভি/সিরিজ!</b>\nএবার মুভির <b>পোস্টার (Photo)</b> সেন্ড করুন।", parse_mode="HTML")
+
+@dp.callback_query(F.data == "upload_episode")
+async def upload_episode_cb(c: types.CallbackQuery, state: FSMContext):
+    await state.set_state(AdminStates.waiting_for_series_search)
+    await c.message.edit_text("✅ <b>নতুন এপিসোড!</b>\n\nযে সিরিজে এড করতে চান, সেই <b>সিরিজের নামের কয়েক অক্ষর</b> লিখে রিপ্লাই দিন (যেমন: Farzi)।", parse_mode="HTML")
+
+@dp.message(AdminStates.waiting_for_series_search, F.text)
+async def search_series_for_episode(m: types.Message, state: FSMContext):
+    query = m.text.strip()
+    pipeline = [
+        {"$match": {"title": {"$regex": query, "$options": "i"}}},
+        {"$group": {"_id": "$title", "photo_id": {"$first": "$photo_id"}, "categories": {"$first": "$categories"}}},
+        {"$limit": 10}
+    ]
+    results = await db.movies.aggregate(pipeline).to_list(10)
+
+    if not results:
+        return await m.answer("⚠️ এই নামে কোনো সিরিজ পাওয়া যায়নি! আবার সঠিক নাম লিখে পাঠান।")
+
+    await state.update_data(search_results=results)
+    
+    builder = InlineKeyboardBuilder()
+    for idx, res in enumerate(results):
+        builder.button(text=f"📺 {res['_id']}", callback_data=f"sel_series_{idx}")
+    builder.adjust(1)
+    
+    await m.answer("👇 নিচে থেকে আপনার কাঙ্ক্ষিত সিরিজটি সিলেক্ট করুন:", reply_markup=builder.as_markup())
+
+@dp.callback_query(F.data.startswith("sel_series_"))
+async def selected_series_cb(c: types.CallbackQuery, state: FSMContext):
+    idx = int(c.data.split("_")[2])
+    data = await state.get_data()
+    selected = data["search_results"][idx]
+
+    await state.update_data(
+        title=selected["_id"],
+        photo_id=selected["photo_id"],
+        categories=selected.get("categories", [])
+    )
+    
+    await state.set_state(AdminStates.waiting_for_episode_quality)
+    await c.message.edit_text(f"✅ <b>{selected['_id']}</b> সিলেক্ট হয়েছে!\n\nএবার এই নতুন ফাইলের <b>এপিসোড নাম্বার বা কোয়ালিটি</b> লিখে পাঠান। (যেমন: Episode 05)", parse_mode="HTML")
+
+@dp.message(AdminStates.waiting_for_episode_quality, F.text)
+async def finalize_new_episode(m: types.Message, state: FSMContext):
+    quality = m.text.strip()
+    data = await state.get_data()
+    title = data["title"]
+    photo_id = data["photo_id"]
+    categories = data.get("categories", [])
+    
+    await db.movies.insert_one({
+        "title": title, "quality": quality, "photo_id": photo_id, 
+        "file_id": data["file_id"], "file_type": data["file_type"],
+        "categories": categories,
+        "clicks": 0, "created_at": datetime.datetime.utcnow()
+    })
+    
+    await state.clear()
+    await m.answer(f"🎉 <b>{title} [{quality}]</b> সফলভাবে সিরিজে এড করা হয়েছে!", parse_mode="HTML")
+
+    if CHANNEL_ID:
+        try:
+            bot_info = await bot.get_me()
+            kb = [[types.InlineKeyboardButton(text="📥 এপিসোডটি দেখতে এখানে ক্লিক করুন", url=f"https://t.me/{bot_info.username}?start=new")]]
+            markup = types.InlineKeyboardMarkup(inline_keyboard=kb)
+            cat_display = ", ".join(categories) if categories else "N/A"
+            caption = (f"🔥 <b>নতুন এপিসোড যুক্ত হয়েছে!</b>\n\n📌 <b>টাইটেল:</b> {title}\n🏷 <b>এপিসোড/কোয়ালিটি:</b> {quality}\n🎭 <b>ক্যাটাগরি:</b> {cat_display}\n\n👇 <i>বট থেকে ভিডিওটি পেতে নিচের বাটনে ক্লিক করুন।</i>")
+            await bot.send_photo(chat_id=CHANNEL_ID, photo=photo_id, caption=caption, parse_mode="HTML", reply_markup=markup)
+        except Exception: pass
 
 @dp.message(AdminStates.waiting_for_photo, F.photo)
 async def receive_movie_photo(m: types.Message, state: FSMContext):
