@@ -222,17 +222,21 @@ async def init_db():
     await db.auto_delete.create_index("delete_at")
     await db.payments.create_index("trx_id", unique=True)
 
+# 🛑🛑 UPDATED VALIDATE TG DATA 🛑🛑
 def validate_tg_data(init_data: str) -> bool:
     try:
-        parsed_data = dict(urllib.parse.parseqsl(init_data))
+        if not init_data: return False
+        parsed_data = dict(urllib.parse.parse_qsl(init_data))
         hash_val = parsed_data.pop('hash', None)
-        auth_date = int(parsed_data.get('auth_date', 0))
-        if not hash_val or time.time() - auth_date > 86400: return False
+        if not hash_val: return False
+        
         data_check_string = "\n".join(f"{k}={v}" for k, v in sorted(parsed_data.items()))
         secret_key = hmac.new(b"WebAppData", TOKEN.encode(), hashlib.sha256).digest()
         calculated_hash = hmac.new(secret_key, data_check_string.encode(), hashlib.sha256).hexdigest()
         return calculated_hash == hash_val
-    except Exception: return False
+    except Exception as e:
+        print(f"Auth Error: {e}")
+        return False
 
 def verify_admin(credentials: HTTPBasicCredentials = Depends(security)):
     correct_username = secrets.compare_digest(credentials.username, "admin")
