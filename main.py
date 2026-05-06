@@ -21,7 +21,7 @@ except RuntimeError:
     asyncio.set_event_loop(asyncio.new_event_loop())
 # ==========================================
 
-from fastapi import FastAPI, Body, Request, Depends, HTTPException, status
+from fastapi import FastAPI, Body, Request, Response, Depends, HTTPException, status
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
@@ -718,7 +718,7 @@ async def receive_movie_category(m: types.Message, state: FSMContext):
         except Exception: pass
 
 # ==========================================
-# 6. Callbacks & Approvals
+# 6. Callbacks, Approvals & Request System
 # ==========================================
 @dp.callback_query(F.data.startswith("trx_"))
 async def handle_trx_approval(c: types.CallbackQuery):
@@ -764,22 +764,20 @@ async def send_reply(m: types.Message, state: FSMContext):
         await m.answer("✅ ইউজারকে রিপ্লাই পাঠানো হয়েছে!")
     except Exception: await m.answer("⚠️ রিপ্লাই পাঠানো যায়নি!")
 
-# ==========================================
-# 🛑 রিকোয়েস্ট বাটন হ্যান্ডেলার (Admin Actions)
-# ==========================================
 @dp.callback_query(F.data.startswith("req_"))
 async def handle_movie_request_cb(c: types.CallbackQuery):
     if c.from_user.id not in admin_cache: return
     
-    action_type = c.data.split("_")[1] # done or reject
-    req_id = c.data.split("_")[2]
+    parts = c.data.split("_")
+    action_type = parts[1] # done or reject
+    req_id = parts[2]
     
     req = await db.requests.find_one({"_id": ObjectId(req_id)})
     if not req:
-        return await c.answer("⚠️ এই রিকোয়েস্টটি ডাটাবেসে পাওয়া যায়নি!", show_alert=True)
+        return await c.answer("⚠️ এই রিকোয়েস্টটি ডাটাবেসে পাওয়া যায়নি বা ডিলিট হয়ে গেছে!", show_alert=True)
     
-    if req["status"] != "pending":
-        return await c.answer("⚠️ এই রিকোয়েস্টটি ইতিমধ্যে অন্য একজন অ্যাডমিন প্রসেস করেছেন!", show_alert=True)
+    if req.get("status") != "pending":
+        return await c.answer("⚠️ এই রিকোয়েস্টটি ইতিমধ্যে প্রসেস করা হয়েছে!", show_alert=True)
 
     uid = req["uid"]
     movie_name = req["movie"]
@@ -812,6 +810,7 @@ async def handle_movie_request_cb(c: types.CallbackQuery):
         new_text = c.message.text.replace("⏳ Pending", f"❌ Rejected (by {admin_name})")
         await c.message.edit_text(new_text, parse_mode="HTML")
         await c.answer("❌ রিকোয়েস্টটি বাতিল করা হয়েছে!")
+
 
 # ==========================================
 # 7. Web Admin Panel HTML & API
@@ -1001,10 +1000,15 @@ async def edit_movie_api(title: str, data: dict = Body(...), auth: bool = Depend
     return {"ok": True}
 
 # ==========================================
-# 8. Web UI (Perfect, Netflix Bottom Nav & Coin System)
+# 8. Web UI (Perfect, Netflix Bottom Nav & Request System)
 # ==========================================
 @app.get("/", response_class=HTMLResponse)
-async def web_ui():
+async def web_ui(response: Response):
+    # 🛑 Anti-Cache Headers Added
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+
     tg_cfg = await db.settings.find_one({"id": "link_tg"})
     support_cfg = await db.settings.find_one({"id": "link_support"})
     b18_cfg = await db.settings.find_one({"id": "link_18"})
@@ -1326,7 +1330,7 @@ async def web_ui():
 
             async function fetchUserInfo() {
                 try {
-                    const res = await fetch('/api/user/' + uid);
+                    const res = await fetch('/api/user/' + uid + '?t=' + new Date().getTime());
                     const data = await res.json();
                     isUserVip = data.vip;
                     isAdmin = data.admin;
@@ -1408,7 +1412,7 @@ async def web_ui():
             
             async function loadRequests() {
                 try {
-                    const res = await fetch('/api/requests');
+                    const res = await fetch('/api/requests?t=' + new Date().getTime());
                     const data = await res.json();
                     let html = '';
                     if(data.length === 0) {
@@ -1430,7 +1434,7 @@ async def web_ui():
             }
             
             async function deleteReq(id) {
-                if(!confirm("Are you sure to delete this request?")) return;
+                if(!confirm("আপনি কি রিকোয়েস্টটি ডিলিট করতে চান?")) return;
                 try {
                     await fetch('/api/requests/' + id, {
                         method: 'DELETE',
@@ -1446,7 +1450,7 @@ async def web_ui():
                 if(!text) return;
                 await fetch('/api/request', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({uid: uid, uname: tg.initDataUnsafe.user?.first_name || 'Guest', movie: text, initData: INIT_DATA}) });
                 document.getElementById('reqText').value = ''; 
-                tg.showAlert('রিকোয়েস্ট পাঠানো হয়েছে!'); 
+                tg.showAlert('✅ রিকোয়েস্ট পাঠানো হয়েছে!'); 
                 loadRequests(); // Refresh the list instantly
             }
 
@@ -1454,7 +1458,7 @@ async def web_ui():
 
             async function loadCategories() {
                 try {
-                    const res = await fetch('/api/categories');
+                    const res = await fetch('/api/categories?t=' + new Date().getTime());
                     const cats = await res.json();
                     if(cats.length === 0) return;
                     let html = `<button class="cat-btn active" onclick="setCategory('', this)">All</button>`;
@@ -1486,7 +1490,7 @@ async def web_ui():
 
             async function loadTrending() {
                 try {
-                    const r = await fetch(`/api/trending?uid=${uid}`);
+                    const r = await fetch(`/api/trending?uid=${uid}&t=` + new Date().getTime());
                     const data = await r.json();
                     const grid = document.getElementById('trendingGrid');
                     if(data.length === 0) return document.getElementById('trendingWrapper').style.display = 'none';
@@ -1514,7 +1518,7 @@ async def web_ui():
                 const grid = document.getElementById('movieGrid');
                 grid.innerHTML = "<p style='color:white; text-align:center;'>Loading...</p>";
                 try {
-                    const r = await fetch(`/api/list?page=${currentPage}&q=${encodeURIComponent(searchQuery)}&uid=${uid}&cat=${encodeURIComponent(activeCategory)}`);
+                    const r = await fetch(`/api/list?page=${currentPage}&q=${encodeURIComponent(searchQuery)}&uid=${uid}&cat=${encodeURIComponent(activeCategory)}&t=` + new Date().getTime());
                     const data = await r.json();
                     if(data.movies.length === 0) return grid.innerHTML = `<p style='text-align:center; color:#fbbf24;'>কোনো মুভি পাওয়া যায়নি!</p>`;
                     
