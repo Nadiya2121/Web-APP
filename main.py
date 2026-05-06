@@ -1070,17 +1070,17 @@ async def web_ui():
 
             .section-title { padding: 5px 15px 15px; font-size: 20px; font-weight: 900; display: flex; align-items: center; gap: 8px; color:#ff416c; }
             
-            .trending-container { display: flex; overflow-x: auto; gap: 15px; padding: 0 15px 20px; scroll-behavior: smooth; }
+            .trending-container { display: flex; overflow-x: auto; gap: 12px; padding: 0 15px 20px; scroll-behavior: smooth; scroll-snap-type: x mandatory; }
             .trending-container::-webkit-scrollbar { display: none; }
-            .trending-card { min-width: 280px; max-width: 280px; background: transparent; overflow: hidden; cursor: pointer; flex-shrink: 0; position: relative; transition: transform 0.2s; transform: translateZ(0); will-change: transform; }
-            .trending-card:active { transform: scale(0.98); }
+            .trending-card { width: 85vw; max-width: 320px; background: #1e293b; border-radius: 14px; overflow: hidden; cursor: pointer; flex-shrink: 0; position: relative; scroll-snap-align: center; border: 1px solid #334155; box-shadow: 0 8px 20px rgba(0,0,0,0.4); transition: transform 0.2s; }
+            .trending-card:active { transform: scale(0.96); }
 
-            .grid { padding: 0 15px 20px; display: flex; flex-direction: column; gap: 20px; }
-            .card { background: transparent; overflow: hidden; cursor: pointer; transition: transform 0.2s; border-radius: 0; transform: translateZ(0); will-change: transform; }
-            .card:active { transform: scale(0.98); }
+            .grid { padding: 0 15px 20px; display: flex; flex-direction: column; gap: 18px; }
+            .card { background: #1e293b; border-radius: 14px; overflow: hidden; cursor: pointer; border: 1px solid #334155; box-shadow: 0 8px 20px rgba(0,0,0,0.4); transition: transform 0.2s; }
+            .card:active { transform: scale(0.96); }
             
-            .post-content { position: relative; padding: 3px; border-radius: 12px; background: linear-gradient(45deg, #ff0000, #ff7300, #fffb00, #48ff00, #00ffd5, #002bff, #7a00ff, #ff00c8, #ff0000); background-size: 200%; }
-            .post-content img { width: 100%; aspect-ratio: 16/9; height: auto; object-fit: cover; display: block; border-radius: 10px; }
+            .post-content { position: relative; width: 100%; border-bottom: 2px solid #ef4444; }
+            .post-content img { width: 100%; aspect-ratio: 16/9; height: auto; object-fit: cover; display: block; border-radius: 14px 14px 0 0; }
             
             .card-footer { padding: 12px 5px 0; display: flex; align-items: flex-start; gap: 12px; text-align: left; }
             .channel-logo { width: 40px; height: 40px; border-radius: 50%; background: white; color: #ef4444; border: 1px solid #e5e7eb; display: flex; align-items: center; justify-content: center; font-weight: 900; font-size: 16px; flex-shrink: 0; }
@@ -1555,10 +1555,17 @@ async def web_ui():
                 autoScrollInterval = setInterval(() => {
                     let grid = document.getElementById('trendingGrid');
                     if(grid) {
-                        if (grid.scrollLeft >= (grid.scrollWidth - grid.clientWidth - 10)) grid.scrollTo({ left: 0, behavior: 'smooth' });
-                        else grid.scrollBy({ left: 295, behavior: 'smooth' });
+                        let firstCard = grid.querySelector('.trending-card');
+                        if(firstCard) {
+                            let scrollAmount = firstCard.offsetWidth + 12; 
+                            if (grid.scrollLeft >= (grid.scrollWidth - grid.clientWidth - 10)) {
+                                grid.scrollTo({ left: 0, behavior: 'smooth' });
+                            } else {
+                                grid.scrollBy({ left: scrollAmount, behavior: 'smooth' });
+                            }
+                        }
                     }
-                }, 3000);
+                }, 3500);
             }
 
             async function loadTrending() {
