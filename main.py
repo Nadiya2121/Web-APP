@@ -549,13 +549,27 @@ async def execute_broadcast(m: types.Message, state: FSMContext):
         except Exception: pass
     await m.answer(f"✅ সম্পন্ন! সর্বমোট <b>{success}</b> জনকে মেসেজ পাঠানো হয়েছে।", parse_mode="HTML")
 
-@dp.message(lambda m: m.chat.type == "private" and m.from_user.id not in admin_cache and not m.text.startswith("/"))
+# 🛑 FIXED: Now all admins will receive messages from users, not just the owner
+@dp.message(lambda m: m.chat.type == "private" and m.from_user.id not in admin_cache and (m.text is None or not m.text.startswith("/")))
 async def forward_to_admin(m: types.Message):
-    try:
-        builder = InlineKeyboardBuilder()
-        builder.button(text="✍️ রিপ্লাই দিন", callback_data=f"reply_{m.from_user.id}")
-        await bot.send_message(OWNER_ID, f"📩 <b>Message from <a href='tg://user?id={m.from_user.id}'>{m.from_user.first_name}</a></b>:\n\n{m.text or 'Media file'}", parse_mode="HTML", reply_markup=builder.as_markup())
-    except Exception: pass
+    builder = InlineKeyboardBuilder()
+    builder.button(text="✍️ রিপ্লাই দিন", callback_data=f"reply_{m.from_user.id}")
+    markup = builder.as_markup()
+    
+    # ডাটাবেস থেকে সব অ্যাডমিনের আইডি বের করা হচ্ছে
+    all_admins = set([OWNER_ID])
+    async for a in db.admins.find(): 
+        all_admins.add(a["user_id"])
+        
+    for admin_id in all_admins:
+        try:
+            await bot.send_message(
+                admin_id, 
+                f"📩 <b>Message from <a href='tg://user?id={m.from_user.id}'>{m.from_user.first_name}</a></b>:\n\n{m.text or '[Media File/Sticker]'}", 
+                parse_mode="HTML", 
+                reply_markup=markup
+            )
+        except Exception: pass
 
 
 # ==========================================
