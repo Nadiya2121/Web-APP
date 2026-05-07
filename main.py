@@ -51,7 +51,12 @@ OWNER_ID = int(os.getenv("ADMIN_ID", "0"))
 APP_URL = os.getenv("APP_URL")
 CHANNEL_ID = os.getenv("CHANNEL_ID", "") 
 ADMIN_PASS = os.getenv("ADMIN_PASS", "admin123") 
-BOT_USERNAME = "BDViralLinkProBot" # আপনার বটের ইউজারনেম
+BOT_USERNAME = "BDMovieZoneBot" # আপনার বটের ইউজারনেম
+
+# 👇👇👇 এখানে আপনার নতুন বাটনের লিংকগুলো বসাবেন 👇👇👇
+TUTORIAL_LINK = "https://t.me/HowtoDowlnoad/41"     # 'কিভাবে ডাউনলোড করবেন' টিউটোরিয়ালের লিংক
+REQUEST_LINK = "https://t.me/+dld6-uEkdvQ5Yjg1"   # 'MOVIE REQUEST' চ্যানেল বা গ্রুপের লিংক
+# 👆👆👆
 
 # 🛑 ULTIMATE ANTI-BAN: Database Channel ID
 _db_ch = os.getenv("DB_CHANNEL_ID", "")
@@ -211,7 +216,11 @@ async def video_queue_worker():
             if CHANNEL_ID:
                 try:
                     bot_info = await bot.get_me()
-                    kb = [[types.InlineKeyboardButton(text="📥 ভিডিওটি দেখতে এখানে ক্লিক করুন", url=f"https://t.me/{bot_info.username}?start=new")]]
+                    kb = [
+                        [types.InlineKeyboardButton(text="📥 Download & Watch 🎬", url=f"https://t.me/{bot_info.username}?start=new")],
+                        [types.InlineKeyboardButton(text="কিভাবে ডাউনলোড করবেন ❓", url=TUTORIAL_LINK)],
+                        [types.InlineKeyboardButton(text="♻️ MOVIE REQUEST ♻️", url=REQUEST_LINK)]
+                    ]
                     markup = types.InlineKeyboardMarkup(inline_keyboard=kb)
                     caption = (f"🔥 <b>নতুন এক্সক্লুসিভ ভাইরাল ভিডিও!</b>\n\n📌 <b>টাইটেল:</b> {auto_title}\n🏷 <b>কোয়ালিটি:</b> HD (Original)\n\n👇 <i>বট থেকে ভিডিওটি পেতে নিচের বাটনে ক্লিক করুন।</i>")
                     await bot.send_photo(chat_id=CHANNEL_ID, photo=photo_id, caption=caption, parse_mode="HTML", reply_markup=markup)
@@ -693,7 +702,11 @@ async def finalize_new_episode(m: types.Message, state: FSMContext):
     if CHANNEL_ID:
         try:
             bot_info = await bot.get_me()
-            kb = [[types.InlineKeyboardButton(text="📥 এপিসোডটি দেখতে এখানে ক্লিক করুন", url=f"https://t.me/{bot_info.username}?start=new")]]
+            kb = [
+                [types.InlineKeyboardButton(text="📥 Download & Watch 🎬", url=f"https://t.me/{bot_info.username}?start=new")],
+                [types.InlineKeyboardButton(text="কিভাবে ডাউনলোড করবেন ❓", url=TUTORIAL_LINK)],
+                [types.InlineKeyboardButton(text="♻️ MOVIE REQUEST ♻️", url=REQUEST_LINK)]
+            ]
             markup = types.InlineKeyboardMarkup(inline_keyboard=kb)
             cat_display = ", ".join(categories) if categories else "N/A"
             caption = (f"🔥 <b>নতুন এপিসোড যুক্ত হয়েছে!</b>\n\n📌 <b>টাইটেল:</b> {title}\n🏷 <b>এপিসোড/কোয়ালিটি:</b> {quality}\n🎭 <b>ক্যাটাগরি:</b> {cat_display}\n\n👇 <i>বট থেকে ভিডিওটি পেতে নিচের বাটনে ক্লিক করুন।</i>")
@@ -776,7 +789,11 @@ async def receive_movie_category(m: types.Message, state: FSMContext):
     if CHANNEL_ID:
         try:
             bot_info = await bot.get_me()
-            kb = [[types.InlineKeyboardButton(text="📥 ভিডিওটি দেখতে এখানে ক্লিক করুন", url=f"https://t.me/{bot_info.username}?start=new")]]
+            kb = [
+                [types.InlineKeyboardButton(text="📥 Download & Watch 🎬", url=f"https://t.me/{bot_info.username}?start=new")],
+                [types.InlineKeyboardButton(text="কিভাবে ডাউনলোড করবেন ❓", url=TUTORIAL_LINK)],
+                [types.InlineKeyboardButton(text="♻️ MOVIE REQUEST ♻️", url=REQUEST_LINK)]
+            ]
             markup = types.InlineKeyboardMarkup(inline_keyboard=kb)
             caption = (f"🔥 <b>নতুন ফাইল যুক্ত হয়েছে!</b>\n\n📌 <b>টাইটেল:</b> {title}\n🏷 <b>কোয়ালিটি:</b> {quality}\n🎭 <b>ক্যাটাগরি:</b> {cat_display}\n\n👇 <i>বট থেকে ভিডিওটি পেতে নিচের বাটনে ক্লিক করুন।</i>")
             await bot.send_photo(chat_id=CHANNEL_ID, photo=photo_id, caption=caption, parse_mode="HTML", reply_markup=markup)
