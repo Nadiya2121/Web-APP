@@ -43,7 +43,7 @@ from pydantic import BaseModel
 from pyrogram import Client as PyroClient
 
 # ==========================================
-# 0. Logging Setup (প্রোডাকশন লেভেল লগিং)
+# 0. Logging Setup
 # ==========================================
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -60,14 +60,11 @@ OWNER_ID = int(os.getenv("ADMIN_ID", "0"))
 APP_URL = os.getenv("APP_URL")
 CHANNEL_ID = os.getenv("CHANNEL_ID", "") 
 ADMIN_PASS = os.getenv("ADMIN_PASS", "admin123") 
-BOT_USERNAME = "BDMovieZoneBot" # আপনার বটের ইউজারনেম
+BOT_USERNAME = "BDMovieZoneBot"
 
-# 👇👇👇 এখানে আপনার নতুন বাটনের লিংকগুলো বসাবেন 👇👇👇
-TUTORIAL_LINK = "https://t.me/HowtoDowlnoad/41"     # 'কিভাবে ডাউনলোড করবেন' টিউটোরিয়ালের লিংক
-REQUEST_LINK = "https://t.me/+dld6-uEkdvQ5Yjg1"   # 'MOVIE REQUEST' চ্যানেল বা গ্রুপের লিংক
-# 👆👆👆
+TUTORIAL_LINK = "https://t.me/HowtoDowlnoad/41"
+REQUEST_LINK = "https://t.me/+dld6-uEkdvQ5Yjg1"
 
-# 🛑 ULTIMATE ANTI-BAN: Database Channel ID
 _db_ch = os.getenv("DB_CHANNEL_ID", "")
 DB_CHANNEL_ID = int(_db_ch) if _db_ch.lstrip('-').isdigit() else None
 
@@ -76,10 +73,11 @@ dp = Dispatcher(storage=MemoryStorage())
 app = FastAPI()
 security = HTTPBasic()
 
+# 🛑 FIX: Pyrogram no_updates=True (Conflict Error Fix)
 if SESSION_STRING:
-    pyro_app = PyroClient("user_session", api_id=API_ID, api_hash=API_HASH, session_string=SESSION_STRING, in_memory=True)
+    pyro_app = PyroClient("user_session", api_id=API_ID, api_hash=API_HASH, session_string=SESSION_STRING, in_memory=True, no_updates=True)
 else:
-    pyro_app = PyroClient("bot_session", api_id=API_ID, api_hash=API_HASH, bot_token=TOKEN, in_memory=True)
+    pyro_app = PyroClient("bot_session", api_id=API_ID, api_hash=API_HASH, bot_token=TOKEN, in_memory=True, no_updates=True)
 
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
@@ -89,7 +87,6 @@ db = client['movie_database']
 admin_cache = set([OWNER_ID]) 
 banned_cache = set() 
 
-# 🛑 Queue ডিক্লেয়ারেশন start() এর ভেতরে হবে, তাই গ্লোবালি None রাখা হলো
 video_queue = None
 is_processing = False
 
@@ -103,9 +100,6 @@ class AdminStates(StatesGroup):
     waiting_for_series_search = State()
     waiting_for_episode_quality = State()
 
-# ==========================================
-# 1.5 Cleanup Function (সার্ভারের স্টোরেজ বাঁচার জন্য)
-# ==========================================
 def cleanup_temp_files():
     patterns = ["temp_video_*.mp4", "collage_*.jpg", "temp_frame_*.jpg", "temp_in_*.jpg", "temp_out_*.jpg"]
     count = 0
@@ -136,7 +130,7 @@ def make_wide_thumbnail(input_path, output_path):
         canvas.save(output_path, quality=90)
         return True
     except Exception as e: 
-        logger.error(f"Thumbnail generation error: {e}")
+        logger.error(f"Thumbnail error: {e}")
         return False
 
 async def get_video_duration(file_path):
@@ -144,15 +138,12 @@ async def get_video_duration(file_path):
         cmd = f'ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "{file_path}"'
         process = await asyncio.create_subprocess_shell(cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
         try:
-            # 🛑 60 সেকেন্ডের টাইমআউট
             stdout, _ = await asyncio.wait_for(process.communicate(), timeout=60.0)
             return float(stdout.decode().strip())
         except asyncio.TimeoutError:
             process.kill()
-            logger.warning("FFprobe timed out!")
             return 10.0
-    except Exception as e: 
-        logger.error(f"FFprobe error: {e}")
+    except Exception: 
         return 10.0 
 
 async def generate_collage(video_path, output_path):
@@ -164,11 +155,9 @@ async def generate_collage(video_path, output_path):
         cmd = f'ffmpeg -y -ss {t} -i "{video_path}" -vframes 1 -q:v 2 "{img_name}"'
         process = await asyncio.create_subprocess_shell(cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
         try:
-            # 🛑 120 সেকেন্ডের টাইমআউট
             await asyncio.wait_for(process.communicate(), timeout=120.0)
         except asyncio.TimeoutError:
             process.kill()
-            logger.warning(f"FFmpeg timed out on frame {i}")
             continue
 
         if os.path.exists(img_name):
@@ -178,8 +167,7 @@ async def generate_collage(video_path, output_path):
                 w_size = int((float(img.size[0]) * float(h_percent)))
                 img = img.resize((w_size, 360), Image.Resampling.LANCZOS)
                 images.append(img)
-            except Exception as e:
-                logger.error(f"Image load error: {e}")
+            except Exception: pass
             finally:
                 if os.path.exists(img_name): os.remove(img_name)
     
@@ -231,7 +219,6 @@ async def video_queue_worker():
                 await bot.edit_message_text("❌ <b>Screenshot তৈরি করতে সমস্যা হয়েছে!</b>", chat_id=admin_id, message_id=status_msg.message_id, parse_mode="HTML")
                 continue
                 
-            # 🛑 DB Channel Routing
             db_file_id = None
             db_photo_id = None
             photo_id = None
@@ -244,8 +231,7 @@ async def video_queue_worker():
                     copied_photo = await bot.send_photo(DB_CHANNEL_ID, FSInputFile(collage_path))
                     db_photo_id = copied_photo.message_id
                     photo_id = copied_photo.photo[-1].file_id
-                except Exception as e: 
-                    logger.error(f"DB Channel upload error: {e}")
+                except Exception: pass
             
             photo_msg = await bot.send_photo(admin_id, photo=FSInputFile(collage_path), caption=f"✅ <b>{auto_title}</b> Successfully Uploaded!")
             if not photo_id: photo_id = photo_msg.photo[-1].file_id
@@ -253,7 +239,7 @@ async def video_queue_worker():
             await db.movies.insert_one({
                 "title": auto_title, "quality": "HD", "photo_id": photo_id, 
                 "file_id": aiogram_file_id, "file_type": file_type,
-                "db_file_id": db_file_id, "db_photo_id": db_photo_id, # DB Channel info
+                "db_file_id": db_file_id, "db_photo_id": db_photo_id,
                 "categories": ["Auto Upload"], 
                 "clicks": 0, "created_at": datetime.datetime.utcnow()
             })
@@ -270,11 +256,9 @@ async def video_queue_worker():
                     markup = types.InlineKeyboardMarkup(inline_keyboard=kb)
                     caption = (f"🔥 <b>নতুন এক্সক্লুসিভ ভাইরাল ভিডিও!</b>\n\n📌 <b>টাইটেল:</b> {auto_title}\n🏷 <b>কোয়ালিটি:</b> HD (Original)\n\n👇 <i>বট থেকে ভিডিওটি পেতে নিচের বাটনে ক্লিক করুন।</i>")
                     await bot.send_photo(chat_id=CHANNEL_ID, photo=photo_id, caption=caption, parse_mode="HTML", reply_markup=markup)
-                except Exception as e: 
-                    logger.error(f"Main Channel push error: {e}")
+                except Exception: pass
         except Exception as e:
             await bot.send_message(chat_id, f"⚠️ Error: {str(e)}")
-            logger.error(f"Video Worker Error: {e}")
         finally:
             if downloaded_file and os.path.exists(downloaded_file): os.remove(downloaded_file)
             if collage_path and os.path.exists(collage_path): os.remove(collage_path)
@@ -326,11 +310,9 @@ async def auto_delete_worker():
             async for msg in expired_msgs:
                 try: 
                     await bot.delete_message(chat_id=msg["chat_id"], message_id=msg["message_id"])
-                except Exception as e: 
-                    logger.debug(f"Auto Delete Failed for msg {msg['message_id']}: {e}")
+                except Exception: pass
                 await db.auto_delete.delete_one({"_id": msg["_id"]})
-        except Exception as e: 
-            logger.error(f"Auto delete worker error: {e}")
+        except Exception: pass
         await asyncio.sleep(60)
 
 # ==========================================
@@ -625,17 +607,13 @@ async def execute_broadcast(m: types.Message, state: FSMContext):
             await m.copy_to(chat_id=u['user_id'], reply_markup=markup)
             success += 1
             await asyncio.sleep(0.05)
-        # 🛑 FloodWait Fix (অ্যান্টি-ব্যান)
         except TelegramRetryAfter as e:
-            logger.warning(f"FloodWait: sleeping for {e.retry_after}s")
             await asyncio.sleep(e.retry_after)
             try:
                 await m.copy_to(chat_id=u['user_id'], reply_markup=markup)
                 success += 1
             except Exception: pass
-        except Exception: 
-            pass
-            
+        except Exception: pass
     await m.answer(f"✅ সম্পন্ন! সর্বমোট <b>{success}</b> জনকে মেসেজ পাঠানো হয়েছে।", parse_mode="HTML")
 
 @dp.message(lambda m: m.chat.type == "private" and m.from_user.id not in admin_cache and (m.text is None or not m.text.startswith("/")))
@@ -645,8 +623,7 @@ async def forward_to_admin(m: types.Message):
     markup = builder.as_markup()
     
     all_admins = set([OWNER_ID])
-    async for a in db.admins.find(): 
-        all_admins.add(a["user_id"])
+    async for a in db.admins.find(): all_admins.add(a["user_id"])
         
     for admin_id in all_admins:
         try:
@@ -660,7 +637,7 @@ async def forward_to_admin(m: types.Message):
 
 
 # ==========================================
-# 5. Movie Upload Logic (With Episode Support)
+# 5. Movie Upload Logic
 # ==========================================
 @dp.message(F.content_type.in_({'video', 'document'}), lambda m: m.from_user.id in admin_cache)
 async def receive_movie_file(m: types.Message, state: FSMContext):
@@ -676,7 +653,6 @@ async def receive_movie_file(m: types.Message, state: FSMContext):
         fid = m.video.file_id if m.video else m.document.file_id
         ftype = "video" if m.video else "document"
         
-        # 🛑 DB Channel Routing
         db_file_id = None
         if DB_CHANNEL_ID:
             try:
@@ -713,14 +689,12 @@ async def search_series_for_episode(m: types.Message, state: FSMContext):
     ]
     results = await db.movies.aggregate(pipeline).to_list(10)
 
-    if not results:
-        return await m.answer("⚠️ এই নামে কোনো সিরিজ পাওয়া যায়নি! আবার সঠিক নাম লিখে পাঠান।")
+    if not results: return await m.answer("⚠️ এই নামে কোনো সিরিজ পাওয়া যায়নি! আবার সঠিক নাম লিখে পাঠান।")
 
     await state.update_data(search_results=results)
     
     builder = InlineKeyboardBuilder()
-    for idx, res in enumerate(results):
-        builder.button(text=f"📺 {res['_id']}", callback_data=f"sel_series_{idx}")
+    for idx, res in enumerate(results): builder.button(text=f"📺 {res['_id']}", callback_data=f"sel_series_{idx}")
     builder.adjust(1)
     
     await m.answer("👇 নিচে থেকে আপনার কাঙ্ক্ষিত সিরিজটি সিলেক্ট করুন:", reply_markup=builder.as_markup())
@@ -731,15 +705,10 @@ async def selected_series_cb(c: types.CallbackQuery, state: FSMContext):
     data = await state.get_data()
     selected = data["search_results"][idx]
 
-    await state.update_data(
-        title=selected["_id"],
-        photo_id=selected["photo_id"],
-        db_photo_id=selected.get("db_photo_id"),
-        categories=selected.get("categories", [])
-    )
+    await state.update_data(title=selected["_id"], photo_id=selected["photo_id"], db_photo_id=selected.get("db_photo_id"), categories=selected.get("categories", []))
     
     await state.set_state(AdminStates.waiting_for_episode_quality)
-    await c.message.edit_text(f"✅ <b>{selected['_id']}</b> সিলেক্ট হয়েছে!\n\nএবার এই নতুন ফাইলের <b>এপিসোড নাম্বার বা কোয়ালিটি</b> লিখে পাঠান। (যেমন: Episode 05)", parse_mode="HTML")
+    await c.message.edit_text(f"✅ <b>{selected['_id']}</b> সিলেক্ট হয়েছে!\n\nএবার এই নতুন ফাইলের <b>এপিসোড নাম্বার বা কোয়ালিটি</b> লিখে পাঠান।", parse_mode="HTML")
 
 @dp.message(AdminStates.waiting_for_episode_quality, F.text)
 async def finalize_new_episode(m: types.Message, state: FSMContext):
@@ -753,8 +722,7 @@ async def finalize_new_episode(m: types.Message, state: FSMContext):
         "title": title, "quality": quality, "photo_id": photo_id, 
         "file_id": data["file_id"], "file_type": data["file_type"],
         "db_file_id": data.get("db_file_id"), "db_photo_id": data.get("db_photo_id"),
-        "categories": categories,
-        "clicks": 0, "created_at": datetime.datetime.utcnow()
+        "categories": categories, "clicks": 0, "created_at": datetime.datetime.utcnow()
     })
     
     await state.clear()
@@ -790,7 +758,6 @@ async def receive_movie_photo(m: types.Message, state: FSMContext):
     db_photo_id = None
     target_file = temp_out if success else temp_in
     
-    # 🛑 DB Channel Routing
     if DB_CHANNEL_ID:
         try:
             copied_photo = await bot.send_photo(DB_CHANNEL_ID, FSInputFile(target_file))
@@ -1104,7 +1071,6 @@ async def web_ui():
     b18_cfg = await db.settings.find_one({"id": "link_18"})
     dl_cfg = await db.settings.find_one({"id": "direct_links"})
     
-    # 🛑 FETCH ADMIN AD_TIME SETTING
     ad_time_cfg = await db.settings.find_one({"id": "ad_time"})
     ad_wait_seconds = ad_time_cfg['seconds'] if ad_time_cfg else 10
     
@@ -1129,7 +1095,6 @@ async def web_ui():
             html { -webkit-text-size-adjust: 100%; scroll-behavior: smooth; }
             body { background: #0f172a; font-family: sans-serif; color: #fff; overflow-x: hidden; width: 100%; -webkit-overflow-scrolling: touch; padding-bottom: 80px; } 
             
-            /* Clean Center Header */
             header { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 12px 10px; border-bottom: 1px solid #1e293b; position: sticky; top: 0; background: rgba(15, 23, 42, 0.95); backdrop-filter: blur(10px); z-index: 1000; width: 100%; transform: translateZ(0); will-change: transform; gap: 8px; }
             .logo { font-size: 22px; font-weight: 900; white-space: nowrap; letter-spacing: 1px; }
             .logo span { background: #ef4444; color: #fff; padding: 2px 6px; border-radius: 4px; margin-left: 3px; font-size: 14px; }
@@ -1137,7 +1102,6 @@ async def web_ui():
             .home-btn { background: rgba(59, 130, 246, 0.1); color: #3b82f6; border: 1px solid rgba(59, 130, 246, 0.5); padding: 4px 12px; border-radius: 20px; font-weight: bold; font-size: 11px; cursor: pointer; display: flex; align-items: center; gap: 4px; transition: 0.2s; white-space: nowrap; }
             .home-btn:active { transform: scale(0.95); background: rgba(59, 130, 246, 0.2); }
 
-            /* Bottom Navigation (Netflix Style) */
             .bottom-nav { position: fixed; bottom: 0; left: 0; width: 100%; background: rgba(15, 23, 42, 0.98); backdrop-filter: blur(15px); border-top: 1px solid #334155; display: flex; justify-content: space-around; align-items: center; padding: 10px 0; z-index: 2000; padding-bottom: calc(10px + env(safe-area-inset-bottom)); }
             .nav-item { display: flex; flex-direction: column; align-items: center; justify-content: center; color: #94a3b8; font-size: 11px; font-weight: bold; cursor: pointer; transition: 0.2s; width: 25%; gap: 4px; }
             .nav-item i { font-size: 20px; transition: transform 0.2s; }
@@ -1145,7 +1109,6 @@ async def web_ui():
             .nav-item.active i { transform: scale(1.15); }
             .nav-item:active { transform: scale(0.9); }
             
-            /* Profile Dropdown Menu fixed to appear above bottom nav */
             .dropdown-menu { display: none; position: fixed; bottom: 85px; right: 15px; background: rgba(15, 23, 42, 0.98); backdrop-filter: blur(10px); border: 1px solid #334155; border-radius: 12px; overflow: hidden; box-shadow: 0 -5px 25px rgba(0,0,0,0.5); z-index: 2000; width: 250px; animation: slideUp 0.2s ease-out forwards; }
             @keyframes slideUp { 0% { opacity: 0; transform: translateY(15px); } 100% { opacity: 1; transform: translateY(0); } }
             
@@ -1201,7 +1164,6 @@ async def web_ui():
             .dev-btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; background: linear-gradient(45deg, #0ea5e9, #2563eb); color: white; padding: 12px 24px; border-radius: 30px; font-size: 15px; font-weight: bold; border: none; cursor: pointer; box-shadow: 0 4px 15px rgba(37, 99, 235, 0.4); transition: 0.2s; position: relative; z-index: 10; }
             .dev-btn:active { transform: scale(0.95); }
 
-            /* Floating Buttons Moved Up due to Bottom Nav */
             .floating-btn { position: fixed; right: 15px; color: white; width: 48px; height: 48px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 20px; z-index: 500; cursor: pointer; box-shadow: 0 4px 15px rgba(0,0,0,0.5); }
             .btn-18 { bottom: 205px; background: linear-gradient(45deg, #ff0000, #990000); font-weight: bold; font-size: 16px; border: 2px solid white; }
             .btn-tg { bottom: 145px; background: linear-gradient(45deg, #24A1DE, #1b7ba8); }
@@ -1226,13 +1188,11 @@ async def web_ui():
         </style>
     </head>
     <body onclick="closeMenu(event)">
-        <!-- Beautiful Centered Header -->
         <header>
             <div class="logo">MovieZone<span>BD</span></div>
             <button onclick="goHome()" class="home-btn"><i class="fa-solid fa-house"></i> Home Page</button>
         </header>
         
-        <!-- Dropdown Menu now opens from bottom -->
         <div id="dropdownMenu" class="dropdown-menu">
             <div style="padding: 12px 15px; border-bottom: 1px solid #334155; display: flex; align-items: center; gap: 12px;">
                 <div style="width: 40px; height: 40px; background: #3b82f6; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 18px; flex-shrink: 0;">
@@ -1251,7 +1211,7 @@ async def web_ui():
             <a onclick="openReferModal()"><i class="fa-solid fa-share-nodes text-blue-400"></i> রেফার ও ইনকাম</a>
             <a onclick="openReqModal()"><i class="fa-solid fa-code-pull-request text-green-400"></i> রিকোয়েস্ট মুভি</a>
             <div style="height: 1px; background: #334155; margin: 4px 0;"></div>
-            <a onclick="tg.showAlert(`ডাউনলোডের নিয়ম:\n১. ডাউনলোড বাটনে ক্লিক করুন।\n২. লিংকে গিয়ে ${AD_WAIT_TIME} সেকেন্ড অপেক্ষা করুন।\n৩. মিনি অ্যাপে ব্যাক করলেই ভিডিও অটোমেটিক বটের ইনবক্সে চলে যাবে!`)"><i class="fa-solid fa-circle-question text-red-400"></i> ডাউনলোডের নিয়ম</a>
+            <a onclick="tg.showAlert(`ডাউনলোডের নিয়ম:\n১. ডাউনলোড বাটনে ক্লিক করুন।\n২. লিংকে গিয়ে ${AD_WAIT_TIME} সেকেন্ড অপেক্ষা করুন।\n৩. এরপর শুধু ব্যাক করে মিনি অ্যাপে আসলেই অটোমেটিক ভিডিওটি আপনার বটের ইনবক্সে চলে যাবে!`)"><i class="fa-solid fa-circle-question text-red-400"></i> ডাউনলোডের নিয়ম</a>
             <a onclick="window.open('{{TG_LINK}}')"><i class="fa-solid fa-bullhorn text-green-400"></i> আমাদের চ্যানেল</a>
             <a onclick="window.open('{{SUPPORT_LINK}}')"><i class="fa-brands fa-telegram text-blue-400"></i> সাপোর্ট / কন্টাক্ট</a>
             
@@ -1282,12 +1242,10 @@ async def web_ui():
             </button>
         </div>
 
-        <!-- Floating Buttons (Moved up) -->
         <div class="floating-btn btn-18" onclick="window.open('{{LINK_18}}')">18+</div>
         <div class="floating-btn btn-tg" onclick="window.open('{{TG_LINK}}')"><i class="fa-brands fa-telegram"></i></div>
         <div class="floating-btn btn-req" onclick="openReqModal()"><i class="fa-solid fa-code-pull-request"></i></div>
 
-        <!-- NEW: Netflix Style Bottom Navigation -->
         <div class="bottom-nav">
             <div class="nav-item active" id="navHome" onclick="goHome()">
                 <i class="fa-solid fa-house"></i>
@@ -1307,7 +1265,6 @@ async def web_ui():
             </div>
         </div>
 
-        <!-- Download Modal -->
         <div id="qualityModal" class="modal">
             <div class="modal-content">
                 <div class="close-icon" onclick="document.getElementById('qualityModal').style.display='none'"><i class="fa-solid fa-xmark"></i></div>
@@ -1322,7 +1279,6 @@ async def web_ui():
             </div>
         </div>
 
-        <!-- Direct Link Ad Modal -->
         <div id="directLinkModal" class="modal">
             <div class="modal-content" style="background: transparent; border: none; padding: 0;">
                 <div class="close-icon" onclick="document.getElementById('directLinkModal').style.display='none'" style="top: -15px; right: 5px; z-index: 1000;"><i class="fa-solid fa-xmark"></i></div>
@@ -1338,7 +1294,6 @@ async def web_ui():
             </div>
         </div>
 
-        <!-- VIP & Coin Modal (Coin System) -->
         <div id="vipModal" class="modal">
             <div class="modal-content">
                 <div class="close-icon" onclick="document.getElementById('vipModal').style.display='none'"><i class="fa-solid fa-xmark"></i></div>
@@ -1360,7 +1315,6 @@ async def web_ui():
             </div>
         </div>
 
-        <!-- Refer Modal -->
         <div id="referModal" class="modal">
             <div class="modal-content">
                 <div class="close-icon" onclick="document.getElementById('referModal').style.display='none'"><i class="fa-solid fa-xmark"></i></div>
@@ -1372,7 +1326,6 @@ async def web_ui():
             </div>
         </div>
         
-        <!-- Request Modal -->
         <div id="reqModal" class="modal">
             <div class="modal-content">
                 <div class="close-icon" onclick="document.getElementById('reqModal').style.display='none'"><i class="fa-solid fa-xmark"></i></div>
@@ -1870,7 +1823,7 @@ async def trending_movies(uid: int = 0):
     ]
     movies = await db.movies.aggregate(pipeline).to_list(10)
     for m in movies:
-        m["photo_id"] = f"db_{m['db_photo_id']}" if m.get("db_photo_id") else m.get("photo_id")
+        m["photo_id"] = m.get("photo_id") or (f"db_{m['db_photo_id']}" if m.get("db_photo_id") else None)
         for f in m["files"]: f["is_unlocked"] = f["id"] in unlocked_ids
     return movies
 
@@ -1881,7 +1834,7 @@ async def get_categories():
 
 @app.get("/api/list")
 async def list_movies(page: int = 1, q: str = "", uid: int = 0, cat: str = ""):
-    limit = 20  # 🛑 হোমপেজে ২০টি মুভি দেখাবে
+    limit = 20  
     skip = (page - 1) * limit
     unlocked_ids = []
     
@@ -1904,7 +1857,7 @@ async def list_movies(page: int = 1, q: str = "", uid: int = 0, cat: str = ""):
 
     movies = await db.movies.aggregate(pipeline).to_list(limit)
     for m in movies:
-        m["photo_id"] = f"db_{m['db_photo_id']}" if m.get("db_photo_id") else m.get("photo_id")
+        m["photo_id"] = m.get("photo_id") or (f"db_{m['db_photo_id']}" if m.get("db_photo_id") else None)
         for f in m["files"]: f["is_unlocked"] = f["id"] in unlocked_ids
     return {"movies": movies, "total_pages": total_pages}
 
@@ -1918,16 +1871,28 @@ async def get_image(photo_id: str):
         if cache and cache.get("expires_at", now) > now: 
             file_path = cache["file_path"]
         else:
-            if photo_id.startswith("db_"):
-                msg_id = int(photo_id.split("_")[1])
-                if DB_CHANNEL_ID:
-                    pyro_msg = await pyro_app.get_messages(DB_CHANNEL_ID, msg_id)
-                    if pyro_msg.photo:
-                        actual_file_id = pyro_msg.photo.file_id
-                        file_path = (await bot.get_file(actual_file_id)).file_path
-            else:
-                file_path = (await bot.get_file(photo_id)).file_path
+            actual_file_id = photo_id
+            db_msg_id = None
             
+            if photo_id.startswith("db_"):
+                db_msg_id = int(photo_id.split("_")[1])
+                movie = await db.movies.find_one({"db_photo_id": db_msg_id})
+                if movie and movie.get("photo_id"):
+                    actual_file_id = movie["photo_id"]
+            
+            try:
+                file_path = (await bot.get_file(actual_file_id)).file_path
+            except Exception:
+                if db_msg_id and DB_CHANNEL_ID:
+                    try:
+                        copied = await bot.copy_message(chat_id=DB_CHANNEL_ID, from_chat_id=DB_CHANNEL_ID, message_id=db_msg_id)
+                        new_photo_id = copied.photo[-1].file_id
+                        await bot.delete_message(chat_id=DB_CHANNEL_ID, message_id=copied.message_id)
+                        await db.movies.update_many({"db_photo_id": db_msg_id}, {"$set": {"photo_id": new_photo_id}})
+                        file_path = (await bot.get_file(new_photo_id)).file_path
+                    except Exception as e2:
+                        logger.error(f"Anti-Ban Healing Failed: {e2}")
+        
             if file_path:
                 await db.file_cache.update_one(
                     {"photo_id": photo_id}, 
@@ -1974,7 +1939,6 @@ async def send_file(d: SendRequestModel):
             db_file_id = m.get("db_file_id")
             sent_msg = None
             
-            # 🛑 DB Channel Routing or Fallback to Old Method
             if db_file_id and DB_CHANNEL_ID:
                 sent_msg = await bot.copy_message(
                     chat_id=d.userId, 
@@ -2030,10 +1994,7 @@ async def start():
     global video_queue
     logger.info("Initializing App and Fixing Asyncio Queue...")
     
-    # 🛑 মেইন ইভেন্ট লুপ তৈরি হওয়ার পর Queue ডিক্লেয়ার করা হলো
     video_queue = asyncio.Queue()
-    
-    # 🛑 ক্লিনআপ ফাংশন কল
     cleanup_temp_files()
     
     logger.info("Initializing Database...")
