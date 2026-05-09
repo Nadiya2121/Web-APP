@@ -10,6 +10,8 @@ import urllib.parse
 import secrets
 import json
 import html
+import logging
+import glob
 from PIL import Image, ImageFilter
 
 # ==========================================
@@ -33,11 +35,18 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import FSInputFile
+from aiogram.exceptions import TelegramRetryAfter
 
 from motor.motor_asyncio import AsyncIOMotorClient
 from bson import ObjectId
 from pydantic import BaseModel
 from pyrogram import Client as PyroClient
+
+# ==========================================
+# 0. Logging Setup (প্রোডাকশন লেভেল লগিং)
+# ==========================================
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 # ==========================================
 # 1. Configuration & Global Variables
@@ -79,7 +88,9 @@ db = client['movie_database']
 
 admin_cache = set([OWNER_ID]) 
 banned_cache = set() 
-video_queue = asyncio.Queue()
+
+# 🛑 Queue ডিক্লেয়ারেশন start() এর ভেতরে হবে, তাই গ্লোবালি None রাখা হলো
+video_queue = None
 is_processing = False
 
 class AdminStates(StatesGroup):
@@ -91,6 +102,22 @@ class AdminStates(StatesGroup):
     waiting_for_category = State()
     waiting_for_series_search = State()
     waiting_for_episode_quality = State()
+
+# ==========================================
+# 1.5 Cleanup Function (সার্ভারের স্টোরেজ বাঁচার জন্য)
+# ==========================================
+def cleanup_temp_files():
+    patterns = ["temp_video_*.mp4", "collage_*.jpg", "temp_frame_*.jpg", "temp_in_*.jpg", "temp_out_*.jpg"]
+    count = 0
+    for p in patterns:
+        for f in glob.glob(p):
+            try:
+                os.remove(f)
+                count += 1
+            except Exception as e:
+                logger.error(f"Cleanup error: {e}")
+    if count > 0:
+        logger.info(f"Cleaned up {count} leftover temp files.")
 
 # ==========================================
 # 2. Image Processing (Wide Thumbnails)
@@ -108,15 +135,25 @@ def make_wide_thumbnail(input_path, output_path):
         canvas.paste(img, (offset_x, 0))
         canvas.save(output_path, quality=90)
         return True
-    except Exception: return False
+    except Exception as e: 
+        logger.error(f"Thumbnail generation error: {e}")
+        return False
 
 async def get_video_duration(file_path):
     try:
         cmd = f'ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "{file_path}"'
         process = await asyncio.create_subprocess_shell(cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
-        stdout, _ = await process.communicate()
-        return float(stdout.decode().strip())
-    except: return 10.0 
+        try:
+            # 🛑 60 সেকেন্ডের টাইমআউট
+            stdout, _ = await asyncio.wait_for(process.communicate(), timeout=60.0)
+            return float(stdout.decode().strip())
+        except asyncio.TimeoutError:
+            process.kill()
+            logger.warning("FFprobe timed out!")
+            return 10.0
+    except Exception as e: 
+        logger.error(f"FFprobe error: {e}")
+        return 10.0 
 
 async def generate_collage(video_path, output_path):
     duration = await get_video_duration(video_path)
@@ -126,7 +163,14 @@ async def generate_collage(video_path, output_path):
         img_name = f"temp_frame_{i}_{int(time.time())}.jpg"
         cmd = f'ffmpeg -y -ss {t} -i "{video_path}" -vframes 1 -q:v 2 "{img_name}"'
         process = await asyncio.create_subprocess_shell(cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
-        await process.communicate()
+        try:
+            # 🛑 120 সেকেন্ডের টাইমআউট
+            await asyncio.wait_for(process.communicate(), timeout=120.0)
+        except asyncio.TimeoutError:
+            process.kill()
+            logger.warning(f"FFmpeg timed out on frame {i}")
+            continue
+
         if os.path.exists(img_name):
             try:
                 img = Image.open(img_name)
@@ -134,7 +178,8 @@ async def generate_collage(video_path, output_path):
                 w_size = int((float(img.size[0]) * float(h_percent)))
                 img = img.resize((w_size, 360), Image.Resampling.LANCZOS)
                 images.append(img)
-            except Exception: pass
+            except Exception as e:
+                logger.error(f"Image load error: {e}")
             finally:
                 if os.path.exists(img_name): os.remove(img_name)
     
@@ -156,7 +201,7 @@ async def generate_collage(video_path, output_path):
     return True
 
 async def video_queue_worker():
-    global is_processing
+    global is_processing, video_queue
     while True:
         chat_id, message_id, aiogram_file_id, file_type = await video_queue.get()
         is_processing = True
@@ -199,7 +244,8 @@ async def video_queue_worker():
                     copied_photo = await bot.send_photo(DB_CHANNEL_ID, FSInputFile(collage_path))
                     db_photo_id = copied_photo.message_id
                     photo_id = copied_photo.photo[-1].file_id
-                except Exception: pass
+                except Exception as e: 
+                    logger.error(f"DB Channel upload error: {e}")
             
             photo_msg = await bot.send_photo(admin_id, photo=FSInputFile(collage_path), caption=f"✅ <b>{auto_title}</b> Successfully Uploaded!")
             if not photo_id: photo_id = photo_msg.photo[-1].file_id
@@ -224,9 +270,11 @@ async def video_queue_worker():
                     markup = types.InlineKeyboardMarkup(inline_keyboard=kb)
                     caption = (f"🔥 <b>নতুন এক্সক্লুসিভ ভাইরাল ভিডিও!</b>\n\n📌 <b>টাইটেল:</b> {auto_title}\n🏷 <b>কোয়ালিটি:</b> HD (Original)\n\n👇 <i>বট থেকে ভিডিওটি পেতে নিচের বাটনে ক্লিক করুন।</i>")
                     await bot.send_photo(chat_id=CHANNEL_ID, photo=photo_id, caption=caption, parse_mode="HTML", reply_markup=markup)
-                except Exception: pass
+                except Exception as e: 
+                    logger.error(f"Main Channel push error: {e}")
         except Exception as e:
             await bot.send_message(chat_id, f"⚠️ Error: {str(e)}")
+            logger.error(f"Video Worker Error: {e}")
         finally:
             if downloaded_file and os.path.exists(downloaded_file): os.remove(downloaded_file)
             if collage_path and os.path.exists(collage_path): os.remove(collage_path)
@@ -276,10 +324,13 @@ async def auto_delete_worker():
             now = datetime.datetime.utcnow()
             expired_msgs = db.auto_delete.find({"delete_at": {"$lte": now}})
             async for msg in expired_msgs:
-                try: await bot.delete_message(chat_id=msg["chat_id"], message_id=msg["message_id"])
-                except Exception: pass
+                try: 
+                    await bot.delete_message(chat_id=msg["chat_id"], message_id=msg["message_id"])
+                except Exception as e: 
+                    logger.debug(f"Auto Delete Failed for msg {msg['message_id']}: {e}")
                 await db.auto_delete.delete_one({"_id": msg["_id"]})
-        except Exception: pass
+        except Exception as e: 
+            logger.error(f"Auto delete worker error: {e}")
         await asyncio.sleep(60)
 
 # ==========================================
@@ -574,7 +625,17 @@ async def execute_broadcast(m: types.Message, state: FSMContext):
             await m.copy_to(chat_id=u['user_id'], reply_markup=markup)
             success += 1
             await asyncio.sleep(0.05)
-        except Exception: pass
+        # 🛑 FloodWait Fix (অ্যান্টি-ব্যান)
+        except TelegramRetryAfter as e:
+            logger.warning(f"FloodWait: sleeping for {e.retry_after}s")
+            await asyncio.sleep(e.retry_after)
+            try:
+                await m.copy_to(chat_id=u['user_id'], reply_markup=markup)
+                success += 1
+            except Exception: pass
+        except Exception: 
+            pass
+            
     await m.answer(f"✅ সম্পন্ন! সর্বমোট <b>{success}</b> জনকে মেসেজ পাঠানো হয়েছে।", parse_mode="HTML")
 
 @dp.message(lambda m: m.chat.type == "private" and m.from_user.id not in admin_cache and (m.text is None or not m.text.startswith("/")))
@@ -1882,7 +1943,9 @@ async def get_image(photo_id: str):
                 async with session.get(file_url) as resp:
                     async for chunk in resp.content.iter_chunked(1024): yield chunk
         return StreamingResponse(stream_image(), media_type="image/jpeg")
-    except Exception as e: return {"error": str(e)}
+    except Exception as e: 
+        logger.error(f"Image fetch error: {e}")
+        return {"error": str(e)}
 
 class SendRequestModel(BaseModel):
     userId: int
@@ -1932,7 +1995,8 @@ async def send_file(d: SendRequestModel):
             
             if sent_msg and not is_vip:
                 await db.auto_delete.insert_one({"chat_id": d.userId, "message_id": sent_msg.message_id, "delete_at": now + datetime.timedelta(minutes=del_minutes)})
-    except Exception: pass
+    except Exception as e: 
+        logger.error(f"Send File Error: {e}")
     return {"ok": True}
 
 class ReqModel(BaseModel):
@@ -1963,7 +2027,16 @@ async def handle_request(data: ReqModel):
 # 9. Main Application Startup
 # ==========================================
 async def start():
-    print("Initializing Database...")
+    global video_queue
+    logger.info("Initializing App and Fixing Asyncio Queue...")
+    
+    # 🛑 মেইন ইভেন্ট লুপ তৈরি হওয়ার পর Queue ডিক্লেয়ার করা হলো
+    video_queue = asyncio.Queue()
+    
+    # 🛑 ক্লিনআপ ফাংশন কল
+    cleanup_temp_files()
+    
+    logger.info("Initializing Database...")
     await init_db()
     await load_admins()
     await load_banned_users()
@@ -1971,18 +2044,18 @@ async def start():
     config = uvicorn.Config(app, host="0.0.0.0", port=int(os.getenv("PORT", 8000)), loop="asyncio")
     server = uvicorn.Server(config)
     
-    print("Starting Background Workers...")
+    logger.info("Starting Background Workers...")
     await pyro_app.start()
     asyncio.create_task(auto_delete_worker())
     asyncio.create_task(video_queue_worker()) 
     
-    print("Connecting to Telegram Bot API...")
+    logger.info("Connecting to Telegram Bot API...")
     await bot.delete_webhook(drop_pending_updates=True)
     
-    print("Server is Running!")
+    logger.info("Server is Running smoothly!")
     asyncio.create_task(server.serve())
     await dp.start_polling(bot)
 
 if __name__ == "__main__": 
     try: asyncio.run(start())
-    except (KeyboardInterrupt, SystemExit): print("Bot Stopped!")
+    except (KeyboardInterrupt, SystemExit): logger.info("Bot Stopped!")
