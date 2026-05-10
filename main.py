@@ -2083,8 +2083,6 @@ class ViewRequestModel(BaseModel):
 async def increment_movie_view(d: ViewRequestModel):
     try:
         await db.movies.update_many({"title": d.title}, {"$inc": {"clicks": 1}})
-        # 👉 ব্যাকগ্রাউন্ড Cache ক্লিয়ার করে দেওয়া হলো
-        clear_app_cache() 
     except Exception as e:
         logger.error(f"View Increment Error: {e}")
     return {"ok": True}
@@ -2131,6 +2129,7 @@ async def send_file(d: SendRequestModel):
                 else:
                     sent_msg = await bot.send_document(d.userId, m['file_id'], caption=caption, parse_mode="HTML", protect_content=is_protected)
             
+            # await db.movies.update_one({"_id": ObjectId(d.movieId)}, {"$inc": {"clicks": 1}})
             await db.user_unlocks.update_one({"user_id": d.userId, "movie_id": d.movieId}, {"$set": {"unlocked_at": now}}, upsert=True)
             
             if sent_msg and not is_vip:
