@@ -15,7 +15,7 @@ import glob
 from PIL import Image, ImageFilter
 
 # ==========================================
-# 🛑 NEW: Cache লাইব্রেরি ইম্পোর্ট করা হলো
+# 🛑 Cache লাইব্রেরি ইম্পোর্ট করা হলো
 # ==========================================
 from cachetools import TTLCache
 import copy
@@ -79,7 +79,6 @@ dp = Dispatcher(storage=MemoryStorage())
 app = FastAPI()
 security = HTTPBasic()
 
-# 🛑 FIX: Pyrogram no_updates=True (Conflict Error Fix)
 if SESSION_STRING:
     pyro_app = PyroClient("user_session", api_id=API_ID, api_hash=API_HASH, session_string=SESSION_STRING, in_memory=True, no_updates=True)
 else:
@@ -94,7 +93,7 @@ admin_cache = set([OWNER_ID])
 banned_cache = set() 
 
 # ==========================================
-# 🛑 NEW: Caching Setup (RAM Cache)
+# 🛑 Caching Setup (RAM Cache)
 # ==========================================
 trending_cache = TTLCache(maxsize=10, ttl=3600)
 list_cache = TTLCache(maxsize=100, ttl=3600)
@@ -262,7 +261,7 @@ async def video_queue_worker():
                 "categories": ["Auto Upload"], 
                 "clicks": 0, "created_at": datetime.datetime.utcnow()
             })
-            clear_app_cache() # 🛑 NEW: Cache clear on auto upload
+            clear_app_cache() 
             await bot.delete_message(chat_id=admin_id, message_id=status_msg.message_id)
 
             if CHANNEL_ID:
@@ -359,7 +358,7 @@ async def start_cmd(message: types.Message, state: FSMContext):
                 referrer_id = int(args[1].split("_")[1])
                 if referrer_id != uid:
                     await db.users.update_one({"user_id": referrer_id}, {"$inc": {"refer_count": 1, "coins": 10}})
-                    try: await bot.send_message(referrer_id, "🎉 <b>অভিনন্দন!</b> নতুন রেফারের জন্য আপনি <b>১০ কয়েন</b> পেয়েছেন!", parse_mode="HTML")
+                    try: await bot.send_message(referrer_id, "🎉 <b>Congratulations!</b> You got <b>10 Points</b> for a new referral!", parse_mode="HTML")
                     except: pass
             except Exception: pass
 
@@ -390,7 +389,7 @@ async def start_cmd(message: types.Message, state: FSMContext):
             "<i>লগিন: admin / admin123</i>\n\n"
             "📥 <b>মুভি অ্যাড করতে প্রথমে ভিডিও বা ডকুমেন্ট ফাইল পাঠান।</b>"
         )
-    else: text = f"👋 <b>স্বাগতম {message.from_user.first_name}!</b>\n\nমুভি পেতে নিচের বাটনে ক্লিক করুন।"
+    else: text = f"👋 <b>Welcome {message.from_user.first_name}!</b>\n\nClick the button below to browse movies."
         
     await message.answer(text, reply_markup=markup, parse_mode="HTML", disable_web_page_preview=True)
 
@@ -511,7 +510,7 @@ async def del_movie_cmd(m: types.Message):
         title = m.text.split(" ", 1)[1].strip()
         result = await db.movies.delete_many({"title": title})
         if result.deleted_count > 0:
-            clear_app_cache() # 🛑 NEW: Cache clear on delete
+            clear_app_cache() 
             await m.answer(f"✅ '<b>{title}</b>' নামের {result.deleted_count} টি ফাইল ডিলিট হয়েছে!", parse_mode="HTML")
         else: await m.answer("⚠️ এই নামের কোনো মুভি পাওয়া যায়নি।")
     except Exception: await m.answer("⚠️ সঠিক নিয়ম: <code>/delmovie মুভির নাম</code>", parse_mode="HTML")
@@ -520,7 +519,7 @@ async def del_movie_cmd(m: types.Message):
 async def del_all_movies_cmd(m: types.Message):
     if m.from_user.id not in admin_cache: return
     result = await db.movies.delete_many({})
-    clear_app_cache() # 🛑 NEW: Cache clear on delete all
+    clear_app_cache()
     await m.answer(f"🗑 <b>সতর্কতা:</b> ডাটাবেস থেকে সর্বমোট <b>{result.deleted_count}</b> টি মুভি ডিলিট করা হয়েছে!", parse_mode="HTML")
 
 @dp.message(Command("stats"))
@@ -746,7 +745,7 @@ async def finalize_new_episode(m: types.Message, state: FSMContext):
         "db_file_id": data.get("db_file_id"), "db_photo_id": data.get("db_photo_id"),
         "categories": categories, "clicks": 0, "created_at": datetime.datetime.utcnow()
     })
-    clear_app_cache() # 🛑 NEW: Cache clear on insert
+    clear_app_cache() 
     
     await state.clear()
     await m.answer(f"🎉 <b>{title} [{quality}]</b> সফলভাবে সিরিজে এড করা হয়েছে!", parse_mode="HTML")
@@ -833,7 +832,7 @@ async def receive_movie_category(m: types.Message, state: FSMContext):
         "categories": categories,
         "clicks": 0, "created_at": datetime.datetime.utcnow()
     })
-    clear_app_cache() # 🛑 NEW: Cache clear on insert
+    clear_app_cache() 
     
     cat_display = ", ".join(categories) if categories else "N/A"
     await m.answer(f"🎉 <b>{title} [{quality}]</b> অ্যাপে যুক্ত করা হয়েছে!\n🏷 ক্যাটাগরি: <b>{cat_display}</b>", parse_mode="HTML")
@@ -901,6 +900,25 @@ async def send_reply(m: types.Message, state: FSMContext):
 # ==========================================
 # 7. Web Admin Panel HTML & API
 # ==========================================
+@app.get("/api/admin/sys_settings")
+async def get_sys_settings(auth: bool = Depends(verify_admin)):
+    cost_cfg = await db.settings.find_one({"id": "vip_cost"})
+    days_cfg = await db.settings.find_one({"id": "vip_days"})
+    unlock_cfg = await db.settings.find_one({"id": "unlock_hours"})
+    return {
+        "vip_cost": cost_cfg["amount"] if cost_cfg else 30,
+        "vip_days": days_cfg["days"] if days_cfg else 1,
+        "unlock_hours": unlock_cfg["hours"] if unlock_cfg else 24
+    }
+
+@app.post("/api/admin/sys_settings")
+async def save_sys_settings(data: dict = Body(...), auth: bool = Depends(verify_admin)):
+    await db.settings.update_one({"id": "vip_cost"}, {"$set": {"amount": int(data.get("vip_cost", 30))}}, upsert=True)
+    await db.settings.update_one({"id": "vip_days"}, {"$set": {"days": int(data.get("vip_days", 1))}}, upsert=True)
+    await db.settings.update_one({"id": "unlock_hours"}, {"$set": {"hours": int(data.get("unlock_hours", 24))}}, upsert=True)
+    clear_app_cache()
+    return {"ok": True}
+
 @app.get("/admin", response_class=HTMLResponse)
 async def web_admin_panel(auth: bool = Depends(verify_admin)):
     html_content = """
@@ -932,6 +950,26 @@ async def web_admin_panel(auth: bool = Depends(verify_admin)):
                 </div>
             </div>
 
+            <!-- New System Settings Block -->
+            <div class="bg-gray-800 rounded-xl shadow-lg border border-gray-700 p-6 mb-8">
+                <h2 class="text-xl font-bold text-gray-200 mb-4"><i class="fa-solid fa-cogs"></i> System Settings</h2>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div>
+                        <label class="text-gray-400 text-sm font-bold block mb-1">VIP Cost (Points)</label>
+                        <input type="number" id="cfgVipCost" class="w-full bg-gray-700 text-white px-3 py-2 rounded-lg border border-gray-600 focus:outline-none">
+                    </div>
+                    <div>
+                        <label class="text-gray-400 text-sm font-bold block mb-1">VIP Duration (Days)</label>
+                        <input type="number" id="cfgVipDays" class="w-full bg-gray-700 text-white px-3 py-2 rounded-lg border border-gray-600 focus:outline-none">
+                    </div>
+                    <div>
+                        <label class="text-gray-400 text-sm font-bold block mb-1">Movie Unlock (Hours)</label>
+                        <input type="number" id="cfgUnlockHrs" class="w-full bg-gray-700 text-white px-3 py-2 rounded-lg border border-gray-600 focus:outline-none">
+                    </div>
+                </div>
+                <button onclick="saveSysSettings()" class="mt-4 bg-green-600 hover:bg-green-500 text-white px-6 py-2 rounded font-bold transition">Save Settings</button>
+            </div>
+
             <div class="bg-gray-800 rounded-xl shadow-lg border border-gray-700 p-6">
                 <div class="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
                     <h2 class="text-xl font-bold text-gray-200"><i class="fa-solid fa-list-ul"></i> Manage Movies</h2>
@@ -953,6 +991,34 @@ async def web_admin_panel(auth: bool = Depends(verify_admin)):
             let currentPage = 1;
             let searchQuery = "";
             let searchTimeout = null;
+
+            async function loadSysSettings() {
+                try {
+                    const res = await fetch('/api/admin/sys_settings');
+                    const data = await res.json();
+                    document.getElementById('cfgVipCost').value = data.vip_cost;
+                    document.getElementById('cfgVipDays').value = data.vip_days;
+                    document.getElementById('cfgUnlockHrs').value = data.unlock_hours;
+                } catch(e) {}
+            }
+
+            async function saveSysSettings() {
+                const payload = {
+                    vip_cost: document.getElementById('cfgVipCost').value,
+                    vip_days: document.getElementById('cfgVipDays').value,
+                    unlock_hours: document.getElementById('cfgUnlockHrs').value
+                };
+                try {
+                    await fetch('/api/admin/sys_settings', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify(payload)
+                    });
+                    alert('Settings saved successfully!');
+                } catch(e) {
+                    alert('Failed to save settings.');
+                }
+            }
 
             async function loadStats() {
                 try {
@@ -1036,7 +1102,7 @@ async def web_admin_panel(auth: bool = Depends(verify_admin)):
                 }
             }
             
-            loadStats(); loadAdminData(1);
+            loadSysSettings(); loadStats(); loadAdminData(1);
         </script>
     </body>
     </html>
@@ -1075,7 +1141,7 @@ async def get_admin_data(page: int = 1, q: str = "", auth: bool = Depends(verify
 @app.delete("/api/admin/movie/{title}")
 async def delete_movie_api(title: str, auth: bool = Depends(verify_admin)):
     await db.movies.delete_many({"title": title})
-    clear_app_cache() # 🛑 NEW: Cache clear on API delete
+    clear_app_cache() 
     return {"ok": True}
 
 @app.put("/api/admin/movie/{title}")
@@ -1084,11 +1150,11 @@ async def edit_movie_api(title: str, data: dict = Body(...), auth: bool = Depend
         await db.movies.update_many({"title": title}, {"$inc": {"clicks": int(add_clicks)}})
     if "new_categories" in data:
         await db.movies.update_many({"title": title}, {"$set": {"categories": data["new_categories"]}})
-    clear_app_cache() # 🛑 NEW: Cache clear on API edit
+    clear_app_cache() 
     return {"ok": True}
 
 # ==========================================
-# 8. Web UI (Perfect, Netflix Bottom Nav & Coin System)
+# 8. Web UI (Perfect, Netflix Bottom Nav & Premium Points System)
 # ==========================================
 @app.get("/", response_class=HTMLResponse)
 async def web_ui():
@@ -1108,7 +1174,7 @@ async def web_ui():
 
     html_code = r"""
     <!DOCTYPE html>
-    <html lang="bn">
+    <html lang="en">
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
@@ -1142,7 +1208,7 @@ async def web_ui():
             .dropdown-menu a:hover, .dropdown-menu a:active { background: rgba(51, 65, 85, 0.5); }
             .dropdown-menu a i { font-size: 16px; width: 20px; text-align: center; }
             
-            .coin-tag { background: #f59e0b; color: black; font-weight: 900; padding: 2px 6px; border-radius: 10px; margin-left: 2px; font-size: 12px; }
+            .coin-tag { background: #3b82f6; color: white; font-weight: 900; padding: 2px 8px; border-radius: 10px; margin-left: 2px; font-size: 12px; }
             .vip-tag { background: linear-gradient(45deg, #fbbf24, #f59e0b); color: #000; font-size: 12px; padding: 3px 8px; border-radius: 12px; font-weight: bold; display: none; margin-left:5px; }
 
             .search-box { padding: 15px; }
@@ -1229,23 +1295,23 @@ async def web_ui():
                     <div style="font-size: 12px; color: #94a3b8; margin-top: 2px;" id="menuStatus">Free User</div>
                 </div>
                 <div style="text-align: right;">
-                    <div id="coinDisplay" class="coin-tag" style="display:inline-block; margin-bottom:4px;">🪙 0</div>
+                    <div id="coinDisplay" class="coin-tag" style="display:inline-block; margin-bottom:4px;"><i class="fa-solid fa-gem"></i> 0</div>
                     <div id="vipBadge" class="vip-tag" style="display:inline-block;">VIP</div>
                 </div>
             </div>
             
-            <a onclick="openReferModal()"><i class="fa-solid fa-share-nodes text-blue-400"></i> রেফার ও ইনকাম</a>
-            <a onclick="openReqModal()"><i class="fa-solid fa-code-pull-request text-green-400"></i> রিকোয়েস্ট মুভি</a>
+            <a onclick="openReferModal()"><i class="fa-solid fa-share-nodes text-blue-400"></i> Refer & Earn</a>
+            <a onclick="openReqModal()"><i class="fa-solid fa-code-pull-request text-green-400"></i> Request Movie</a>
             <div style="height: 1px; background: #334155; margin: 4px 0;"></div>
-            <a onclick="tg.showAlert(`ডাউনলোডের নিয়ম:\n১. ডাউনলোড বাটনে ক্লিক করুন।\n২. লিংকে গিয়ে ${AD_WAIT_TIME} সেকেন্ড অপেক্ষা করুন।\n৩. এরপর শুধু ব্যাক করে মিনি অ্যাপে আসলেই অটোমেটিক ভিডিওটি আপনার বটের ইনবক্সে চলে যাবে!`)"><i class="fa-solid fa-circle-question text-red-400"></i> ডাউনলোডের নিয়ম</a>
-            <a onclick="window.open('{{TG_LINK}}')"><i class="fa-solid fa-bullhorn text-green-400"></i> আমাদের চ্যানেল</a>
-            <a onclick="window.open('{{SUPPORT_LINK}}')"><i class="fa-brands fa-telegram text-blue-400"></i> সাপোর্ট / কন্টাক্ট</a>
+            <a onclick="tg.showAlert(`How to Download:\n1. Click the Download button.\n2. Wait for ${AD_WAIT_TIME} seconds on the opened link.\n3. Return to the mini app and the video will be automatically sent to your bot inbox!`)"><i class="fa-solid fa-circle-question text-red-400"></i> How to Download</a>
+            <a onclick="window.open('{{TG_LINK}}')"><i class="fa-solid fa-bullhorn text-green-400"></i> Our Channel</a>
+            <a onclick="window.open('{{SUPPORT_LINK}}')"><i class="fa-brands fa-telegram text-blue-400"></i> Support / Contact</a>
             
-            <a onclick="window.open(window.location.origin + '/admin', '_blank')" id="adminMenuBtn" style="display: none; color: #ef4444;"><i class="fa-solid fa-screwdriver-wrench"></i> অ্যাডমিন প্যানেল</a>
+            <a onclick="window.open(window.location.origin + '/admin', '_blank')" id="adminMenuBtn" style="display: none; color: #ef4444;"><i class="fa-solid fa-screwdriver-wrench"></i> Admin Panel</a>
         </div>
 
         <div class="search-box">
-            <input type="text" id="searchInput" class="search-input" placeholder="🔍 মুভি বা ওয়েব সিরিজ খুঁজুন...">
+            <input type="text" id="searchInput" class="search-input" placeholder="🔍 Search Movies or Series...">
         </div>
 
         <div id="categoryBox" class="category-container"></div>
@@ -1255,14 +1321,14 @@ async def web_ui():
             <div class="trending-container" id="trendingGrid"></div>
         </div>
 
-        <div class="section-title" id="recentTitle"><i class="fa-solid fa-clock-rotate-left text-blue-400"></i> সর্বশেষ আপলোড</div>
+        <div class="section-title" id="recentTitle"><i class="fa-solid fa-clock-rotate-left text-blue-400"></i> Recently Added</div>
         <div class="grid" id="movieGrid"></div>
         <div class="pagination" id="paginationBox"></div>
         
         <div class="developer-credit">
             <div class="dev-title"><i class="fa-solid fa-laptop-code"></i> Developed & Deployed By</div>
             <div class="dev-name">Bot Developer</div>
-            <div class="dev-desc">আপনিও কি আপনার চ্যানেল বা গ্রুপের জন্য এমন হাই-কোয়ালিটি এবং প্রিমিয়াম মুভি বট বানাতে চান? আজইমাদের সাথে যোগাযোগ করুন।</div>
+            <div class="dev-desc">Do you want to create a high-quality premium movie bot for your channel or group? Contact us today.</div>
             <button class="dev-btn" onclick="window.open('https://t.me/ProBotDeveloperBot', '_blank')">
                 <i class="fa-brands fa-telegram"></i> Contact Developer
             </button>
@@ -1282,8 +1348,8 @@ async def web_ui():
                 <span>Search</span>
             </div>
             <div class="nav-item" id="navVip" onclick="openVipModal()">
-                <i class="fa-solid fa-coins"></i>
-                <span id="navCoinText">0 🪙</span>
+                <i class="fa-solid fa-gem"></i>
+                <span>Premium</span>
             </div>
             <div class="nav-item" id="navProfile" onclick="toggleMenu(event)">
                 <i class="fa-solid fa-user"></i>
@@ -1297,8 +1363,8 @@ async def web_ui():
                 <h2 id="modalTitle" style="color:#38bdf8; margin-bottom: 15px; font-size: 22px; font-weight:900;">Movie Title</h2>
                 
                 <div style="background: rgba(15, 23, 42, 0.9); border-left: 4px solid #f59e0b; padding: 12px; border-radius: 8px; text-align: left; margin-bottom: 20px;">
-                    <p style="color:#fbbf24; font-weight:bold; font-size: 15px; margin-bottom: 8px;"><i class="fa-solid fa-circle-info"></i> কীভাবে ডাউনলোড করবেন?</p>
-                    <p style="color:#cbd5e1; font-size: 13.5px; line-height: 1.6;">১. নিচের ডাউনলোড বাটনে ক্লিক করুন।<br>২. একটি নতুন পেইজ ওপেন হবে, সেখানে <b>{{AD_TIME}} সেকেন্ড</b> অপেক্ষা করুন।<br>৩. এরপর শুধু ব্যাক করে মিনি অ্যাপে আসলেই অটোমেটিক ভিডিওটি আপনার বটের ইনবক্সে চলে যাবে!</p>
+                    <p style="color:#fbbf24; font-weight:bold; font-size: 15px; margin-bottom: 8px;"><i class="fa-solid fa-circle-info"></i> How to Download?</p>
+                    <p style="color:#cbd5e1; font-size: 13.5px; line-height: 1.6;">1. Click the download button below.<br>2. A new page will open, wait there for <b>{{AD_TIME}} seconds</b>.<br>3. Return to the mini app and the video will be automatically sent to your bot inbox!</p>
                 </div>
 
                 <div id="qualityList" style="display: flex; flex-direction: column; gap: 8px;"></div>
@@ -1310,9 +1376,9 @@ async def web_ui():
                 <div class="close-icon" onclick="document.getElementById('directLinkModal').style.display='none'" style="top: -15px; right: 5px; z-index: 1000;"><i class="fa-solid fa-xmark"></i></div>
                 <div class="dl-rgb-wrap">
                     <div class="dl-inner-box">
-                        <h2 style="color: #4ade80; font-size: 24px; font-weight: 900;"><i class="fa-solid fa-unlock-keyhole"></i> আনলক করুন</h2>
+                        <h2 style="color: #4ade80; font-size: 24px; font-weight: 900;"><i class="fa-solid fa-unlock-keyhole"></i> Unlock Video</h2>
                         <p id="dlDescText" style="color: #cbd5e1; font-size: 15px; font-weight: 600; text-align:center;">
-                            ফাইল আনলক করতে নিচের লিংকে গিয়ে <b>{{AD_TIME}} সেকেন্ড</b> অপেক্ষা করুন।
+                            To unlock this file, wait <b>{{AD_TIME}} seconds</b> on the link below.
                         </p>
                         <button id="dlClickBtn" class="btn-submit" style="background: linear-gradient(45deg, #ef4444, #f97316); margin-top: 10px;" onclick="executeDirectLink()">🔗 Click Here (Open Link)</button>
                     </div>
@@ -1323,20 +1389,20 @@ async def web_ui():
         <div id="vipModal" class="modal">
             <div class="modal-content">
                 <div class="close-icon" onclick="document.getElementById('vipModal').style.display='none'"><i class="fa-solid fa-xmark"></i></div>
-                <h2 style="color:#fbbf24; font-size: 24px; margin-bottom:15px;"><i class="fa-solid fa-coins"></i> VIP & Coins</h2>
+                <h2 style="color:#fbbf24; font-size: 24px; margin-bottom:15px;"><i class="fa-solid fa-gem"></i> Premium & Points</h2>
                 
                 <div style="background: rgba(15, 23, 42, 0.9); border: 1px solid #3b82f6; padding: 15px; border-radius: 12px; margin-bottom: 20px;">
-                    <p style="color:#94a3b8; font-size: 14px; font-weight:bold;">আপনার বর্তমান কয়েন:</p>
-                    <h1 style="color:#f59e0b; font-size: 36px; font-weight:900; margin: 5px 0;"><span id="modalCoinText">0</span> 🪙</h1>
-                    <p style="color:#cbd5e1; font-size: 12px;">(১ দিন VIP = ৩০ কয়েন)</p>
+                    <p style="color:#94a3b8; font-size: 14px; font-weight:bold;">Your Current Points:</p>
+                    <h1 style="color:#38bdf8; font-size: 36px; font-weight:900; margin: 5px 0;"><span id="modalCoinText">0</span> <i class="fa-solid fa-gem"></i></h1>
+                    <p style="color:#cbd5e1; font-size: 12px;">(<span id="vipDaysText">1</span> Days VIP = <span id="vipCostText">30</span> Points)</p>
                 </div>
                 
                 <button id="coinAdBtn" class="btn-submit" style="background: linear-gradient(45deg, #ef4444, #f97316); margin-bottom: 12px;" onclick="executeCoinAd()">
-                    <i class="fa-solid fa-play"></i> অ্যাড দেখে ৫ কয়েন নিন
+                    <i class="fa-solid fa-play"></i> Watch Ad & Get 5 Points
                 </button>
                 
                 <button class="btn-submit" style="background: linear-gradient(45deg, #10b981, #059669);" onclick="buyVipWithCoins()">
-                    <i class="fa-solid fa-crown"></i> ৩০ কয়েনে ১ দিন VIP নিন
+                    <i class="fa-solid fa-crown"></i> Get <span id="btnVipDays">1</span> Days VIP for <span id="btnVipCost">30</span> Points
                 </button>
             </div>
         </div>
@@ -1345,19 +1411,19 @@ async def web_ui():
             <div class="modal-content">
                 <div class="close-icon" onclick="document.getElementById('referModal').style.display='none'"><i class="fa-solid fa-xmark"></i></div>
                 <i class="fa-solid fa-share-nodes" style="font-size:60px; color:#38bdf8;"></i>
-                <h2 style="margin:15px 0; color:white; font-size: 24px;">রেফার ও ইনকাম</h2>
-                <p style="color:#cbd5e1; font-size:15px; margin-bottom:15px;">প্রতিটি সফল রেফারের জন্য পাবেন <b>১০ কয়েন!</b></p>
+                <h2 style="margin:15px 0; color:white; font-size: 24px;">Refer & Earn</h2>
+                <p style="color:#cbd5e1; font-size:15px; margin-bottom:15px;">Get <b>10 Points</b> for each successful referral!</p>
                 <div style="background:#0f172a; padding:15px; border:1px dashed #3b82f6; margin-bottom:15px; word-break:break-all;" id="refLinkText">...</div>
-                <button class="btn-submit" onclick="copyReferLink()">লিংক কপি করুন</button>
+                <button class="btn-submit" onclick="copyReferLink()">Copy Link</button>
             </div>
         </div>
         
         <div id="reqModal" class="modal">
             <div class="modal-content">
                 <div class="close-icon" onclick="document.getElementById('reqModal').style.display='none'"><i class="fa-solid fa-xmark"></i></div>
-                <h2 style="color:white; font-size: 22px; margin-bottom:15px;">মুভি রিকোয়েস্ট 🗳️</h2>
-                <input type="text" id="reqText" class="search-input" placeholder="মুভির নাম...">
-                <button class="btn-submit" style="margin-top:10px;" onclick="sendReq()">রিকোয়েস্ট পাঠান</button>
+                <h2 style="color:white; font-size: 22px; margin-bottom:15px;">Movie Request 🗳️</h2>
+                <input type="text" id="reqText" class="search-input" placeholder="Movie name...">
+                <button class="btn-submit" style="margin-top:10px;" onclick="sendReq()">Send Request</button>
             </div>
         </div>
 
@@ -1392,11 +1458,18 @@ async def web_ui():
                     isUserVip = data.vip;
                     userCoins = data.coins || 0;
                     
+                    const vCost = data.vip_cost || 30;
+                    const vDays = data.vip_days || 1;
+
+                    document.getElementById('vipDaysText').innerText = vDays;
+                    document.getElementById('vipCostText').innerText = vCost;
+                    document.getElementById('btnVipDays').innerText = vDays;
+                    document.getElementById('btnVipCost').innerText = vCost;
+
                     let firstName = tg.initDataUnsafe?.user?.first_name || 'Guest';
                     document.getElementById('menuUname').innerText = firstName;
                     
-                    document.getElementById('coinDisplay').innerText = `🪙 ${userCoins}`;
-                    document.getElementById('navCoinText').innerText = `${userCoins} 🪙`;
+                    document.getElementById('coinDisplay').innerHTML = `<i class="fa-solid fa-gem"></i> ${userCoins}`;
                     document.getElementById('modalCoinText').innerText = userCoins;
                     
                     if(isUserVip) {
@@ -1458,14 +1531,14 @@ async def web_ui():
             }
 
             function openReferModal() { document.getElementById('referModal').style.display = 'flex'; closeMenu(); }
-            function copyReferLink() { navigator.clipboard.writeText(document.getElementById('refLinkText').innerText); tg.showAlert("✅ কপি হয়েছে!"); }
+            function copyReferLink() { navigator.clipboard.writeText(document.getElementById('refLinkText').innerText); tg.showAlert("✅ Copied!"); }
             function openReqModal() { document.getElementById('reqModal').style.display = 'flex'; closeMenu(); }
             
             async function sendReq() {
                 const text = document.getElementById('reqText').value;
                 if(!text) return;
                 await fetch('/api/request', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({uid: uid, uname: tg.initDataUnsafe.user?.first_name || 'Guest', movie: text, initData: INIT_DATA}) });
-                document.getElementById('reqText').value = ''; tg.showAlert('রিকোয়েস্ট পাঠানো হয়েছে!'); document.getElementById('reqModal').style.display='none';
+                document.getElementById('reqText').value = ''; tg.showAlert('Request sent successfully!'); document.getElementById('reqModal').style.display='none';
             }
 
             function formatViews(n) { if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M'; if (n >= 1000) return (n / 1000).toFixed(1) + 'K'; return n; }
@@ -1534,7 +1607,7 @@ async def web_ui():
                 try {
                     const r = await fetch(`/api/list?page=${currentPage}&q=${encodeURIComponent(searchQuery)}&uid=${uid}&cat=${encodeURIComponent(activeCategory)}`);
                     const data = await r.json();
-                    if(data.movies.length === 0) return grid.innerHTML = `<p style='text-align:center; color:#fbbf24;'>কোনো মুভি পাওয়া যায়নি!</p>`;
+                    if(data.movies.length === 0) return grid.innerHTML = `<p style='text-align:center; color:#fbbf24;'>No movies found!</p>`;
                     
                     grid.innerHTML = data.movies.map(m => {
                         loadedMovies[m._id] = m; 
@@ -1632,7 +1705,7 @@ async def web_ui():
                 dlTimerInterval = setInterval(() => {
                     timeLeft--; 
                     if(timeLeft > 0) {
-                        btn.innerText = `⏳ অপেক্ষা করুন... (${timeLeft}s)`;
+                        btn.innerText = `⏳ Please wait... (${timeLeft}s)`;
                     } else {
                         clearInterval(dlTimerInterval);
                         if(isWaitingForReturn) {
@@ -1652,12 +1725,12 @@ async def web_ui():
                 const btn = document.getElementById('coinAdBtn');
                 btn.disabled = false;
                 btn.onclick = executeCoinAd;
-                btn.innerHTML = '<i class="fa-solid fa-play"></i> অ্যাড দেখে ৫ কয়েন নিন';
+                btn.innerHTML = '<i class="fa-solid fa-play"></i> Watch Ad & Get 5 Points';
                 btn.style.background = "linear-gradient(45deg, #ef4444, #f97316)";
             }
 
             function executeCoinAd() {
-                if (!DIRECT_LINKS || DIRECT_LINKS.length === 0) { tg.showAlert("⚠️ কোনো অ্যাড পাওয়া যায়নি!"); return; }
+                if (!DIRECT_LINKS || DIRECT_LINKS.length === 0) { tg.showAlert("⚠️ No ads available right now!"); return; }
                 tg.openLink(DIRECT_LINKS[Math.floor(Math.random() * DIRECT_LINKS.length)]);
                 
                 coinLinkOpenedAt = Date.now(); 
@@ -1671,7 +1744,7 @@ async def web_ui():
                 coinTimerInterval = setInterval(() => {
                     timeLeft--; 
                     if(timeLeft > 0) {
-                        btn.innerHTML = `<i class="fa-solid fa-play"></i> অপেক্ষা করুন... (${timeLeft}s)`;
+                        btn.innerHTML = `<i class="fa-solid fa-play"></i> Please wait... (${timeLeft}s)`;
                     } else {
                         clearInterval(coinTimerInterval);
                         if(isWaitingForCoinReturn) {
@@ -1693,7 +1766,7 @@ async def web_ui():
                         
                         let elapsedSeconds = (now - linkOpenedAt) / 1000;
                         if (elapsedSeconds < AD_WAIT_TIME - 1) { 
-                            tg.showAlert(`⚠️ আপনাকে অবশ্যই পুরো ${AD_WAIT_TIME} সেকেন্ড লিংকে অপেক্ষা করতে হবে।`);
+                            tg.showAlert(`⚠️ You must wait full ${AD_WAIT_TIME} seconds on the link.`);
                             resetDlButton();
                         } else { 
                             document.getElementById('directLinkModal').style.display = 'none'; 
@@ -1707,7 +1780,7 @@ async def web_ui():
                         
                         let elapsedSeconds = (now - coinLinkOpenedAt) / 1000;
                         if (elapsedSeconds < AD_WAIT_TIME - 1) {
-                            tg.showAlert(`⚠️ আপনাকে অবশ্যই পুরো ${AD_WAIT_TIME} সেকেন্ড লিংকে অপেক্ষা করতে হবে।`);
+                            tg.showAlert(`⚠️ You must wait full ${AD_WAIT_TIME} seconds on the link.`);
                             resetCoinButton();
                         } else { 
                             claimAdCoin(); 
@@ -1722,24 +1795,27 @@ async def web_ui():
                     const res = await fetch('/api/add_coin', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({uid: uid, initData: INIT_DATA}) });
                     const data = await res.json();
                     if(data.ok) { 
-                        tg.showAlert("🎉 অভিনন্দন! আপনি ৫টি কয়েন পেয়েছেন।");
+                        tg.showAlert("🎉 Congratulations! You received 5 Points.");
                         fetchUserInfo(); 
-                    } else { tg.showAlert("⚠️ কোনো সমস্যা হয়েছে।"); }
+                    } else { tg.showAlert("⚠️ Error receiving points."); }
                 } catch (e) {}
             }
 
             async function buyVipWithCoins() {
-                if(userCoins < 30) {
-                    tg.showAlert("⚠️ আপনার কাছে পর্যাপ্ত কয়েন নেই! অ্যাড দেখে অথবা রেফার করে কয়েন জমান।");
+                const vCost = parseInt(document.getElementById('btnVipCost').innerText) || 30;
+                const vDays = parseInt(document.getElementById('btnVipDays').innerText) || 1;
+                
+                if(userCoins < vCost) {
+                    tg.showAlert(`⚠️ Not enough points! You need ${vCost} points. Watch ads or refer friends to earn points.`);
                     return;
                 }
-                if(confirm("আপনি কি ৩০ কয়েন দিয়ে ১ দিনের VIP নিতে চান?")) {
+                if(confirm(`Do you want to buy ${vDays} Days VIP for ${vCost} points?`)) {
                     try {
                         const res = await fetch('/api/buy_vip', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({uid: uid, initData: INIT_DATA}) });
                         const data = await res.json();
                         if(data.ok) { 
                             document.getElementById('vipModal').style.display = 'none';
-                            tg.showAlert("🎉 সফল! আপনার ২৪ ঘণ্টার VIP চালু হয়েছে।");
+                            tg.showAlert("🎉 Success! Your VIP has been activated.");
                             fetchUserInfo(); 
                         } else { tg.showAlert(data.msg); }
                     } catch (e) {}
@@ -1754,8 +1830,8 @@ async def web_ui():
                     procModal.style.cssText = 'position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.95); z-index:9999; display:flex; align-items:center; justify-content:center; flex-direction:column; backdrop-filter: blur(5px);';
                     procModal.innerHTML = `
                         <div class="spinner-new"></div>
-                        <div class="big-processing-text">ফাইল পাঠানো হচ্ছে...</div>
-                        <div style="color:#cbd5e1; margin-top:15px; font-size:16px; font-weight:bold;">অপেক্ষা করুন, বক্সে ফাইল যাচ্ছে!</div>
+                        <div class="big-processing-text">Sending File...</div>
+                        <div style="color:#cbd5e1; margin-top:15px; font-size:16px; font-weight:bold;">Please wait, video is going to your bot inbox!</div>
                     `;
                     document.body.appendChild(procModal);
                 }
@@ -1779,11 +1855,11 @@ async def web_ui():
                         }, 500);
                     } else {
                         hideProcessingUI();
-                        tg.showAlert("⚠️ সেশন এক্সপায়ার হয়েছে! দয়া করে মিনি অ্যাপটি কেটে আবার ওপেন করুন।");
+                        tg.showAlert("⚠️ Session expired! Please close and reopen the mini app.");
                     }
                 } catch (e) {
                     hideProcessingUI();
-                    tg.showAlert("⚠️ ইন্টারনেট সংযোগ সমস্যা! আবার চেষ্টা করুন।");
+                    tg.showAlert("⚠️ Network error! Please try again.");
                 }
             }
 
@@ -1802,11 +1878,20 @@ async def web_ui():
 async def get_user_info(uid: int):
     user = await db.users.find_one({"user_id": uid})
     is_admin = uid in admin_cache
-    if not user: return {"vip": False, "admin": is_admin, "coins": 0}
+    
+    cost_cfg = await db.settings.find_one({"id": "vip_cost"})
+    days_cfg = await db.settings.find_one({"id": "vip_days"})
+    
+    cost = cost_cfg["amount"] if cost_cfg else 30
+    days = days_cfg["days"] if days_cfg else 1
+
+    if not user: return {"vip": False, "admin": is_admin, "coins": 0, "vip_cost": cost, "vip_days": days}
     return {
         "vip": user.get("vip_until", datetime.datetime.utcnow()) > datetime.datetime.utcnow(), 
         "admin": is_admin,
-        "coins": user.get("coins", 0)
+        "coins": user.get("coins", 0),
+        "vip_cost": cost,
+        "vip_days": days
     }
 
 class UserActionModel(BaseModel):
@@ -1825,22 +1910,30 @@ async def buy_vip_api(d: UserActionModel):
     user = await db.users.find_one({"user_id": d.uid})
     coins = user.get("coins", 0)
     
-    if coins < 30: return {"ok": False, "msg": "পর্যাপ্ত কয়েন নেই!"}
+    cost_cfg = await db.settings.find_one({"id": "vip_cost"})
+    days_cfg = await db.settings.find_one({"id": "vip_days"})
+    cost = cost_cfg["amount"] if cost_cfg else 30
+    days = days_cfg["days"] if days_cfg else 1
+    
+    if coins < cost: return {"ok": False, "msg": f"Not enough points! Need {cost} points."}
     
     now = datetime.datetime.utcnow()
     current_vip = user.get("vip_until", now) if user.get("vip_until") else now
     if current_vip < now: current_vip = now
-    new_vip = current_vip + datetime.timedelta(days=1)
+    new_vip = current_vip + datetime.timedelta(days=days)
     
-    await db.users.update_one({"user_id": d.uid}, {"$inc": {"coins": -30}, "$set": {"vip_until": new_vip}})
+    await db.users.update_one({"user_id": d.uid}, {"$inc": {"coins": -cost}, "$set": {"vip_until": new_vip}})
     return {"ok": True}
 
-# 🛑 NEW: Cached API - Trending Movies
 @app.get("/api/trending")
 async def trending_movies(uid: int = 0):
     unlocked_ids = []
+    
+    cfg_unlock = await db.settings.find_one({"id": "unlock_hours"})
+    unlock_hrs = cfg_unlock['hours'] if cfg_unlock else 24
+    
     if uid != 0:
-        time_limit = datetime.datetime.utcnow() - datetime.timedelta(hours=24)
+        time_limit = datetime.datetime.utcnow() - datetime.timedelta(hours=unlock_hrs)
         async for u in db.user_unlocks.find({"user_id": uid, "unlocked_at": {"$gt": time_limit}}):
             unlocked_ids.append(u["movie_id"])
 
@@ -1862,7 +1955,6 @@ async def trending_movies(uid: int = 0):
         for f in m["files"]: f["is_unlocked"] = f["id"] in unlocked_ids
     return movies
 
-# 🛑 NEW: Cached API - Categories
 @app.get("/api/categories")
 async def get_categories():
     if "all_cats" in category_cache:
@@ -1873,12 +1965,15 @@ async def get_categories():
     category_cache["all_cats"] = result
     return result
 
-# 🛑 NEW: Cached API - Movie List
 @app.get("/api/list")
 async def list_movies(page: int = 1, q: str = "", uid: int = 0, cat: str = ""):
     unlocked_ids = []
+    
+    cfg_unlock = await db.settings.find_one({"id": "unlock_hours"})
+    unlock_hrs = cfg_unlock['hours'] if cfg_unlock else 24
+    
     if uid != 0:
-        time_limit = datetime.datetime.utcnow() - datetime.timedelta(hours=24)
+        time_limit = datetime.datetime.utcnow() - datetime.timedelta(hours=unlock_hrs)
         async for u in db.user_unlocks.find({"user_id": uid, "unlocked_at": {"$gt": time_limit}}):
             unlocked_ids.append(u["movie_id"])
 
