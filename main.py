@@ -15,6 +15,12 @@ import glob
 from PIL import Image, ImageFilter
 
 # ==========================================
+# 🛑 NEW: Cache লাইব্রেরি ইম্পোর্ট করা হলো
+# ==========================================
+from cachetools import TTLCache
+import copy
+
+# ==========================================
 # 🛑 FIX FOR EVENT LOOP ERROR
 # ==========================================
 try:
@@ -86,6 +92,19 @@ db = client['movie_database']
 
 admin_cache = set([OWNER_ID]) 
 banned_cache = set() 
+
+# ==========================================
+# 🛑 NEW: Caching Setup (RAM Cache)
+# ==========================================
+trending_cache = TTLCache(maxsize=10, ttl=3600)
+list_cache = TTLCache(maxsize=100, ttl=3600)
+category_cache = TTLCache(maxsize=5, ttl=43200)
+
+def clear_app_cache():
+    trending_cache.clear()
+    list_cache.clear()
+    category_cache.clear()
+# ==========================================
 
 video_queue = None
 is_processing = False
@@ -243,6 +262,7 @@ async def video_queue_worker():
                 "categories": ["Auto Upload"], 
                 "clicks": 0, "created_at": datetime.datetime.utcnow()
             })
+            clear_app_cache() # 🛑 NEW: Cache clear on auto upload
             await bot.delete_message(chat_id=admin_id, message_id=status_msg.message_id)
 
             if CHANNEL_ID:
@@ -491,6 +511,7 @@ async def del_movie_cmd(m: types.Message):
         title = m.text.split(" ", 1)[1].strip()
         result = await db.movies.delete_many({"title": title})
         if result.deleted_count > 0:
+            clear_app_cache() # 🛑 NEW: Cache clear on delete
             await m.answer(f"✅ '<b>{title}</b>' নামের {result.deleted_count} টি ফাইল ডিলিট হয়েছে!", parse_mode="HTML")
         else: await m.answer("⚠️ এই নামের কোনো মুভি পাওয়া যায়নি।")
     except Exception: await m.answer("⚠️ সঠিক নিয়ম: <code>/delmovie মুভির নাম</code>", parse_mode="HTML")
@@ -499,6 +520,7 @@ async def del_movie_cmd(m: types.Message):
 async def del_all_movies_cmd(m: types.Message):
     if m.from_user.id not in admin_cache: return
     result = await db.movies.delete_many({})
+    clear_app_cache() # 🛑 NEW: Cache clear on delete all
     await m.answer(f"🗑 <b>সতর্কতা:</b> ডাটাবেস থেকে সর্বমোট <b>{result.deleted_count}</b> টি মুভি ডিলিট করা হয়েছে!", parse_mode="HTML")
 
 @dp.message(Command("stats"))
@@ -724,6 +746,7 @@ async def finalize_new_episode(m: types.Message, state: FSMContext):
         "db_file_id": data.get("db_file_id"), "db_photo_id": data.get("db_photo_id"),
         "categories": categories, "clicks": 0, "created_at": datetime.datetime.utcnow()
     })
+    clear_app_cache() # 🛑 NEW: Cache clear on insert
     
     await state.clear()
     await m.answer(f"🎉 <b>{title} [{quality}]</b> সফলভাবে সিরিজে এড করা হয়েছে!", parse_mode="HTML")
@@ -810,6 +833,7 @@ async def receive_movie_category(m: types.Message, state: FSMContext):
         "categories": categories,
         "clicks": 0, "created_at": datetime.datetime.utcnow()
     })
+    clear_app_cache() # 🛑 NEW: Cache clear on insert
     
     cat_display = ", ".join(categories) if categories else "N/A"
     await m.answer(f"🎉 <b>{title} [{quality}]</b> অ্যাপে যুক্ত করা হয়েছে!\n🏷 ক্যাটাগরি: <b>{cat_display}</b>", parse_mode="HTML")
@@ -1051,6 +1075,7 @@ async def get_admin_data(page: int = 1, q: str = "", auth: bool = Depends(verify
 @app.delete("/api/admin/movie/{title}")
 async def delete_movie_api(title: str, auth: bool = Depends(verify_admin)):
     await db.movies.delete_many({"title": title})
+    clear_app_cache() # 🛑 NEW: Cache clear on API delete
     return {"ok": True}
 
 @app.put("/api/admin/movie/{title}")
@@ -1059,6 +1084,7 @@ async def edit_movie_api(title: str, data: dict = Body(...), auth: bool = Depend
         await db.movies.update_many({"title": title}, {"$inc": {"clicks": int(add_clicks)}})
     if "new_categories" in data:
         await db.movies.update_many({"title": title}, {"$set": {"categories": data["new_categories"]}})
+    clear_app_cache() # 🛑 NEW: Cache clear on API edit
     return {"ok": True}
 
 # ==========================================
@@ -1809,6 +1835,7 @@ async def buy_vip_api(d: UserActionModel):
     await db.users.update_one({"user_id": d.uid}, {"$inc": {"coins": -30}, "$set": {"vip_until": new_vip}})
     return {"ok": True}
 
+# 🛑 NEW: Cached API - Trending Movies
 @app.get("/api/trending")
 async def trending_movies(uid: int = 0):
     unlocked_ids = []
@@ -1817,48 +1844,75 @@ async def trending_movies(uid: int = 0):
         async for u in db.user_unlocks.find({"user_id": uid, "unlocked_at": {"$gt": time_limit}}):
             unlocked_ids.append(u["movie_id"])
 
-    pipeline = [
-        {"$group": {"_id": "$title", "photo_id": {"$first": "$photo_id"}, "db_photo_id": {"$first": "$db_photo_id"}, "clicks": {"$sum": "$clicks"}, "files": {"$push": {"id": {"$toString": "$_id"}, "quality": {"$ifNull": ["$quality", "HD"]}}}}},
-        {"$sort": {"clicks": -1}}, {"$limit": 10}
-    ]
-    movies = await db.movies.aggregate(pipeline).to_list(10)
+    if "trending_list" in trending_cache:
+        movies = copy.deepcopy(trending_cache["trending_list"])
+    else:
+        pipeline = [
+            {"$group": {"_id": "$title", "photo_id": {"$first": "$photo_id"}, "db_photo_id": {"$first": "$db_photo_id"}, "clicks": {"$sum": "$clicks"}, "files": {"$push": {"id": {"$toString": "$_id"}, "quality": {"$ifNull": ["$quality", "HD"]}}}}},
+            {"$sort": {"clicks": -1}}, {"$limit": 10}
+        ]
+        movies = await db.movies.aggregate(pipeline).to_list(10)
+        for m in movies:
+            m["photo_id"] = m.get("photo_id") or (f"db_{m['db_photo_id']}" if m.get("db_photo_id") else None)
+        
+        trending_cache["trending_list"] = movies
+        movies = copy.deepcopy(movies)
+
     for m in movies:
-        m["photo_id"] = m.get("photo_id") or (f"db_{m['db_photo_id']}" if m.get("db_photo_id") else None)
         for f in m["files"]: f["is_unlocked"] = f["id"] in unlocked_ids
     return movies
 
+# 🛑 NEW: Cached API - Categories
 @app.get("/api/categories")
 async def get_categories():
+    if "all_cats" in category_cache:
+        return category_cache["all_cats"]
+        
     categories = await db.movies.distinct("categories")
-    return [c for c in categories if c]
+    result = [c for c in categories if c]
+    category_cache["all_cats"] = result
+    return result
 
+# 🛑 NEW: Cached API - Movie List
 @app.get("/api/list")
 async def list_movies(page: int = 1, q: str = "", uid: int = 0, cat: str = ""):
-    limit = 20  
-    skip = (page - 1) * limit
     unlocked_ids = []
-    
     if uid != 0:
         time_limit = datetime.datetime.utcnow() - datetime.timedelta(hours=24)
         async for u in db.user_unlocks.find({"user_id": uid, "unlocked_at": {"$gt": time_limit}}):
             unlocked_ids.append(u["movie_id"])
 
-    match_stage = {}
-    if q: match_stage["title"] = {"$regex": q, "$options": "i"}
-    if cat: match_stage["categories"] = cat
+    cache_key = f"{page}_{q}_{cat}"
 
-    pipeline = [
-        {"$match": match_stage},
-        {"$group": {"_id": "$title", "photo_id": {"$first": "$photo_id"}, "db_photo_id": {"$first": "$db_photo_id"}, "clicks": {"$sum": "$clicks"}, "created_at": {"$max": "$created_at"}, "files": {"$push": {"id": {"$toString": "$_id"}, "quality": {"$ifNull": ["$quality", "HD"]}}}}},
-        {"$sort": {"created_at": -1}}, {"$skip": skip}, {"$limit": limit}
-    ]
-    total_groups = (await db.movies.aggregate([{"$match": match_stage}, {"$group": {"_id": "$title"}}, {"$count": "total"}]).to_list(1))
-    total_pages = (total_groups[0]["total"] + limit - 1) // limit if total_groups else 0
+    if cache_key in list_cache:
+        data = copy.deepcopy(list_cache[cache_key])
+        movies = data["movies"]
+        total_pages = data["total_pages"]
+    else:
+        limit = 20  
+        skip = (page - 1) * limit
+        match_stage = {}
+        if q: match_stage["title"] = {"$regex": q, "$options": "i"}
+        if cat: match_stage["categories"] = cat
 
-    movies = await db.movies.aggregate(pipeline).to_list(limit)
+        pipeline = [
+            {"$match": match_stage},
+            {"$group": {"_id": "$title", "photo_id": {"$first": "$photo_id"}, "db_photo_id": {"$first": "$db_photo_id"}, "clicks": {"$sum": "$clicks"}, "created_at": {"$max": "$created_at"}, "files": {"$push": {"id": {"$toString": "$_id"}, "quality": {"$ifNull": ["$quality", "HD"]}}}}},
+            {"$sort": {"created_at": -1}}, {"$skip": skip}, {"$limit": limit}
+        ]
+        total_groups = (await db.movies.aggregate([{"$match": match_stage}, {"$group": {"_id": "$title"}}, {"$count": "total"}]).to_list(1))
+        total_pages = (total_groups[0]["total"] + limit - 1) // limit if total_groups else 0
+
+        movies = await db.movies.aggregate(pipeline).to_list(limit)
+        for m in movies:
+            m["photo_id"] = m.get("photo_id") or (f"db_{m['db_photo_id']}" if m.get("db_photo_id") else None)
+
+        list_cache[cache_key] = {"movies": movies, "total_pages": total_pages}
+        movies = copy.deepcopy(movies)
+
     for m in movies:
-        m["photo_id"] = m.get("photo_id") or (f"db_{m['db_photo_id']}" if m.get("db_photo_id") else None)
         for f in m["files"]: f["is_unlocked"] = f["id"] in unlocked_ids
+        
     return {"movies": movies, "total_pages": total_pages}
 
 @app.get("/api/image/{photo_id}")
