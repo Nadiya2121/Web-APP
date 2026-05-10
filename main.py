@@ -1542,6 +1542,7 @@ async def web_ui():
             }
 
             function formatViews(n) { if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M'; if (n >= 1000) return (n / 1000).toFixed(1) + 'K'; return n; }
+            function makeSafeId(str) { return str.replace(/[^a-zA-Z0-9]/g, '_'); }
 
             async function loadCategories() {
                 try {
@@ -1588,7 +1589,7 @@ async def web_ui():
                                 <div class="top-badge">🔥 TOP</div>
                                 <img src="/api/image/${m.photo_id}" loading="lazy" onerror="this.src='https://via.placeholder.com/640x360?text=No+Image'">
                                 <div class="ep-badge"><i class="fa-solid fa-list"></i> ${m.files.length}</div>
-                                <div class="view-badge"><i class="fa-solid fa-eye"></i> ${formatViews(m.clicks)}</div>
+                                <div class="view-badge" id="trend-view-${makeSafeId(m._id)}"><i class="fa-solid fa-eye"></i> ${formatViews(m.clicks)}</div>
                             </div>
                             <div class="card-footer">
                                 <div class="channel-logo">MB</div>
@@ -1615,7 +1616,7 @@ async def web_ui():
                             <div class="post-content">
                                 <img src="/api/image/${m.photo_id}" loading="lazy" onerror="this.src='https://via.placeholder.com/640x360?text=No+Image'">
                                 <div class="ep-badge"><i class="fa-solid fa-list"></i> ${m.files.length}</div>
-                                <div class="view-badge"><i class="fa-solid fa-eye"></i> ${formatViews(m.clicks)}</div>
+                                <div class="view-badge" id="list-view-${makeSafeId(m._id)}"><i class="fa-solid fa-eye"></i> ${formatViews(m.clicks)}</div>
                             </div>
                             <div class="card-footer">
                                 <div class="channel-logo">MB</div>
@@ -1665,7 +1666,14 @@ async def web_ui():
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({title: title})
                 }).catch(e => console.log(e));
+                
+                // 👉 সাথে সাথে স্ক্রিনে ভিউ আপডেট দেখানোর কোড
                 movie.clicks += 1;
+                let safeId = makeSafeId(title);
+                let tBadge = document.getElementById('trend-view-' + safeId);
+                let lBadge = document.getElementById('list-view-' + safeId);
+                if(tBadge) tBadge.innerHTML = '<i class="fa-solid fa-eye"></i> ' + formatViews(movie.clicks);
+                if(lBadge) lBadge.innerHTML = '<i class="fa-solid fa-eye"></i> ' + formatViews(movie.clicks);
             }
 
             let currentFileId = null; 
@@ -2075,6 +2083,8 @@ class ViewRequestModel(BaseModel):
 async def increment_movie_view(d: ViewRequestModel):
     try:
         await db.movies.update_many({"title": d.title}, {"$inc": {"clicks": 1}})
+        # 👉 ব্যাকগ্রাউন্ড Cache ক্লিয়ার করে দেওয়া হলো
+        clear_app_cache() 
     except Exception as e:
         logger.error(f"View Increment Error: {e}")
     return {"ok": True}
@@ -2121,7 +2131,6 @@ async def send_file(d: SendRequestModel):
                 else:
                     sent_msg = await bot.send_document(d.userId, m['file_id'], caption=caption, parse_mode="HTML", protect_content=is_protected)
             
-            # await db.movies.update_one({"_id": ObjectId(d.movieId)}, {"$inc": {"clicks": 1}})
             await db.user_unlocks.update_one({"user_id": d.userId, "movie_id": d.movieId}, {"$set": {"unlocked_at": now}}, upsert=True)
             
             if sent_msg and not is_vip:
