@@ -571,7 +571,7 @@ async def del_admin_cmd(m: types.Message):
     if m.from_user.id != OWNER_ID: return await m.answer("⚠️ শুধুমাত্র Owner অ্যাডমিন রিমুভ করতে পারবে!")
     try:
         target_uid = int(m.text.split()[1])
-        if target_uid == OWNER_ID: return await m.answer("⚠️ Main Owner কে ডিলিট করা সম্ভব নয়!")
+        if target_uid == OWNER_ID: return await m.answer("⚠️ Main Owner কে ডিলিট করা সম্ভব নয়!")
         await db.admins.delete_one({"user_id": target_uid})
         admin_cache.discard(target_uid)
         await m.answer(f"❌ ইউজার <code>{target_uid}</code> রিমুভ করা হয়েছে!", parse_mode="HTML")
@@ -1659,6 +1659,13 @@ async def web_ui():
                     return `<div class="rgb-border" onclick="handleQualityClick('${f.id}', ${f.is_unlocked})"><div class="rgb-inner" style="${cls}"><span><i class="fa-solid fa-download"></i> ${f.quality}</span> ${icon}</div></div>`;
                 }).join('');
                 document.getElementById('qualityModal').style.display = 'flex';
+                
+                fetch('/api/view_movie', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({title: title})
+                }).catch(e => console.log(e));
+                movie.clicks += 1;
             }
 
             let currentFileId = null; 
@@ -2061,6 +2068,17 @@ async def get_image(photo_id: str):
         logger.error(f"Image fetch error: {e}")
         return {"error": str(e)}
 
+class ViewRequestModel(BaseModel):
+    title: str
+
+@app.post("/api/view_movie")
+async def increment_movie_view(d: ViewRequestModel):
+    try:
+        await db.movies.update_many({"title": d.title}, {"$inc": {"clicks": 1}})
+    except Exception as e:
+        logger.error(f"View Increment Error: {e}")
+    return {"ok": True}
+
 class SendRequestModel(BaseModel):
     userId: int
     movieId: str
@@ -2103,7 +2121,7 @@ async def send_file(d: SendRequestModel):
                 else:
                     sent_msg = await bot.send_document(d.userId, m['file_id'], caption=caption, parse_mode="HTML", protect_content=is_protected)
             
-            await db.movies.update_one({"_id": ObjectId(d.movieId)}, {"$inc": {"clicks": 1}})
+            # await db.movies.update_one({"_id": ObjectId(d.movieId)}, {"$inc": {"clicks": 1}})
             await db.user_unlocks.update_one({"user_id": d.userId, "movie_id": d.movieId}, {"$set": {"unlocked_at": now}}, upsert=True)
             
             if sent_msg and not is_vip:
