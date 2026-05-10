@@ -7,3 +7,4 @@ aiohttp
 pyrogram
 tgcrypto
 Pillow
+cachetools
