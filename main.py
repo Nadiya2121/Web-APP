@@ -301,6 +301,7 @@ async def init_db():
     await db.movies.create_index("created_at")
     await db.auto_delete.create_index("delete_at")
     await db.payments.create_index("trx_id", unique=True)
+    await db.ads.create_index("expires_at") # Sponsored Ads TTL Index
 
 def validate_tg_data(init_data: str) -> bool:
     try:
@@ -325,12 +326,18 @@ async def auto_delete_worker():
     while True:
         try:
             now = datetime.datetime.utcnow()
+            
+            # Message Delete Logic
             expired_msgs = db.auto_delete.find({"delete_at": {"$lte": now}})
             async for msg in expired_msgs:
                 try: 
                     await bot.delete_message(chat_id=msg["chat_id"], message_id=msg["message_id"])
                 except Exception: pass
                 await db.auto_delete.delete_one({"_id": msg["_id"]})
+                
+            # Expired Ads Cleanup
+            await db.ads.delete_many({"expires_at": {"$lte": now}})
+            
         except Exception: pass
         await asyncio.sleep(60)
 
@@ -970,7 +977,7 @@ async def web_admin_panel(auth: bool = Depends(verify_admin)):
                 <button onclick="saveSysSettings()" class="mt-4 bg-green-600 hover:bg-green-500 text-white px-6 py-2 rounded font-bold transition">Save Settings</button>
             </div>
 
-            <div class="bg-gray-800 rounded-xl shadow-lg border border-gray-700 p-6">
+            <div class="bg-gray-800 rounded-xl shadow-lg border border-gray-700 p-6 mb-8">
                 <div class="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
                     <h2 class="text-xl font-bold text-gray-200"><i class="fa-solid fa-list-ul"></i> Manage Movies</h2>
                     <input type="text" id="adminSearch" placeholder="🔍 Search Movies..." class="bg-gray-700 text-white px-4 py-2 rounded-lg border border-gray-600 focus:outline-none w-full md:w-1/3">
@@ -986,6 +993,35 @@ async def web_admin_panel(auth: bool = Depends(verify_admin)):
                 </div>
                 <div class="flex justify-center items-center gap-3 mt-6" id="adminPagination"></div>
             </div>
+            
+            <!-- Admin Ads Manager Section -->
+            <div class="bg-gray-800 rounded-xl shadow-lg border border-gray-700 p-6 mt-8">
+                <div class="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
+                    <h2 class="text-xl font-bold text-yellow-400"><i class="fa-solid fa-bullhorn"></i> Ads Manager (Sponsored)</h2>
+                </div>
+                
+                <!-- Create Admin Ad Form -->
+                <div class="bg-gray-900 p-4 rounded-lg border border-gray-700 mb-6">
+                    <h3 class="text-gray-300 font-bold mb-3">Create Free Ad (Admin Only)</h3>
+                    <div class="flex flex-col md:flex-row gap-3">
+                        <input type="text" id="adTitle" placeholder="Ad Title" class="w-full bg-gray-700 text-white px-3 py-2 rounded border border-gray-600 focus:outline-none">
+                        <input type="text" id="adLink" placeholder="URL / Link" class="w-full bg-gray-700 text-white px-3 py-2 rounded border border-gray-600 focus:outline-none">
+                        <input type="text" id="adImage" placeholder="Image URL (Optional)" class="w-full bg-gray-700 text-white px-3 py-2 rounded border border-gray-600 focus:outline-none">
+                        <button onclick="createAdminAd()" class="bg-yellow-600 hover:bg-yellow-500 text-white px-6 py-2 rounded font-bold whitespace-nowrap">Create Ad</button>
+                    </div>
+                </div>
+
+                <!-- Active Ads Table -->
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left text-sm whitespace-nowrap">
+                        <thead class="bg-gray-700 text-gray-300">
+                            <tr><th class="p-4">Title</th><th class="p-4">Link</th><th class="p-4">Expires</th><th class="p-4">Action</th></tr>
+                        </thead>
+                        <tbody id="adsTableBody"><tr><td colspan="4" class="text-center p-8 text-gray-400">Loading Ads...</td></tr></tbody>
+                    </table>
+                </div>
+            </div>
+            
         </div>
         <script>
             let currentPage = 1;
@@ -1102,7 +1138,42 @@ async def web_admin_panel(auth: bool = Depends(verify_admin)):
                 }
             }
             
-            loadSysSettings(); loadStats(); loadAdminData(1);
+            // --- Admin Ads Manager JS ---
+            async function loadAds() {
+                const res = await fetch('/api/admin/ads_list');
+                const data = await res.json();
+                let html = '';
+                data.ads.forEach(ad => {
+                    let exp = new Date(ad.expires_at).toLocaleString();
+                    html += `<tr class="border-b border-gray-700 hover:bg-gray-750">
+                        <td class="p-4 font-bold text-yellow-400">${ad.title}</td>
+                        <td class="p-4"><a href="${ad.link}" target="_blank" class="text-blue-400 underline">Link</a></td>
+                        <td class="p-4">${exp}</td>
+                        <td class="p-4"><button onclick="deleteAd('${ad._id}')" class="bg-red-600 text-white px-3 py-1 rounded">Delete</button></td>
+                    </tr>`;
+                });
+                document.getElementById('adsTableBody').innerHTML = html || '<tr><td colspan="4" class="text-center p-8 text-gray-400">No active ads.</td></tr>';
+            }
+
+            async function createAdminAd() {
+                const payload = {
+                    title: document.getElementById('adTitle').value,
+                    link: document.getElementById('adLink').value,
+                    image_url: document.getElementById('adImage').value
+                };
+                await fetch('/api/admin/ads/create', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) });
+                alert('Ad created successfully!');
+                loadAds();
+            }
+
+            async function deleteAd(id) {
+                if(confirm('Delete this ad?')) {
+                    await fetch('/api/admin/ads/' + id, {method: 'DELETE'});
+                    loadAds();
+                }
+            }
+            
+            loadSysSettings(); loadStats(); loadAdminData(1); loadAds();
         </script>
     </body>
     </html>
@@ -1277,6 +1348,14 @@ async def web_ui():
             @keyframes spin-fast { 100% { transform: rotate(360deg); } }
             .big-processing-text { font-size: 26px; font-weight: 900; color: #4ade80; animation: pulse 1.5s infinite; }
             @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
+
+            /* Sponsored Ads Styles */
+            .sponsored-card { background: linear-gradient(135deg, rgba(30, 41, 59, 0.9), rgba(15, 23, 42, 0.9)); border: 1px solid #f59e0b; border-radius: 12px; padding: 15px; margin-bottom: 20px; display: flex; align-items: center; gap: 15px; position: relative; cursor: pointer; text-decoration: none; box-shadow: 0 4px 15px rgba(245, 158, 11, 0.15); }
+            .sponsored-badge { position: absolute; top: -10px; right: 15px; background: #f59e0b; color: #000; font-size: 11px; font-weight: 900; padding: 3px 10px; border-radius: 12px; text-transform: uppercase; letter-spacing: 1px; }
+            .sponsor-img { width: 60px; height: 60px; border-radius: 10px; object-fit: cover; border: 2px solid #334155; }
+            .sponsor-text { flex-grow: 1; }
+            .sponsor-title { color: #fcd34d; font-size: 16px; font-weight: bold; margin-bottom: 4px; }
+            .sponsor-desc { color: #94a3b8; font-size: 13px; }
         </style>
     </head>
     <body onclick="closeMenu(event)">
@@ -1302,6 +1381,7 @@ async def web_ui():
             
             <a onclick="openReferModal()"><i class="fa-solid fa-share-nodes text-blue-400"></i> Refer & Earn</a>
             <a onclick="openReqModal()"><i class="fa-solid fa-code-pull-request text-green-400"></i> Request Movie</a>
+            <a onclick="openAdCampModal()"><i class="fa-solid fa-bullhorn text-yellow-400"></i> Promote Channel/Web</a>
             <div style="height: 1px; background: #334155; margin: 4px 0;"></div>
             <a onclick="tg.showAlert(`How to Download:\n1. Click the Download button.\n2. Wait for ${AD_WAIT_TIME} seconds on the opened link.\n3. Return to the mini app and the video will be automatically sent to your bot inbox!`)"><i class="fa-solid fa-circle-question text-red-400"></i> How to Download</a>
             <a onclick="window.open('{{TG_LINK}}')"><i class="fa-solid fa-bullhorn text-green-400"></i> Our Channel</a>
@@ -1427,6 +1507,22 @@ async def web_ui():
             </div>
         </div>
 
+        <div id="adCampModal" class="modal">
+            <div class="modal-content">
+                <div class="close-icon" onclick="document.getElementById('adCampModal').style.display='none'"><i class="fa-solid fa-xmark"></i></div>
+                <h2 style="color:#fcd34d; font-size: 22px; margin-bottom:10px;"><i class="fa-solid fa-bullhorn"></i> Promote Channel</h2>
+                <p style="color:#cbd5e1; font-size:13px; margin-bottom:15px;">Run your advertisement for 24 Hours in front of thousands of users!</p>
+                
+                <input type="text" id="campTitle" class="search-input" style="border-radius:10px; margin-bottom:10px; font-size:15px;" placeholder="Ad Title (e.g. Join Best Movie Bot)">
+                <input type="url" id="campLink" class="search-input" style="border-radius:10px; margin-bottom:10px; font-size:15px;" placeholder="https://t.me/yourlink">
+                <input type="url" id="campImg" class="search-input" style="border-radius:10px; margin-bottom:15px; font-size:15px;" placeholder="Image URL (Optional)">
+                
+                <button class="btn-submit" style="background: linear-gradient(45deg, #f59e0b, #d97706);" onclick="submitAdCampaign()">
+                    Pay 500 Points & Start
+                </button>
+            </div>
+        </div>
+
         <script>
             let tg = window.Telegram.WebApp; tg.expand();
             const DIRECT_LINKS = {{DIRECT_LINKS}};
@@ -1442,6 +1538,7 @@ async def web_ui():
             let searchQuery = "";
             let activeCategory = "";
             let autoScrollInterval;
+            let activeAds = [];
 
             function setNavActive(index) {
                 const items = document.querySelectorAll('.nav-item');
@@ -1490,6 +1587,13 @@ async def web_ui():
                 } catch(e) {}
             }
 
+            async function fetchActiveAds() {
+                try {
+                    const res = await fetch('/api/ads/active');
+                    activeAds = await res.json();
+                } catch(e) {}
+            }
+
             function toggleMenu(e) { 
                 e.stopPropagation(); 
                 setNavActive(3);
@@ -1534,6 +1638,39 @@ async def web_ui():
             function copyReferLink() { navigator.clipboard.writeText(document.getElementById('refLinkText').innerText); tg.showAlert("✅ Copied!"); }
             function openReqModal() { document.getElementById('reqModal').style.display = 'flex'; closeMenu(); }
             
+            function openAdCampModal() {
+                document.getElementById('adCampModal').style.display = 'flex';
+                closeMenu();
+            }
+
+            async function submitAdCampaign() {
+                const title = document.getElementById('campTitle').value;
+                const link = document.getElementById('campLink').value;
+                const img = document.getElementById('campImg').value;
+                
+                if(!title || !link) { tg.showAlert("Title and Link are required!"); return; }
+                
+                if(confirm(`Cost is 500 Points for 24 Hours. Proceed?`)) {
+                    try {
+                        const res = await fetch('/api/ads/create', { 
+                            method: 'POST', 
+                            headers: {'Content-Type': 'application/json'}, 
+                            body: JSON.stringify({uid: uid, initData: INIT_DATA, title: title, link: link, image_url: img}) 
+                        });
+                        const data = await res.json();
+                        
+                        if(data.ok) {
+                            tg.showAlert("🎉 Campaign Started Successfully!");
+                            document.getElementById('adCampModal').style.display = 'none';
+                            fetchUserInfo(); 
+                            fetchActiveAds(); 
+                        } else {
+                            tg.showAlert("⚠️ " + data.msg);
+                        }
+                    } catch(e) { tg.showAlert("Network Error!"); }
+                }
+            }
+
             async function sendReq() {
                 const text = document.getElementById('reqText').value;
                 if(!text) return;
@@ -1610,9 +1747,10 @@ async def web_ui():
                     const data = await r.json();
                     if(data.movies.length === 0) return grid.innerHTML = `<p style='text-align:center; color:#fbbf24;'>No movies found!</p>`;
                     
-                    grid.innerHTML = data.movies.map(m => {
-                        loadedMovies[m._id] = m; 
-                        return `<div class="card" onclick="openQualityModal('${m._id.replace(/'/g, "\\'")}')">
+                    let htmlStr = "";
+                    data.movies.forEach((m, index) => {
+                        loadedMovies[m._id] = m;
+                        htmlStr += `<div class="card" onclick="openQualityModal('${m._id.replace(/'/g, "\\'")}')">
                             <div class="post-content">
                                 <img src="/api/image/${m.photo_id}" loading="lazy" onerror="this.src='https://via.placeholder.com/640x360?text=No+Image'">
                                 <div class="ep-badge"><i class="fa-solid fa-list"></i> ${m.files.length}</div>
@@ -1623,7 +1761,24 @@ async def web_ui():
                                 <div class="title-text">${m._id}</div>
                             </div>
                         </div>`;
-                    }).join('');
+
+                        if ((index + 1) % 6 === 0 && activeAds.length > 0) {
+                            let randomAd = activeAds[Math.floor(Math.random() * activeAds.length)];
+                            let imgHtml = randomAd.image_url ? `<img src="${randomAd.image_url}" class="sponsor-img" onerror="this.style.display='none'">` : `<div class="sponsor-img" style="display:flex; align-items:center; justify-content:center; background:#334155; font-size:24px;"><i class="fa-solid fa-bullhorn text-yellow-400"></i></div>`;
+                            
+                            htmlStr += `
+                            <a href="${randomAd.link}" target="_blank" class="sponsored-card">
+                                <div class="sponsored-badge">Sponsored</div>
+                                ${imgHtml}
+                                <div class="sponsor-text">
+                                    <div class="sponsor-title">${randomAd.title}</div>
+                                    <div class="sponsor-desc">Click here to view sponsor link</div>
+                                </div>
+                                <i class="fa-solid fa-arrow-up-right-from-square text-gray-500"></i>
+                            </a>`;
+                        }
+                    });
+                    grid.innerHTML = htmlStr;
                     
                     let html = "";
                     if(data.total_pages > 1) {
@@ -1667,7 +1822,6 @@ async def web_ui():
                     body: JSON.stringify({title: title})
                 }).catch(e => console.log(e));
                 
-                // 👉 সাথে সাথে স্ক্রিনে ভিউ আপডেট দেখানোর কোড
                 movie.clicks += 1;
                 let safeId = makeSafeId(title);
                 let tBadge = document.getElementById('trend-view-' + safeId);
@@ -1878,7 +2032,7 @@ async def web_ui():
                 }
             }
 
-            fetchUserInfo(); loadCategories(); loadTrending(); loadMovies(1); 
+            fetchUserInfo(); fetchActiveAds(); loadCategories(); loadTrending(); loadMovies(1); 
         </script>
     </body>
     </html>
@@ -2129,7 +2283,6 @@ async def send_file(d: SendRequestModel):
                 else:
                     sent_msg = await bot.send_document(d.userId, m['file_id'], caption=caption, parse_mode="HTML", protect_content=is_protected)
             
-            # await db.movies.update_one({"_id": ObjectId(d.movieId)}, {"$inc": {"clicks": 1}})
             await db.user_unlocks.update_one({"user_id": d.userId, "movie_id": d.movieId}, {"$set": {"unlocked_at": now}}, upsert=True)
             
             if sent_msg and not is_vip:
@@ -2161,6 +2314,80 @@ async def handle_request(data: ReqModel):
             )
         except Exception: pass
     return {"ok": True}
+
+# ==========================================
+# 🛑 SPONSORED ADS API
+# ==========================================
+class AdCreateModel(BaseModel):
+    uid: int
+    initData: str
+    title: str
+    link: str
+    image_url: str
+
+@app.post("/api/ads/create")
+async def create_sponsored_ad(d: AdCreateModel):
+    if not validate_tg_data(d.initData): return {"ok": False, "msg": "Invalid Request"}
+    
+    user = await db.users.find_one({"user_id": d.uid})
+    if not user or user.get("coins", 0) < 500:
+        return {"ok": False, "msg": "Not enough points! Need 500 points."}
+    
+    now = datetime.datetime.utcnow()
+    await db.users.update_one({"user_id": d.uid}, {"$inc": {"coins": -500}})
+    
+    ad_data = {
+        "user_id": d.uid,
+        "title": d.title,
+        "link": d.link,
+        "image_url": d.image_url,
+        "created_at": now,
+        "expires_at": now + datetime.timedelta(hours=24)
+    }
+    await db.ads.insert_one(ad_data)
+    
+    try:
+        await bot.send_message(OWNER_ID, f"📢 <b>New Ad Campaign Started!</b>\n👤 User ID: <code>{d.uid}</code>\n📝 Title: {d.title}\n🔗 Link: {d.link}\n💰 Paid: 500 Coins", parse_mode="HTML")
+    except: pass
+
+    return {"ok": True, "msg": "Ad campaign started successfully!"}
+
+@app.get("/api/ads/active")
+async def get_active_ads():
+    now = datetime.datetime.utcnow()
+    ads = await db.ads.find({"expires_at": {"$gt": now}}).to_list(20)
+    for ad in ads: ad['_id'] = str(ad['_id'])
+    return ads
+
+class AdminAdModel(BaseModel):
+    title: str
+    link: str
+    image_url: str
+
+@app.post("/api/admin/ads/create")
+async def create_admin_ad(d: AdminAdModel, auth: bool = Depends(verify_admin)):
+    ad_data = {
+        "user_id": 0,
+        "title": d.title,
+        "link": d.link,
+        "image_url": d.image_url,
+        "created_at": datetime.datetime.utcnow(),
+        "expires_at": datetime.datetime.utcnow() + datetime.timedelta(days=365)
+    }
+    await db.ads.insert_one(ad_data)
+    return {"ok": True}
+
+@app.get("/api/admin/ads_list")
+async def get_all_ads(auth: bool = Depends(verify_admin)):
+    ads = await db.ads.find().sort("created_at", -1).to_list(50)
+    for ad in ads: ad['_id'] = str(ad['_id'])
+    return {"ads": ads}
+
+@app.delete("/api/admin/ads/{ad_id}")
+async def delete_ad(ad_id: str, auth: bool = Depends(verify_admin)):
+    await db.ads.delete_one({"_id": ObjectId(ad_id)})
+    return {"ok": True}
+# ==========================================
 
 # ==========================================
 # 9. Main Application Startup
