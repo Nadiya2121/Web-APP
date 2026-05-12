@@ -326,8 +326,6 @@ async def auto_delete_worker():
     while True:
         try:
             now = datetime.datetime.utcnow()
-            
-            # Message Delete Logic
             expired_msgs = db.auto_delete.find({"delete_at": {"$lte": now}})
             async for msg in expired_msgs:
                 try: 
@@ -337,7 +335,6 @@ async def auto_delete_worker():
                 
             # Expired Ads Cleanup
             await db.ads.delete_many({"expires_at": {"$lte": now}})
-            
         except Exception: pass
         await asyncio.sleep(60)
 
@@ -705,7 +702,7 @@ async def upload_new_cb(c: types.CallbackQuery, state: FSMContext):
 @dp.callback_query(F.data == "upload_episode")
 async def upload_episode_cb(c: types.CallbackQuery, state: FSMContext):
     await state.set_state(AdminStates.waiting_for_series_search)
-    await c.message.edit_text("✅ <b>নতুন এপিসোড!</b>\n\nযে সিরিজে এড করতে চান, সেই <b>সিরিজের নামের কয়েক অক্ষর</b> লিখে রিপ্লাই দিন (যেমন: Farzi)।", parse_mode="HTML")
+    await c.message.edit_text("✅ <b>নতুন এপিসোড!</b>\n\nযে সিরিজে এড করতে চান, সেই <b>সিরিজের নামের কয়েক অক্ষর</b> লিখে রিপ্লাই দিন (যেমন: Farzi)।", parse_mode="HTML")
 
 @dp.message(AdminStates.waiting_for_series_search, F.text)
 async def search_series_for_episode(m: types.Message, state: FSMContext):
@@ -993,7 +990,7 @@ async def web_admin_panel(auth: bool = Depends(verify_admin)):
                 </div>
                 <div class="flex justify-center items-center gap-3 mt-6" id="adminPagination"></div>
             </div>
-            
+
             <!-- Admin Ads Manager Section -->
             <div class="bg-gray-800 rounded-xl shadow-lg border border-gray-700 p-6 mt-8">
                 <div class="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
@@ -1021,7 +1018,7 @@ async def web_admin_panel(auth: bool = Depends(verify_admin)):
                     </table>
                 </div>
             </div>
-            
+
         </div>
         <script>
             let currentPage = 1;
@@ -1137,7 +1134,7 @@ async def web_admin_panel(auth: bool = Depends(verify_admin)):
                     loadAdminData(currentPage); loadStats();
                 }
             }
-            
+
             // --- Admin Ads Manager JS ---
             async function loadAds() {
                 const res = await fetch('/api/admin/ads_list');
@@ -1297,6 +1294,19 @@ async def web_ui():
             .trending-card { min-width: 280px; max-width: 280px; background: transparent; overflow: hidden; cursor: pointer; flex-shrink: 0; position: relative; transition: transform 0.2s; transform: translateZ(0); will-change: transform; }
             .trending-card:active { transform: scale(0.98); }
 
+            /* ==================================
+               📢 ADS SCROLLING SYSTEM CSS
+               ================================== */
+            .ads-scrolling-container { display: flex; overflow-x: auto; gap: 15px; padding: 0 15px 20px; scroll-behavior: smooth; }
+            .ads-scrolling-container::-webkit-scrollbar { display: none; }
+            .ad-card-scroll { min-width: 280px; max-width: 280px; background: linear-gradient(135deg, rgba(30, 41, 59, 0.9), rgba(15, 23, 42, 0.9)); border: 1px solid #f59e0b; border-radius: 12px; padding: 12px; display: flex; align-items: center; gap: 12px; position: relative; cursor: pointer; text-decoration: none; box-shadow: 0 4px 15px rgba(245, 158, 11, 0.15); flex-shrink: 0; transition: transform 0.2s; }
+            .ad-card-scroll:active { transform: scale(0.98); }
+            .sponsored-badge { position: absolute; top: -10px; right: 15px; background: #f59e0b; color: #000; font-size: 10px; font-weight: 900; padding: 2px 8px; border-radius: 10px; text-transform: uppercase; letter-spacing: 1px; }
+            .sponsor-img { width: 50px; height: 50px; border-radius: 8px; object-fit: cover; border: 1px solid #334155; flex-shrink: 0; }
+            .sponsor-text { overflow: hidden; flex-grow: 1; }
+            .sponsor-title { color: #fcd34d; font-size: 15px; font-weight: bold; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
+            .sponsor-desc { color: #94a3b8; font-size: 12px; margin-top: 2px; }
+
             .grid { padding: 0 15px 20px; display: flex; flex-direction: column; gap: 20px; }
             .card { background: transparent; overflow: hidden; cursor: pointer; transition: transform 0.2s; border-radius: 0; transform: translateZ(0); will-change: transform; }
             .card:active { transform: scale(0.98); }
@@ -1348,14 +1358,6 @@ async def web_ui():
             @keyframes spin-fast { 100% { transform: rotate(360deg); } }
             .big-processing-text { font-size: 26px; font-weight: 900; color: #4ade80; animation: pulse 1.5s infinite; }
             @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
-
-            /* Sponsored Ads Styles */
-            .sponsored-card { background: linear-gradient(135deg, rgba(30, 41, 59, 0.9), rgba(15, 23, 42, 0.9)); border: 1px solid #f59e0b; border-radius: 12px; padding: 15px; margin-bottom: 20px; display: flex; align-items: center; gap: 15px; position: relative; cursor: pointer; text-decoration: none; box-shadow: 0 4px 15px rgba(245, 158, 11, 0.15); }
-            .sponsored-badge { position: absolute; top: -10px; right: 15px; background: #f59e0b; color: #000; font-size: 11px; font-weight: 900; padding: 3px 10px; border-radius: 12px; text-transform: uppercase; letter-spacing: 1px; }
-            .sponsor-img { width: 60px; height: 60px; border-radius: 10px; object-fit: cover; border: 2px solid #334155; }
-            .sponsor-text { flex-grow: 1; }
-            .sponsor-title { color: #fcd34d; font-size: 16px; font-weight: bold; margin-bottom: 4px; }
-            .sponsor-desc { color: #94a3b8; font-size: 13px; }
         </style>
     </head>
     <body onclick="closeMenu(event)">
@@ -1395,6 +1397,12 @@ async def web_ui():
         </div>
 
         <div id="categoryBox" class="category-container"></div>
+
+        <!-- 📢 ADS SCROLLING WRAPPER -->
+        <div id="adsScrollingWrapper" style="display: none;">
+            <div class="section-title" style="color:#fcd34d;"><i class="fa-solid fa-bullhorn"></i> Sponsored</div>
+            <div class="ads-scrolling-container" id="adsScrollContent"></div>
+        </div>
 
         <div id="trendingWrapper">
             <div class="section-title"><i class="fa-solid fa-bolt text-yellow-400"></i>Trending now</div>
@@ -1538,6 +1546,7 @@ async def web_ui():
             let searchQuery = "";
             let activeCategory = "";
             let autoScrollInterval;
+            let adsScrollInterval;
             let activeAds = [];
 
             function setNavActive(index) {
@@ -1587,12 +1596,53 @@ async def web_ui():
                 } catch(e) {}
             }
 
+            // =====================================
+            // 📢 FETCH & RENDER SCROLLING ADS
+            // =====================================
             async function fetchActiveAds() {
                 try {
                     const res = await fetch('/api/ads/active');
                     activeAds = await res.json();
+                    renderScrollingAds();
                 } catch(e) {}
             }
+
+            function renderScrollingAds() {
+                const wrapper = document.getElementById('adsScrollingWrapper');
+                const container = document.getElementById('adsScrollContent');
+                if(activeAds.length === 0) {
+                    wrapper.style.display = 'none';
+                    return;
+                }
+                wrapper.style.display = 'block';
+                let html = '';
+                activeAds.forEach(ad => {
+                    let imgHtml = ad.image_url ? `<img src="${ad.image_url}" class="sponsor-img" onerror="this.style.display='none'">` : `<div class="sponsor-img" style="display:flex; align-items:center; justify-content:center; background:#334155; font-size:20px;"><i class="fa-solid fa-bullhorn text-yellow-400"></i></div>`;
+                    html += `
+                    <a href="${ad.link}" target="_blank" class="ad-card-scroll">
+                        <div class="sponsored-badge">AD</div>
+                        ${imgHtml}
+                        <div class="sponsor-text">
+                            <div class="sponsor-title">${ad.title}</div>
+                            <div class="sponsor-desc">Click to view sponsor</div>
+                        </div>
+                    </a>`;
+                });
+                container.innerHTML = html;
+                startAdsAutoScroll();
+            }
+
+            function startAdsAutoScroll() {
+                if(adsScrollInterval) clearInterval(adsScrollInterval);
+                adsScrollInterval = setInterval(() => {
+                    let grid = document.getElementById('adsScrollContent');
+                    if(grid) {
+                        if (grid.scrollLeft >= (grid.scrollWidth - grid.clientWidth - 10)) grid.scrollTo({ left: 0, behavior: 'smooth' });
+                        else grid.scrollBy({ left: 295, behavior: 'smooth' });
+                    }
+                }, 3500);
+            }
+            // =====================================
 
             function toggleMenu(e) { 
                 e.stopPropagation(); 
@@ -1615,6 +1665,7 @@ async def web_ui():
                 if(firstCatBtn) firstCatBtn.classList.add('active');
                 
                 document.getElementById('trendingWrapper').style.display = 'block';
+                document.getElementById('adsScrollingWrapper').style.display = activeAds.length > 0 ? 'block' : 'none';
                 loadTrending();
                 loadMovies(1); 
                 closeMenu(); 
@@ -1699,6 +1750,7 @@ async def web_ui():
                 searchQuery = ""; 
                 document.getElementById('searchInput').value = "";
                 document.getElementById('trendingWrapper').style.display = cat === "" ? 'block' : 'none';
+                document.getElementById('adsScrollingWrapper').style.display = (cat === "" && activeAds.length > 0) ? 'block' : 'none';
                 loadMovies(1);
             }
 
@@ -1747,10 +1799,9 @@ async def web_ui():
                     const data = await r.json();
                     if(data.movies.length === 0) return grid.innerHTML = `<p style='text-align:center; color:#fbbf24;'>No movies found!</p>`;
                     
-                    let htmlStr = "";
-                    data.movies.forEach((m, index) => {
-                        loadedMovies[m._id] = m;
-                        htmlStr += `<div class="card" onclick="openQualityModal('${m._id.replace(/'/g, "\\'")}')">
+                    grid.innerHTML = data.movies.map(m => {
+                        loadedMovies[m._id] = m; 
+                        return `<div class="card" onclick="openQualityModal('${m._id.replace(/'/g, "\\'")}')">
                             <div class="post-content">
                                 <img src="/api/image/${m.photo_id}" loading="lazy" onerror="this.src='https://via.placeholder.com/640x360?text=No+Image'">
                                 <div class="ep-badge"><i class="fa-solid fa-list"></i> ${m.files.length}</div>
@@ -1761,24 +1812,7 @@ async def web_ui():
                                 <div class="title-text">${m._id}</div>
                             </div>
                         </div>`;
-
-                        if ((index + 1) % 6 === 0 && activeAds.length > 0) {
-                            let randomAd = activeAds[Math.floor(Math.random() * activeAds.length)];
-                            let imgHtml = randomAd.image_url ? `<img src="${randomAd.image_url}" class="sponsor-img" onerror="this.style.display='none'">` : `<div class="sponsor-img" style="display:flex; align-items:center; justify-content:center; background:#334155; font-size:24px;"><i class="fa-solid fa-bullhorn text-yellow-400"></i></div>`;
-                            
-                            htmlStr += `
-                            <a href="${randomAd.link}" target="_blank" class="sponsored-card">
-                                <div class="sponsored-badge">Sponsored</div>
-                                ${imgHtml}
-                                <div class="sponsor-text">
-                                    <div class="sponsor-title">${randomAd.title}</div>
-                                    <div class="sponsor-desc">Click here to view sponsor link</div>
-                                </div>
-                                <i class="fa-solid fa-arrow-up-right-from-square text-gray-500"></i>
-                            </a>`;
-                        }
-                    });
-                    grid.innerHTML = htmlStr;
+                    }).join('');
                     
                     let html = "";
                     if(data.total_pages > 1) {
@@ -1800,8 +1834,16 @@ async def web_ui():
             let timeout = null;
             document.getElementById('searchInput').addEventListener('input', function(e) {
                 clearTimeout(timeout); searchQuery = e.target.value.trim();
-                if(searchQuery !== "") { document.getElementById('trendingWrapper').style.display = 'none'; activeCategory = ""; document.querySelectorAll('.cat-btn').forEach(b => b.classList.remove('active')); } 
-                else { document.getElementById('trendingWrapper').style.display = 'block'; }
+                if(searchQuery !== "") { 
+                    document.getElementById('trendingWrapper').style.display = 'none'; 
+                    document.getElementById('adsScrollingWrapper').style.display = 'none';
+                    activeCategory = ""; 
+                    document.querySelectorAll('.cat-btn').forEach(b => b.classList.remove('active')); 
+                } 
+                else { 
+                    document.getElementById('trendingWrapper').style.display = 'block'; 
+                    if(activeAds.length > 0) document.getElementById('adsScrollingWrapper').style.display = 'block';
+                }
                 timeout = setTimeout(() => loadMovies(1), 500); 
             });
 
