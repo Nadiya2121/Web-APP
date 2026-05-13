@@ -8,3 +8,4 @@ pyrogram
 tgcrypto
 Pillow
 cachetools
+google-generativeai
