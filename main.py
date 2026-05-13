@@ -86,11 +86,16 @@ _db_ch = os.getenv("DB_CHANNEL_ID", "")
 DB_CHANNEL_ID = int(_db_ch) if _db_ch.lstrip('-').isdigit() else None
 
 # ==========================================
-# 🛑 AI Config Setup (Fixed)
+# 🛑 AI Config Setup (Fixed & Tracked)
 # ==========================================
-# ডিফল্ট Key মুছে শুধু Environment Variable রাখা হয়েছে
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-gemini_model = True if GEMINI_API_KEY else None
+# আপনি চাইলে Environment Variable এ Key রাখতে পারেন, 
+# অথবা "এখানে_আপনার_এপিআই_কী_দিন" লেখাটি মুছে সরাসরি আপনার Key বসিয়ে দিতে পারেন:
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "এখানে_আপনার_এপিআই_কী_দিন")
+gemini_model = True if GEMINI_API_KEY and GEMINI_API_KEY != "এখানে_আপনার_এপিআই_কী_দিন" else None
+
+print(f"=====================================")
+print(f"🚀 AI CONFIG: API KEY LOADED = {bool(gemini_model)}")
+print(f"=====================================")
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
@@ -706,7 +711,7 @@ async def execute_broadcast(m: types.Message, state: FSMContext):
     await m.answer(f"✅ সম্পন্ন! সর্বমোট <b>{success}</b> জনকে মেসেজ পাঠানো হয়েছে।", parse_mode="HTML")
 
 # ==========================================
-# 🛑 NEW UPDATE: Smart AI Agent (Fixed with aiohttp REST API)
+# 🛑 NEW UPDATE: Smart AI Agent (Fixed with Tracking)
 # ==========================================
 @dp.message(lambda m: m.chat.type == "private" and m.from_user.id not in admin_cache and (m.text is None or not m.text.startswith("/")))
 async def forward_to_admin(m: types.Message):
@@ -740,6 +745,7 @@ async def forward_to_admin(m: types.Message):
             
             # If AI is configured and user sent text
             if gemini_model and user_text:
+                print(f"---> 🟢 AI Request Started for text: {user_text}")
                 # Check DB for Movie
                 movie_found = False
                 found_title = ""
@@ -774,13 +780,19 @@ async def forward_to_admin(m: types.Message):
                                 data = await resp.json()
                                 try:
                                     reply_text = data['candidates'][0]['content']['parts'][0]['text']
+                                    print(f"---> ✅ AI Response SUCCESS: {reply_text}")
                                 except KeyError:
+                                    print(f"---> 🛑 Gemini Response Blocked by Safety Settings: {data}")
                                     logger.error(f"Gemini Response Blocked by Safety Settings: {data}")
                             else:
                                 error_text = await resp.text()
+                                print(f"---> 🛑 Gemini API Error (HTTP {resp.status}): {error_text}")
                                 logger.error(f"Gemini API Error (HTTP {resp.status}): {error_text}")
                 except Exception as e:
+                    print(f"---> 🛑 Gemini AI Request Error: {e}")
                     logger.error(f"Gemini AI Request Error: {e}")
+            else:
+                print(f"---> ⚠️ AI Skipped! gemini_model={bool(gemini_model)}, user_text='{user_text}'")
             
             # Fallback if AI fails or no API Key or no text (e.g., sent only a sticker)
             if not reply_text:
