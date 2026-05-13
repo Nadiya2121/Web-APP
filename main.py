@@ -15,9 +15,10 @@ import glob
 from PIL import Image, ImageFilter
 
 # ==========================================
-# 🛑 NEW: Separate AI File Import
+# 🛑 NEW UPDATE: Google Gemini AI (REST API)
 # ==========================================
-import ai_agent
+# বাতিল হয়ে যাওয়া `google.generativeai` ইমপোর্টটি মুছে ফেলা হয়েছে। 
+# এর বদলে সরাসরি REST API ব্যবহার করা হয়েছে যা 100% নির্ভরযোগ্য।
 
 # ==========================================
 # 🛑 Cache লাইব্রেরি ইম্পোর্ট করা হলো
@@ -83,6 +84,17 @@ REQUEST_LINK = "https://t.me/+dld6-uEkdvQ5Yjg1"
 
 _db_ch = os.getenv("DB_CHANNEL_ID", "")
 DB_CHANNEL_ID = int(_db_ch) if _db_ch.lstrip('-').isdigit() else None
+
+# ==========================================
+# 🛑 AI Config Setup (সরাসরি API Key)
+# ==========================================
+# নিচের লাইনে AIzaSy... লেখাটি মুছে আপনার আসল Key বসিয়ে দিন।
+GEMINI_API_KEY = "AIzaSyDXMynfRHhI1na3TaGbd3--xabuQ_ByE7c"
+gemini_model = True if GEMINI_API_KEY and "আপনার_আসল_এপিআই_কী" not in GEMINI_API_KEY else False
+
+print(f"=====================================")
+print(f"🚀 AI CONFIG: API KEY LOADED = {gemini_model}")
+print(f"=====================================")
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
@@ -695,7 +707,7 @@ async def execute_broadcast(m: types.Message, state: FSMContext):
     await m.answer(f"✅ সম্পন্ন! সর্বমোট <b>{success}</b> জনকে মেসেজ পাঠানো হয়েছে।", parse_mode="HTML")
 
 # ==========================================
-# 🛑 NEW: CLEAN AI LOGIC (Calling External File)
+# 🛑 NEW: CLEAN AI LOGIC (Integrated in single file)
 # ==========================================
 @dp.message(lambda m: m.chat.type == "private" and m.from_user.id not in admin_cache and (m.text is None or not m.text.startswith("/")))
 async def forward_to_admin(m: types.Message):
@@ -717,7 +729,7 @@ async def forward_to_admin(m: types.Message):
             await m.copy_to(admin_id, reply_markup=markup)
         except Exception: pass
         
-    # 2. Call AI Agent from Separate File
+    # 2. Smart AI Auto-Reply (10 Second Cache to prevent flood)
     if m.from_user.id not in auto_reply_cache:
         auto_reply_cache[m.from_user.id] = True
         try:
@@ -728,9 +740,57 @@ async def forward_to_admin(m: types.Message):
             reply_text = ""
             error_msg = ""
             
-            if user_text:
-                # Calling ai_agent file!
-                reply_text, error_msg = await ai_agent.get_ai_response(user_text, db.movies)
+            if gemini_model and user_text:
+                movie_found = False
+                found_title = ""
+                try:
+                    search_res = await db.movies.find_one({"title": {"$regex": user_text, "$options": "i"}})
+                    if search_res:
+                        movie_found = True
+                        found_title = search_res["title"]
+                except Exception as e:
+                    logger.error(f"DB Search Error: {e}")
+
+                prompt = f"""
+                তুমি হলে 'MovieZone BD' এর একজন কিউট, চটপটে এবং হেল্পফুল মেয়ে অ্যাসিস্ট্যান্ট। তোমার নাম 'রিয়া'।
+                ইউজার তোমাকে এই মেসেজটি পাঠিয়েছে: "{user_text}"
+                
+                নির্দেশনা:
+                ১. সব সময় বাংলায় খুব মিষ্টি করে, প্রয়োজনে ইমোজি ব্যবহার করে কথা বলবে।
+                ২. যদি ইউজার কোনো মুভি বা সিরিজের নাম খোঁজে এবং তুমি দেখো যে ডাটাবেসে সেটা আছে (স্ট্যাটাস: {'পাওয়া গেছে, নাম: '+found_title if movie_found else 'পাওয়া যায়নি'}), তাহলে তাকে বলবে নিচের '🎬 Watch Now' বাটনে ক্লিক করে মুভিটা দেখে নিতে।
+                ৩. যদি মুভি না থাকে, তাহলে কিউটভাবে বলবে যে মুভিটা নেই, কিন্তু তুমি অ্যাডমিনকে বলে দিয়েছ আপলোড করার জন্য।
+                ৪. ইউজার যদি মুভি না চেয়ে সাধারণ কথা বলে, তাহলে বন্ধুর মতো ফানি ও সুন্দর উত্তর দেবে।
+                ৫. কোনো প্রকার বোল্ড (**) বা ইটালিক প্রতীক ব্যবহার করবে না।
+                """
+                
+                try:
+                    api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
+                    headers = {"Content-Type": "application/json"}
+                    payload = {
+                        "contents": [{"parts": [{"text": prompt}]}],
+                        "generationConfig": {"temperature": 0.7},
+                        "safetySettings": [
+                            {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+                            {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+                            {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+                            {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"}
+                        ]
+                    }
+                    
+                    async with aiohttp.ClientSession() as session:
+                        async with session.post(api_url, json=payload, headers=headers) as resp:
+                            if resp.status == 200:
+                                data = await resp.json()
+                                try:
+                                    raw_text = data['candidates'][0]['content']['parts'][0]['text']
+                                    reply_text = raw_text.replace("**", "").replace("*", "").replace("#", "")
+                                except KeyError as e:
+                                    error_msg = f"Gemini Safety Block: {data}"
+                            else:
+                                err_text = await resp.text()
+                                error_msg = f"HTTP {resp.status}: {err_text}"
+                except Exception as e:
+                    error_msg = f"Code Exception: {str(e)}"
             
             if not reply_text:
                 debug_info = f"\n\n🛠 <b>Admin Debug Info:</b>\n<code>{error_msg}</code>" if error_msg else ""
