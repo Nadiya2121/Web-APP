@@ -110,6 +110,7 @@ banned_cache = set()
 trending_cache = TTLCache(maxsize=10, ttl=3600)
 list_cache = TTLCache(maxsize=100, ttl=3600)
 category_cache = TTLCache(maxsize=5, ttl=43200)
+auto_reply_cache = TTLCache(maxsize=1000, ttl=300) # স্মার্ট অটো-রিপ্লাইয়ের জন্য (৫ মিনিট)
 
 def clear_app_cache():
     trending_cache.clear()
@@ -690,6 +691,9 @@ async def execute_broadcast(m: types.Message, state: FSMContext):
         except Exception: pass
     await m.answer(f"✅ সম্পন্ন! সর্বমোট <b>{success}</b> জনকে মেসেজ পাঠানো হয়েছে।", parse_mode="HTML")
 
+# ==========================================
+# 🛑 NEW UPDATE: Smart Media Forward & Auto-Reply
+# ==========================================
 @dp.message(lambda m: m.chat.type == "private" and m.from_user.id not in admin_cache and (m.text is None or not m.text.startswith("/")))
 async def forward_to_admin(m: types.Message):
     builder = InlineKeyboardBuilder()
@@ -703,10 +707,27 @@ async def forward_to_admin(m: types.Message):
         try:
             await bot.send_message(
                 admin_id, 
-                f"📩 <b>Message from <a href='tg://user?id={m.from_user.id}'>{m.from_user.first_name}</a></b>:\n\n{m.text or '[Media File/Sticker]'}", 
-                parse_mode="HTML", 
-                reply_markup=markup
+                f"📩 <b>Message from <a href='tg://user?id={m.from_user.id}'>{m.from_user.first_name}</a></b> (<code>{m.from_user.id}</code>):", 
+                parse_mode="HTML"
             )
+            await m.copy_to(admin_id, reply_markup=markup)
+        except Exception: pass
+        
+    # Smart Auto-Reply (৫ মিনিটে একবার রিপ্লাই দেবে, স্প্যাম রোধ করতে)
+    if m.from_user.id not in auto_reply_cache:
+        auto_reply_cache[m.from_user.id] = True
+        try:
+            kb = [[types.InlineKeyboardButton(text="🎬 Watch Now (মুভি দেখুন)", web_app=types.WebAppInfo(url=APP_URL))]]
+            user_markup = types.InlineKeyboardMarkup(inline_keyboard=kb)
+            
+            auto_reply_text = (
+                "🤖 <b>সিস্টেম অটো-রিপ্লাই:</b>\n\n"
+                "হ্যালো! আপনি যদি কোনো মুভি বা সিরিজ খুঁজছেন, তবে অনুগ্রহ করে নিচের <b>'🎬 Watch Now'</b> বাটনে ক্লিক করে অ্যাপে সার্চ করুন। "
+                "সঠিক নাম লিখে সার্চ না করলে মুভি নাও পেতে পারেন।\n\n"
+                "📌 <i>মুভি খুঁজে না পেলে অ্যাপের <b>'Request Movie 🗳️'</b> অপশন ব্যবহার করুন।</i>\n\n"
+                "আপনার মেসেজটি অ্যাডমিনের কাছে পৌঁছে গেছে। প্রয়োজনে অ্যাডমিন আপনাকে রিপ্লাই দেবেন। ধন্যবাদ!"
+            )
+            await m.reply(auto_reply_text, reply_markup=user_markup, parse_mode="HTML")
         except Exception: pass
 
 
