@@ -15,7 +15,7 @@ import glob
 from PIL import Image, ImageFilter
 
 # ==========================================
-# 🛑 NEW UPDATE: Google Gemini AI (Fixed Deprecation)
+# 🛑 NEW UPDATE: Google Gemini AI (REST API)
 # ==========================================
 # বাতিল হয়ে যাওয়া `google.generativeai` ইমপোর্টটি মুছে ফেলা হয়েছে। 
 # এর বদলে সরাসরি REST API ব্যবহার করা হয়েছে যা 100% নির্ভরযোগ্য।
@@ -86,10 +86,8 @@ _db_ch = os.getenv("DB_CHANNEL_ID", "")
 DB_CHANNEL_ID = int(_db_ch) if _db_ch.lstrip('-').isdigit() else None
 
 # ==========================================
-# 🛑 AI Config Setup (Fixed & Tracked)
+# 🛑 AI Config Setup
 # ==========================================
-# আপনি চাইলে Environment Variable এ Key রাখতে পারেন, 
-# অথবা "এখানে_আপনার_এপিআই_কী_দিন" লেখাটি মুছে সরাসরি আপনার Key বসিয়ে দিতে পারেন:
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "এখানে_আপনার_এপিআই_কী_দিন")
 gemini_model = True if GEMINI_API_KEY and GEMINI_API_KEY != "এখানে_আপনার_এপিআই_কী_দিন" else None
 
@@ -128,14 +126,12 @@ banned_cache = set()
 trending_cache = TTLCache(maxsize=10, ttl=3600)
 list_cache = TTLCache(maxsize=100, ttl=3600)
 category_cache = TTLCache(maxsize=5, ttl=43200)
-# অ্যান্টি-স্প্যাম টাইমার ১০ সেকেন্ড করা হয়েছে (যাতে ইউজার AI এর সাথে সুন্দরভাবে চ্যাট করতে পারে)
 auto_reply_cache = TTLCache(maxsize=1000, ttl=10) 
 
 def clear_app_cache():
     trending_cache.clear()
     list_cache.clear()
     category_cache.clear()
-# ==========================================
 
 video_queue = None
 is_processing = False
@@ -711,7 +707,7 @@ async def execute_broadcast(m: types.Message, state: FSMContext):
     await m.answer(f"✅ সম্পন্ন! সর্বমোট <b>{success}</b> জনকে মেসেজ পাঠানো হয়েছে।", parse_mode="HTML")
 
 # ==========================================
-# 🛑 NEW UPDATE: Smart AI Agent (Fixed with Tracking)
+# 🛑 NEW UPDATE: Smart AI Agent (Fully Fixed Line-by-Line)
 # ==========================================
 @dp.message(lambda m: m.chat.type == "private" and m.from_user.id not in admin_cache and (m.text is None or not m.text.startswith("/")))
 async def forward_to_admin(m: types.Message):
@@ -733,7 +729,7 @@ async def forward_to_admin(m: types.Message):
             await m.copy_to(admin_id, reply_markup=markup)
         except Exception: pass
         
-    # 2. Smart AI Auto-Reply (10 Second Cache to prevent flood, but allow chat)
+    # 2. Smart AI Auto-Reply (10 Second Cache to prevent flood)
     if m.from_user.id not in auto_reply_cache:
         auto_reply_cache[m.from_user.id] = True
         try:
@@ -742,17 +738,20 @@ async def forward_to_admin(m: types.Message):
             
             reply_text = ""
             user_text = m.text.strip() if m.text else ""
+            error_reason = "" # To capture any exact error point
             
-            # If AI is configured and user sent text
             if gemini_model and user_text:
                 print(f"---> 🟢 AI Request Started for text: {user_text}")
-                # Check DB for Movie
+                
                 movie_found = False
                 found_title = ""
-                search_res = await db.movies.find_one({"title": {"$regex": user_text, "$options": "i"}})
-                if search_res:
-                    movie_found = True
-                    found_title = search_res["title"]
+                try:
+                    search_res = await db.movies.find_one({"title": {"$regex": user_text, "$options": "i"}})
+                    if search_res:
+                        movie_found = True
+                        found_title = search_res["title"]
+                except Exception as e:
+                    print(f"DB Search Error: {e}")
                     
                 prompt = f"""
                 তুমি হলে 'MovieZone BD' এর একজন কিউট, চটপটে এবং হেল্পফুল মেয়ে অ্যাসিস্ট্যান্ট। তোমার নাম 'রিয়া'।
@@ -760,52 +759,59 @@ async def forward_to_admin(m: types.Message):
                 
                 নির্দেশনা:
                 ১. সব সময় বাংলায় খুব মিষ্টি করে, প্রয়োজনে ইমোজি ব্যবহার করে কথা বলবে।
-                ২. যদি ইউজার কোনো মুভি বা সিরিজের নাম খোঁজে এবং তুমি দেখো যে ডাটাবেসে সেটা আছে (এখানে স্ট্যাটাস: {'পাওয়া গেছে, নাম: '+found_title if movie_found else 'পাওয়া যায়নি'}), তাহলে তাকে বলবে নিচের '🎬 Watch Now' বাটনে ক্লিক করে মুভিটা দেখে নিতে।
+                ২. যদি ইউজার কোনো মুভি বা সিরিজের নাম খোঁজে এবং তুমি দেখো যে ডাটাবেসে সেটা আছে (স্ট্যাটাস: {'পাওয়া গেছে, নাম: '+found_title if movie_found else 'পাওয়া যায়নি'}), তাহলে তাকে বলবে নিচের '🎬 Watch Now' বাটনে ক্লিক করে মুভিটা দেখে নিতে।
                 ৩. যদি মুভি না থাকে, তাহলে কিউটভাবে বলবে যে মুভিটা নেই, কিন্তু তুমি অ্যাডমিনকে বলে দিয়েছ আপলোড করার জন্য।
-                ৪. ইউজার যদি মুভি না চেয়ে সাধারণ কথা বলে (যেমন: হাই, হ্যালো, কেমন আছো), তাহলে বন্ধুর মতো ফানি ও সুন্দর উত্তর দেবে।
-                ৫. উত্তরগুলো খুব বেশি বড় করবে না, ২-৩ লাইনের মধ্যে রাখবে। কোনো টেক্সট বোল্ড বা ইটালিক করার দরকার নেই।
+                ৪. ইউজার যদি মুভি না চেয়ে সাধারণ কথা বলে, তাহলে বন্ধুর মতো ফানি ও সুন্দর উত্তর দেবে।
+                ৫. কোনো প্রকার বোল্ড (**) বা ইটালিক প্রতীক ব্যবহার করবে না।
                 """
                 
                 try:
-                    # Async generation using REST API to completely avoid deprecated libraries
+                    # FIX: Using headers, correct API endpoint, and awaiting properly as suggested by friend
                     api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
+                    headers = {"Content-Type": "application/json"}
                     payload = {
                         "contents": [{"parts": [{"text": prompt}]}],
-                        "generationConfig": {"temperature": 0.7}
+                        "generationConfig": {"temperature": 0.7},
+                        "safetySettings": [
+                            {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+                            {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+                            {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+                            {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"}
+                        ]
                     }
                     
                     async with aiohttp.ClientSession() as session:
-                        async with session.post(api_url, json=payload) as resp:
+                        async with session.post(api_url, json=payload, headers=headers) as resp:
                             if resp.status == 200:
                                 data = await resp.json()
                                 try:
-                                    reply_text = data['candidates'][0]['content']['parts'][0]['text']
+                                    raw_text = data['candidates'][0]['content']['parts'][0]['text']
+                                    # FIX: Stripping Markdown so HTML Parse Mode doesn't crash
+                                    reply_text = raw_text.replace("**", "").replace("*", "").replace("#", "")
                                     print(f"---> ✅ AI Response SUCCESS: {reply_text}")
-                                except KeyError:
-                                    print(f"---> 🛑 Gemini Response Blocked by Safety Settings: {data}")
-                                    logger.error(f"Gemini Response Blocked by Safety Settings: {data}")
+                                except KeyError as e:
+                                    error_reason = f"Gemini Response Blocked by Safety: {data}"
+                                    print(f"---> 🛑 KeyError: {error_reason}")
                             else:
                                 error_text = await resp.text()
-                                print(f"---> 🛑 Gemini API Error (HTTP {resp.status}): {error_text}")
-                                logger.error(f"Gemini API Error (HTTP {resp.status}): {error_text}")
+                                error_reason = f"API Error HTTP {resp.status}: {error_text}"
+                                print(f"---> 🛑 API Error: {error_reason}")
                 except Exception as e:
-                    print(f"---> 🛑 Gemini AI Request Error: {e}")
-                    logger.error(f"Gemini AI Request Error: {e}")
-            else:
-                print(f"---> ⚠️ AI Skipped! gemini_model={bool(gemini_model)}, user_text='{user_text}'")
+                    error_reason = f"Exception inside AI generation: {str(e)}"
+                    print(f"---> 🛑 Catch Exception: {error_reason}")
             
-            # Fallback if AI fails or no API Key or no text (e.g., sent only a sticker)
+            # Fallback functionality as your friend suggested: if AI fails, fallback to default message.
             if not reply_text:
+                debug_info = f"\n\n🛠 <b>Admin Debug Info:</b>\n<code>{error_reason}</code>" if error_reason else ""
                 reply_text = (
                     "🤖 <b>সিস্টেম অটো-রিপ্লাই:</b>\n\n"
-                    "হ্যালো! আপনি যদি কোনো মুভি বা সিরিজ খুঁজছেন, তবে অনুগ্রহ করে নিচের <b>'🎬 Watch Now'</b> বাটনে ক্লিক করে অ্যাপে সার্চ করুন। "
-                    "সঠিক নাম লিখে সার্চ না করলে মুভি নাও পেতে পারেন।\n\n"
-                    "📌 <i>মুভি খুঁজে না পেলে অ্যাপের <b>'Request Movie 🗳️'</b> অপশন ব্যবহার করুন।</i>\n\n"
-                    "আপনার মেসেজটি অ্যাডমিনের কাছে পৌঁছে গেছে। প্রয়োজনে অ্যাডমিন আপনাকে রিপ্লাই দেবেন। ধন্যবাদ!"
+                    "হ্যালো! আপনি যদি কোনো মুভি বা সিরিজ খুঁজছেন, তবে অনুগ্রহ করে নিচের <b>'🎬 Watch Now'</b> বাটনে ক্লিক করে অ্যাপে সার্চ করুন।\n\n"
+                    "আপনার মেসেজটি অ্যাডমিনের কাছে পৌঁছে গেছে। প্রয়োজনে অ্যাডমিন আপনাকে রিপ্লাই দেবেন। ধন্যবাদ!" + debug_info
                 )
             
             await m.reply(reply_text, reply_markup=user_markup, parse_mode="HTML")
-        except Exception: pass
+        except Exception as e: 
+            print(f"---> 🛑 Fatal Send Error: {e}")
 
 
 # ==========================================
@@ -899,7 +905,7 @@ async def finalize_new_episode(m: types.Message, state: FSMContext):
     clear_app_cache() 
     
     await state.clear()
-    await m.answer(f"🎉 <b>{title} [{quality}]</b> সফলভাবে সিরিজে এড করা হয়েছে!", parse_mode="HTML")
+    await m.answer(f"🎉 <b>{title} [{quality}]</b> সফলভাবে সিরিজে এড করা গঠন করা হয়েছে!", parse_mode="HTML")
 
     if CHANNEL_ID:
         try:
@@ -1369,7 +1375,7 @@ async def edit_movie_api(title: str, data: dict = Body(...), auth: bool = Depend
     return {"ok": True}
 
 # ==========================================
-# 8. Web UI (Perfect, Netflix Bottom Nav & Premium Points System)
+# 8. Web UI
 # ==========================================
 @app.get("/", response_class=HTMLResponse)
 async def web_ui():
@@ -1441,9 +1447,6 @@ async def web_ui():
             .trending-card { min-width: 280px; max-width: 280px; background: transparent; overflow: hidden; cursor: pointer; flex-shrink: 0; position: relative; transition: transform 0.2s; transform: translateZ(0); will-change: transform; }
             .trending-card:active { transform: scale(0.98); }
 
-            /* ==================================
-               📢 ADS SCROLLING SYSTEM CSS (UPDATED)
-               ================================== */
             .ads-scrolling-container { display: flex; overflow-x: auto; gap: 15px; padding: 0 15px 20px; scroll-behavior: smooth; scroll-snap-type: x mandatory; }
             .ads-scrolling-container::-webkit-scrollbar { display: none; }
             .ad-card-scroll { min-width: 85vw; max-width: 85vw; background: #1e293b; border: 1px solid #334155; border-radius: 16px; overflow: hidden; display: flex; flex-direction: column; position: relative; text-decoration: none; scroll-snap-align: center; flex-shrink: 0; box-shadow: 0 4px 15px rgba(0,0,0,0.3); transition: transform 0.2s; }
@@ -2543,7 +2546,7 @@ async def handle_request(data: ReqModel):
     return {"ok": True}
 
 # ==========================================
-# 🛑 SPONSORED ADS API (UPDATED PACKAGES)
+# 🛑 SPONSORED ADS API
 # ==========================================
 class AdCreateModel(BaseModel):
     uid: int
