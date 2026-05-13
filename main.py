@@ -87,7 +87,7 @@ DB_CHANNEL_ID = int(_db_ch) if _db_ch.lstrip('-').isdigit() else None
 # ==========================================
 # 🛑 AI Config Setup
 # ==========================================
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "AIzaSyBn5pLb6Bj8BqM4UVrndfxIFaiW5Dve3Lk")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "AIzaSyAx6zye-3xoWlYFH0-JE2Jdo7aFGW3XQIk")
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
     gemini_model = genai.GenerativeModel('gemini-1.5-flash')
