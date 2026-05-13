@@ -106,7 +106,7 @@
         </div>
     </div>
 
-    <!-- Add Custom Modal (Base64 System) -->
+    <!-- Add Custom Modal (Database Upload Version) -->
     <div class="modal" id="addModal">
         <div class="modal-content">
             <div class="close-icon" onclick="document.getElementById('addModal').style.display='none'"><i class="fa-solid fa-xmark"></i></div>
@@ -125,7 +125,7 @@
             <label style="color: #94a3b8; font-size: 12px; margin-bottom: 5px; display: block; text-align: left;">Upload Poster Image:</label>
             <input type="file" id="mPhotoFile" class="modal-input" accept="image/*" style="padding: 8px;">
             
-            <div id="uploadStatus" style="color: #fbbf24; font-size: 12px; margin-bottom: 10px; display: none; text-align: left;"><i class="fa-solid fa-spinner fa-spin"></i> Processing and uploading...</div>
+            <div id="uploadStatus" style="color: #fbbf24; font-size: 12px; margin-bottom: 10px; display: none; text-align: left;"><i class="fa-solid fa-spinner fa-spin"></i> Saving directly to Database...</div>
 
             <textarea id="mDesc" class="modal-textarea" rows="3" placeholder="Movie Overview / Details..."></textarea>
             
@@ -259,7 +259,7 @@
             document.getElementById('detailModal').style.display = 'flex';
         }
 
-        // 🛑 UPDATE: Base64 JSON Method (No extra dependencies needed)
+        // 🛑 THE ULTIMATE FIX: Compress image & save directly to database!
         async function addCustomMovie() {
             let title = document.getElementById('mTitle').value;
             let rDate = document.getElementById('mDate').value;
@@ -276,64 +276,71 @@
             saveBtn.innerText = "Processing...";
             statusTxt.style.display = "block";
 
-            // FileReader দিয়ে ছবিকে Text (Base64) এ কনভার্ট করা হচ্ছে
+            let file = fileInput.files[0];
             let reader = new FileReader();
-            
-            reader.onload = async function() {
-                let base64String = reader.result;
-                
-                let payload = {
-                    uid: uid, initData: initData,
-                    title: title,
-                    release_date: rDate,
-                    language: document.getElementById('mLang').value,
-                    overview: document.getElementById('mDesc').value,
-                    image_base64: base64String
-                };
 
-                try {
-                    // JSON ফরম্যাটে ডাটা পাঠানো হচ্ছে (Crashes প্রতিরোধ করবে)
-                    let res = await fetch('/api/upcoming/custom', { 
-                        method: 'POST', 
-                        headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify(payload)
-                    });
+            reader.onload = function(e) {
+                let img = new Image();
+                img.onload = async function() {
+                    // ছবিকে ছোট করে কম্প্রেস করা হচ্ছে (যাতে ডাটাবেসে লোড না পড়ে)
+                    let canvas = document.createElement('canvas');
+                    let MAX_WIDTH = 400; // সাইজ লিমিট
+                    let scaleSize = MAX_WIDTH / img.width;
+                    if(scaleSize > 1) scaleSize = 1; 
                     
-                    let result = await res.json();
+                    canvas.width = img.width * scaleSize;
+                    canvas.height = img.height * scaleSize;
                     
-                    if(result.ok) {
-                        document.getElementById('addModal').style.display='none';
-                        tg.showAlert("Added Successfully!");
+                    let ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                    
+                    // কোডে রূপান্তর
+                    let base64String = canvas.toDataURL('image/jpeg', 0.8);
+
+                    let payload = {
+                        uid: uid, initData: initData,
+                        title: title,
+                        release_date: rDate,
+                        language: document.getElementById('mLang').value,
+                        overview: document.getElementById('mDesc').value,
+                        photo_url: base64String // সরাসরি ডাটাবেসে সেভ হবে
+                    };
+
+                    try {
+                        let res = await fetch('/api/upcoming/custom', { 
+                            method: 'POST', 
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify(payload)
+                        });
                         
-                        document.getElementById('mTitle').value = '';
-                        document.getElementById('mDate').value = '';
-                        fileInput.value = '';
-                        document.getElementById('mDesc').value = '';
+                        let result = await res.json();
                         
-                        document.getElementById('moviesGrid').innerHTML = '<div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div>';
-                        loadUpcomingMovies();
-                    } else {
-                        tg.showAlert("Failed: " + result.msg);
+                        if(result.ok) {
+                            document.getElementById('addModal').style.display='none';
+                            tg.showAlert("Added Successfully!");
+                            
+                            document.getElementById('mTitle').value = '';
+                            document.getElementById('mDate').value = '';
+                            fileInput.value = '';
+                            document.getElementById('mDesc').value = '';
+                            
+                            document.getElementById('moviesGrid').innerHTML = '<div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div>';
+                            loadUpcomingMovies();
+                        } else {
+                            tg.showAlert("Failed: " + result.msg);
+                        }
+                    } catch(error) {
+                        tg.showAlert("Network Error! Please try again.");
+                    } finally {
+                        saveBtn.disabled = false;
+                        saveBtn.style.background = "linear-gradient(45deg, #3b82f6, #2563eb)";
+                        saveBtn.innerText = "Save Movie";
+                        statusTxt.style.display = "none";
                     }
-                } catch(e) {
-                    tg.showAlert("Network Error! Please try again.");
-                } finally {
-                    saveBtn.disabled = false;
-                    saveBtn.style.background = "linear-gradient(45deg, #3b82f6, #2563eb)";
-                    saveBtn.innerText = "Save Movie";
-                    statusTxt.style.display = "none";
-                }
+                };
+                img.src = e.target.result;
             };
-            
-            reader.onerror = function() {
-                tg.showAlert("Error processing file!");
-                saveBtn.disabled = false;
-                saveBtn.style.background = "linear-gradient(45deg, #3b82f6, #2563eb)";
-                saveBtn.innerText = "Save Movie";
-                statusTxt.style.display = "none";
-            };
-            
-            reader.readAsDataURL(fileInput.files[0]);
+            reader.readAsDataURL(file);
         }
 
         async function deleteCustom(id, event) {
