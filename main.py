@@ -88,8 +88,8 @@ DB_CHANNEL_ID = int(_db_ch) if _db_ch.lstrip('-').isdigit() else None
 # ==========================================
 # 🛑 AI Config Setup
 # ==========================================
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "এখানে_আপনার_এপিআই_কী_দিন")
-gemini_model = True if GEMINI_API_KEY and GEMINI_API_KEY != "এখানে_আপনার_এপিআই_কী_দিন" else None
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "AIzaSyAx6zye-3xoWlYFH0-JE2Jdo7aFGW3XQIk")
+gemini_model = True if GEMINI_API_KEY and GEMINI_API_KEY != "AIzaSyAx6zye-3xoWlYFH0-JE2Jdo7aFGW3XQIk" else None
 
 print(f"=====================================")
 print(f"🚀 AI CONFIG: API KEY LOADED = {bool(gemini_model)}")
