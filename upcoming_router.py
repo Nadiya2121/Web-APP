@@ -3,7 +3,6 @@ import datetime
 import asyncio
 import aiohttp
 import copy
-import base64
 from fastapi import APIRouter, Body
 from fastapi.responses import HTMLResponse
 from bson import ObjectId
@@ -50,7 +49,7 @@ async def fetch_language_movies(session, lang_code, lang_name, today_str, next_3
                         "is_custom": False
                     })
     except Exception as e:
-        print(f"TMDB Fetch Error for {lang_code}: {e}")
+        pass
     return lang_movies
 
 async def fetch_tmdb_upcoming():
@@ -112,7 +111,7 @@ async def get_upcoming_movies():
     
     return {"movies": all_movies}
 
-# 🛑 UPDATE: No extra libraries needed. Base64 Image Processing
+# 🛑 UPDATE: ডাটাবেসে সরাসরি ইমেজ সেভ করার সিস্টেম
 @upcoming_router.post("/api/upcoming/custom")
 async def add_custom_upcoming(data: dict = Body(...)):
     from main import db, validate_tg_data
@@ -132,36 +131,12 @@ async def add_custom_upcoming(data: dict = Body(...)):
             
     if not is_admin:
         return {"ok": False, "msg": "You do not have Admin permissions!"}
-        
-    telegraph_url = ""
-    base64_img = data.get("image_base64", "")
-    
-    if base64_img and "," in base64_img:
-        try:
-            # Base64 টেক্সট থেকে ডাটা আলাদা করা
-            header, encoded = base64_img.split(",", 1)
-            file_bytes = base64.b64decode(encoded)
-            
-            form_data = aiohttp.FormData()
-            form_data.add_field('file', file_bytes, filename="poster.jpg", content_type='image/jpeg')
-            
-            async with aiohttp.ClientSession() as session:
-                async with session.post("https://telegra.ph/upload", data=form_data) as resp:
-                    res_json = await resp.json()
-                    if isinstance(res_json, list) and len(res_json) > 0 and "src" in res_json[0]:
-                        telegraph_url = "https://telegra.ph" + res_json[0]["src"]
-                    else:
-                        return {"ok": False, "msg": "Failed to upload to Telegraph."}
-        except Exception as e:
-            return {"ok": False, "msg": "Image processing error. Try another image."}
-    else:
-        return {"ok": False, "msg": "Invalid Image Data!"}
 
     await db.upcoming_custom.insert_one({
         "title": data.get("title"),
         "release_date": data.get("release_date"),
         "language": data.get("language"),
-        "photo_url": telegraph_url,
+        "photo_url": data.get("photo_url"), # এখানে সরাসরি ইমেজের কোড সেভ হবে
         "overview": data.get("overview", "")
     })
     return {"ok": True}
