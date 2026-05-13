@@ -10,7 +10,7 @@ from cachetools import TTLCache
 
 upcoming_router = APIRouter()
 
-TMDB_API_KEY = os.getenv("TMDB_API_KEY", "7dc544d9253bccc3cfecc1c677f69819")
+TMDB_API_KEY = os.getenv("TMDB_API_KEY", "YOUR_TMDB_API_KEY_HERE")
 tmdb_cache = TTLCache(maxsize=5, ttl=10800)
 
 LANG_MAP = {
@@ -22,7 +22,6 @@ LANG_MAP = {
     "bn": "Bengali"
 }
 
-# প্রতিটি ভাষার জন্য আলাদা ডাটা ফেচ করার ফাংশন
 async def fetch_language_movies(session, lang_code, lang_name, today_str, next_30_days_str):
     url = f"https://api.themoviedb.org/3/discover/movie"
     params = {
@@ -67,7 +66,6 @@ async def fetch_tmdb_upcoming():
     
     movies = []
     
-    # 🛑 UPDATE 1: asyncio.gather দিয়ে সব ভাষা প্যারালালি ফেচ করা হলো (সুপার ফাস্ট)
     async with aiohttp.ClientSession() as session:
         tasks = [
             fetch_language_movies(session, lang_code, lang_name, today_str, next_30_days_str)
@@ -113,30 +111,58 @@ async def get_upcoming_movies():
     
     return {"movies": all_movies}
 
+# ==========================================
+# 🛑 FIX: Admin Authorization Update
+# ==========================================
 @upcoming_router.post("/api/upcoming/custom")
 async def add_custom_upcoming(data: dict = Body(...)):
-    from main import db, admin_cache, validate_tg_data
+    from main import db, validate_tg_data
 
-    uid = data.get("uid", 0)
-    if uid not in admin_cache or not validate_tg_data(data.get("initData", "")):
-        return {"ok": False, "msg": "Unauthorized"}
+    uid = int(data.get("uid", 0))
+    init_data = data.get("initData", "")
+    
+    if not validate_tg_data(init_data):
+        return {"ok": False, "msg": "Telegram Session Expired! Please close and reopen the bot."}
+        
+    # সরাসরি ডাটাবেস থেকে অ্যাডমিন চেক করা হচ্ছে
+    OWNER_ID = int(os.getenv("ADMIN_ID", "0"))
+    is_admin = (uid == OWNER_ID)
+    if not is_admin:
+        admin_doc = await db.admins.find_one({"user_id": uid})
+        if admin_doc:
+            is_admin = True
+            
+    if not is_admin:
+        return {"ok": False, "msg": "You do not have Admin permissions!"}
         
     await db.upcoming_custom.insert_one({
-        "title": data["title"],
-        "release_date": data["release_date"],
-        "language": data["language"],
-        "photo_url": data["photo_url"],
+        "title": data.get("title"),
+        "release_date": data.get("release_date"),
+        "language": data.get("language"),
+        "photo_url": data.get("photo_url"),
         "overview": data.get("overview", "")
     })
     return {"ok": True}
 
 @upcoming_router.delete("/api/upcoming/custom/{movie_id}")
 async def delete_custom_upcoming(movie_id: str, data: dict = Body(...)):
-    from main import db, admin_cache, validate_tg_data
+    from main import db, validate_tg_data
 
-    uid = data.get("uid", 0)
-    if uid not in admin_cache or not validate_tg_data(data.get("initData", "")):
-        return {"ok": False, "msg": "Unauthorized"}
+    uid = int(data.get("uid", 0))
+    init_data = data.get("initData", "")
+    
+    if not validate_tg_data(init_data):
+        return {"ok": False, "msg": "Telegram Session Expired! Please close and reopen the bot."}
+        
+    OWNER_ID = int(os.getenv("ADMIN_ID", "0"))
+    is_admin = (uid == OWNER_ID)
+    if not is_admin:
+        admin_doc = await db.admins.find_one({"user_id": uid})
+        if admin_doc:
+            is_admin = True
+            
+    if not is_admin:
+        return {"ok": False, "msg": "You do not have Admin permissions!"}
         
     await db.upcoming_custom.delete_one({"_id": ObjectId(movie_id)})
     return {"ok": True}
