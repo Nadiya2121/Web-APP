@@ -80,7 +80,7 @@ DB_CHANNEL_ID = int(_db_ch) if _db_ch.lstrip('-').isdigit() else None
 # 🛑 AI Config Setup (সরাসরি API Key)
 # ==========================================
 # ⚠️ সতর্কতা: আপনার আগের Key টি নষ্ট! নিচে অবশ্যই নতুন Key বসাবেন।
-GEMINI_API_KEY = "AIzaSyACPJ9ogii3qvsI1ch7d-3dcalbtDVv_GI"
+GEMINI_API_KEY = ""
 gemini_model = True if GEMINI_API_KEY and "এখানে_আপনার_নতুন_API_KEY_বসাবেন" not in GEMINI_API_KEY else False
 
 print(f"=====================================")
