@@ -400,7 +400,8 @@ async def start_cmd(message: types.Message, state: FSMContext):
             "🔸 স্ট্যাটাস: <code>/stats</code> | ব্রডকাস্ট: <code>/cast</code>\n"
             "🔸 মুভি ডিলিট: <code>/delmovie মুভির নাম</code> | <code>/delallmovies</code>\n"
             "🔸 ব্যান: <code>/ban ID</code> | আনব্যান: <code>/unban ID</code>\n"
-            "🔸 VIP দিন: <code>/addvip ID দিন</code> | VIP বাতিল: <code>/removevip ID</code>\n\n"
+            "🔸 VIP দিন: <code>/addvip ID দিন</code> | VIP বাতিল: <code>/removevip ID</code>\n"
+            "🔸 পয়েন্ট দিন: <code>/addcoin ID পরিমাণ</code> | পয়েন্ট কাটুন: <code>/removecoin ID পরিমাণ</code>\n\n"
             f"🌐 <b>ওয়েব অ্যাডমিন প্যানেল:</b> <a href='{APP_URL}/admin'>এখানে ক্লিক করুন</a>\n"
             "<i>লগিন: admin / admin123</i>\n\n"
             "📥 <b>মুভি অ্যাড করতে প্রথমে ভিডিও বা ডকুমেন্ট ফাইল পাঠান।</b>"
@@ -625,6 +626,42 @@ async def remove_vip_cmd(m: types.Message):
         await db.users.update_one({"user_id": target_uid}, {"$set": {"vip_until": now - datetime.timedelta(days=1)}})
         await m.answer(f"❌ VIP বাতিল করা হয়েছে!", parse_mode="HTML")
     except Exception: pass
+
+@dp.message(Command("addcoin"))
+async def add_coin_cmd(m: types.Message):
+    if m.from_user.id not in admin_cache: return
+    try:
+        args = m.text.split()
+        target_uid = int(args[1])
+        amount = int(args[2])
+        
+        user = await db.users.find_one({"user_id": target_uid})
+        if not user: return await m.answer("⚠️ এই ইউজার ডাটাবেসে নেই।")
+            
+        await db.users.update_one({"user_id": target_uid}, {"$inc": {"coins": amount}})
+        await m.answer(f"✅ ইউজার <code>{target_uid}</code> কে <b>{amount} পয়েন্ট</b> দেওয়া হয়েছে!", parse_mode="HTML")
+        
+        try:
+            await bot.send_message(target_uid, f"🎉 <b>Congratulations!</b>\nআপনি অ্যাডমিনের কাছ থেকে <b>{amount} Points</b> পেয়েছেন! এখন আপনি Premium বা Ad Campaign শুরু করতে পারেন।", parse_mode="HTML")
+        except: pass
+    except Exception: 
+        await m.answer("⚠️ সঠিক নিয়ম: <code>/addcoin UserID পরিমাণ</code>\n(যেমন: <code>/addcoin 123456789 500</code>)", parse_mode="HTML")
+
+@dp.message(Command("removecoin"))
+async def remove_coin_cmd(m: types.Message):
+    if m.from_user.id not in admin_cache: return
+    try:
+        args = m.text.split()
+        target_uid = int(args[1])
+        amount = int(args[2])
+        
+        user = await db.users.find_one({"user_id": target_uid})
+        if not user: return await m.answer("⚠️ এই ইউজার ডাটাবেসে নেই।")
+            
+        await db.users.update_one({"user_id": target_uid}, {"$inc": {"coins": -amount}})
+        await m.answer(f"❌ ইউজার <code>{target_uid}</code> থেকে <b>{amount} পয়েন্ট</b> কেটে নেওয়া হয়েছে!", parse_mode="HTML")
+    except Exception: 
+        await m.answer("⚠️ সঠিক নিয়ম: <code>/removecoin UserID পরিমাণ</code>", parse_mode="HTML")
 
 @dp.message(Command("cast"))
 async def broadcast_prep(m: types.Message, state: FSMContext):
