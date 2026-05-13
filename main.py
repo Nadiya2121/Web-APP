@@ -15,12 +15,6 @@ import glob
 from PIL import Image, ImageFilter
 
 # ==========================================
-# 🛑 NEW UPDATE: Google Gemini AI (REST API)
-# ==========================================
-# বাতিল হয়ে যাওয়া `google.generativeai` ইমপোর্টটি মুছে ফেলা হয়েছে। 
-# এর বদলে সরাসরি REST API ব্যবহার করা হয়েছে যা 100% নির্ভরযোগ্য।
-
-# ==========================================
 # 🛑 Cache লাইব্রেরি ইম্পোর্ট করা হলো
 # ==========================================
 from cachetools import TTLCache
@@ -40,9 +34,6 @@ from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 
-# ==========================================
-# 🛑 NEW UPDATE: Upcoming Router Import
-# ==========================================
 from upcoming_router import upcoming_router
 
 from aiogram import Bot, Dispatcher, types, F
@@ -88,8 +79,9 @@ DB_CHANNEL_ID = int(_db_ch) if _db_ch.lstrip('-').isdigit() else None
 # ==========================================
 # 🛑 AI Config Setup (সরাসরি API Key)
 # ==========================================
-GEMINI_API_KEY = "AIzaSyDXMynfRHhI1na3TaGbd3--xabuQ_ByE7c"
-gemini_model = True if GEMINI_API_KEY and "আপনার_আসল_এপিআই_কী" not in GEMINI_API_KEY else False
+# ⚠️ সতর্কতা: আপনার আগের Key টি নষ্ট! নিচে অবশ্যই নতুন Key বসাবেন।
+GEMINI_API_KEY = "AIzaSyACPJ9ogii3qvsI1ch7d-3dcalbtDVv_GI"
+gemini_model = True if GEMINI_API_KEY and "এখানে_আপনার_নতুন_API_KEY_বসাবেন" not in GEMINI_API_KEY else False
 
 print(f"=====================================")
 print(f"🚀 AI CONFIG: API KEY LOADED = {gemini_model}")
@@ -99,10 +91,6 @@ bot = Bot(token=TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
 
 app = FastAPI()
-
-# ==========================================
-# 🛑 NEW UPDATE: Add Upcoming Router to App
-# ==========================================
 app.include_router(upcoming_router)
 
 security = HTTPBasic()
@@ -120,9 +108,6 @@ db = client['movie_database']
 admin_cache = set([OWNER_ID]) 
 banned_cache = set() 
 
-# ==========================================
-# 🛑 Caching Setup (RAM Cache)
-# ==========================================
 trending_cache = TTLCache(maxsize=10, ttl=3600)
 list_cache = TTLCache(maxsize=100, ttl=3600)
 category_cache = TTLCache(maxsize=5, ttl=43200)
@@ -159,9 +144,6 @@ def cleanup_temp_files():
     if count > 0:
         logger.info(f"Cleaned up {count} leftover temp files.")
 
-# ==========================================
-# 2. Image Processing (Wide Thumbnails)
-# ==========================================
 def make_wide_thumbnail(input_path, output_path):
     try:
         img = Image.open(input_path).convert('RGB')
@@ -312,9 +294,6 @@ async def video_queue_worker():
             video_queue.task_done()
             is_processing = False
 
-# ==========================================
-# 3. DB & Auth Functions
-# ==========================================
 async def load_admins():
     admin_cache.clear()
     admin_cache.add(OWNER_ID)
@@ -365,9 +344,6 @@ async def auto_delete_worker():
         except Exception: pass
         await asyncio.sleep(60)
 
-# ==========================================
-# 4. FULL ADMIN COMMANDS
-# ==========================================
 def format_views(n):
     if n >= 1000000: return f"{n/1000000:.1f}M".replace(".0M", "M")
     if n >= 1000: return f"{n/1000:.1f}K".replace(".0K", "K")
@@ -714,7 +690,6 @@ async def forward_to_admin(m: types.Message):
     builder.button(text="✍️ রিপ্লাই দিন", callback_data=f"reply_{m.from_user.id}")
     markup = builder.as_markup()
     
-    # 1. Forward the message to Admins
     all_admins = set([OWNER_ID])
     async for a in db.admins.find(): all_admins.add(a["user_id"])
         
@@ -728,7 +703,6 @@ async def forward_to_admin(m: types.Message):
             await m.copy_to(admin_id, reply_markup=markup)
         except Exception: pass
         
-    # 2. Smart AI Auto-Reply (10 Second Cache)
     if m.from_user.id not in auto_reply_cache:
         auto_reply_cache[m.from_user.id] = True
         try:
@@ -764,37 +738,26 @@ async def forward_to_admin(m: types.Message):
                 """
                 
                 try:
-                    # 🛑 Auto-Fallback System 🛑
-                    # যদি নতুন মডেলে 404 দেয়, তবে বট অটোমেটিক সবচেয়ে পুরনো মডেল দিয়ে ট্রাই করবে।
                     api_key = GEMINI_API_KEY.strip()
-                    headers = {"Content-Type": "application/json"}
-                    payload = {
-                        "contents": [{"parts": [{"text": prompt}]}],
-                        "generationConfig": {"temperature": 0.7}
-                    }
-                    
-                    async with aiohttp.ClientSession() as session:
-                        # Attempt 1: Standard Modern Model
-                        url_1 = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
-                        async with session.post(url_1, json=payload, headers=headers) as resp1:
-                            if resp1.status == 200:
-                                data = await resp1.json()
-                                raw_text = data['candidates'][0]['content']['parts'][0]['text']
-                                reply_text = raw_text.replace("**", "").replace("*", "").replace("#", "").strip()
-                            elif resp1.status == 404:
-                                # Attempt 2: Fallback to Old Model (For old/restricted keys)
-                                url_2 = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.0-pro:generateContent?key={api_key}"
-                                async with session.post(url_2, json=payload, headers=headers) as resp2:
-                                    if resp2.status == 200:
-                                        data = await resp2.json()
-                                        raw_text = data['candidates'][0]['content']['parts'][0]['text']
-                                        reply_text = raw_text.replace("**", "").replace("*", "").replace("#", "").strip()
-                                    else:
-                                        # If even the oldest model fails, the API key is completely dead.
-                                        error_msg = f"HTTP {resp2.status} (Fallback Failed): আপনার API Key টি পুরনো বা ব্লক হয়ে গেছে। দয়া করে Google AI Studio থেকে নতুন একটি API Key তৈরি করে কোডে বসান।"
-                            else:
-                                err_text = await resp1.text()
-                                error_msg = f"HTTP {resp1.status}: {err_text}"
+                    if api_key == "এখানে_আপনার_নতুন_API_KEY_বসাবেন" or not api_key:
+                        error_msg = "API Key সেট করা নেই! দয়া করে কোডে নতুন API Key বসান।"
+                    else:
+                        headers = {"Content-Type": "application/json"}
+                        payload = {
+                            "contents": [{"parts": [{"text": prompt}]}],
+                            "generationConfig": {"temperature": 0.7}
+                        }
+                        
+                        async with aiohttp.ClientSession() as session:
+                            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+                            async with session.post(url, json=payload, headers=headers) as resp:
+                                if resp.status == 200:
+                                    data = await resp.json()
+                                    raw_text = data['candidates'][0]['content']['parts'][0]['text']
+                                    reply_text = raw_text.replace("**", "").replace("*", "").replace("#", "").strip()
+                                else:
+                                    err_text = await resp.text()
+                                    error_msg = f"HTTP {resp.status}: {err_text}"
                 except Exception as e:
                     error_msg = f"Code Exception: {str(e)}"
             
@@ -809,9 +772,6 @@ async def forward_to_admin(m: types.Message):
             await m.reply(reply_text, reply_markup=user_markup, parse_mode="HTML")
         except Exception: pass
 
-# ==========================================
-# 5. Movie Upload Logic
-# ==========================================
 @dp.message(F.content_type.in_({'video', 'document'}), lambda m: m.from_user.id in admin_cache)
 async def receive_movie_file(m: types.Message, state: FSMContext):
     config = await db.settings.find_one({"id": "auto_upload_mode"})
@@ -1002,9 +962,6 @@ async def receive_movie_category(m: types.Message, state: FSMContext):
             await bot.send_photo(chat_id=CHANNEL_ID, photo=photo_id, caption=caption, parse_mode="HTML", reply_markup=markup)
         except Exception: pass
 
-# ==========================================
-# 6. Callbacks & Approvals
-# ==========================================
 @dp.callback_query(F.data.startswith("trx_"))
 async def handle_trx_approval(c: types.CallbackQuery):
     if c.from_user.id not in admin_cache: return
@@ -1049,9 +1006,6 @@ async def send_reply(m: types.Message, state: FSMContext):
         await m.answer("✅ ইউজারকে রিপ্লাই পাঠানো হয়েছে!")
     except Exception: await m.answer("⚠️ রিপ্লাই পাঠানো যায়নি!")
 
-# ==========================================
-# 7. Web Admin Panel HTML & API
-# ==========================================
 @app.get("/api/admin/sys_settings")
 async def get_sys_settings(auth: bool = Depends(verify_admin)):
     cost_cfg = await db.settings.find_one({"id": "vip_cost"})
@@ -1369,9 +1323,6 @@ async def edit_movie_api(title: str, data: dict = Body(...), auth: bool = Depend
     clear_app_cache() 
     return {"ok": True}
 
-# ==========================================
-# 8. Web UI
-# ==========================================
 @app.get("/", response_class=HTMLResponse)
 async def web_ui():
     tg_cfg = await db.settings.find_one({"id": "link_tg"})
@@ -2540,9 +2491,6 @@ async def handle_request(data: ReqModel):
         except Exception: pass
     return {"ok": True}
 
-# ==========================================
-# 🛑 SPONSORED ADS API
-# ==========================================
 class AdCreateModel(BaseModel):
     uid: int
     initData: str
@@ -2617,11 +2565,7 @@ async def get_all_ads(auth: bool = Depends(verify_admin)):
 async def delete_ad(ad_id: str, auth: bool = Depends(verify_admin)):
     await db.ads.delete_one({"_id": ObjectId(ad_id)})
     return {"ok": True}
-# ==========================================
 
-# ==========================================
-# 9. Main Application Startup
-# ==========================================
 async def start():
     global video_queue
     logger.info("Initializing App and Fixing Asyncio Queue...")
