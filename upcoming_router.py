@@ -9,13 +9,18 @@ from cachetools import TTLCache
 
 upcoming_router = APIRouter()
 
-TMDB_API_KEY = os.getenv("TMDB_API_KEY", "7dc544d9253bccc3cfecc1c677f69819")  # এখানে আপনার API Key বসাবেন
+TMDB_API_KEY = os.getenv("TMDB_API_KEY", "7dc544d9253bccc3cfecc1c677f69819")
 
 tmdb_cache = TTLCache(maxsize=5, ttl=10800)
 
+# মালায়ালম (ml) যোগ করা হয়েছে
 LANG_MAP = {
-    "en": "Hollywood", "hi": "Bollywood", "ta": "Tamil", 
-    "te": "Telugu", "bn": "Bengali"
+    "en": "Hollywood", 
+    "hi": "Bollywood", 
+    "ta": "Tamil", 
+    "te": "Telugu", 
+    "ml": "Malayalam",
+    "bn": "Bengali"
 }
 
 async def fetch_tmdb_upcoming():
@@ -28,34 +33,41 @@ async def fetch_tmdb_upcoming():
     today = datetime.datetime.utcnow().date()
     next_30_days = today + datetime.timedelta(days=30)
     
-    url = f"https://api.themoviedb.org/3/discover/movie"
-    params = {
-        "api_key": TMDB_API_KEY,
-        "primary_release_date.gte": today.strftime("%Y-%m-%d"),
-        "primary_release_date.lte": next_30_days.strftime("%Y-%m-%d"),
-        "with_original_language": "en|hi|ta|te|bn",
-        "sort_by": "primary_release_date.asc"
-    }
-    
     movies = []
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, params=params) as resp:
-                data = await resp.json()
-                for m in data.get("results", []):
-                    lang = m.get("original_language", "en")
-                    if lang in LANG_MAP:
-                        movies.append({
-                            "_id": f"tmdb_{m['id']}",
-                            "title": m["title"],
-                            "release_date": m["release_date"],
-                            "language": LANG_MAP[lang],
-                            "photo_url": f"https://image.tmdb.org/t/p/w500{m['poster_path']}" if m.get("poster_path") else "https://via.placeholder.com/500x750?text=No+Image",
-                            "is_custom": False
-                        })
-        tmdb_cache["movies"] = movies
-    except Exception as e:
-        print(f"TMDB Fetch Error: {e}")
+    
+    # প্রতিটি ভাষার জন্য আলাদাভাবে টপ পপুলার মুভি আনা হচ্ছে
+    async with aiohttp.ClientSession() as session:
+        for lang_code, lang_name in LANG_MAP.items():
+            url = f"https://api.themoviedb.org/3/discover/movie"
+            params = {
+                "api_key": TMDB_API_KEY,
+                "primary_release_date.gte": today.strftime("%Y-%m-%d"),
+                "primary_release_date.lte": next_30_days.strftime("%Y-%m-%d"),
+                "with_original_language": lang_code,
+                "sort_by": "popularity.desc",  # 🛑 শুধু পপুলার বা ট্রেন্ডিং মুভি আনবে
+                "page": 1
+            }
+            
+            try:
+                async with session.get(url, params=params) as resp:
+                    data = await resp.json()
+                    # প্রতিটি ভাষার সেরা ১০টি মুভি নেবে (যাদের পোস্টার আছে)
+                    for m in data.get("results", [])[:10]:
+                        if m.get("poster_path"):
+                            movies.append({
+                                "_id": f"tmdb_{m['id']}",
+                                "title": m["title"],
+                                "release_date": m["release_date"],
+                                "language": lang_name,
+                                "photo_url": f"https://image.tmdb.org/t/p/w500{m['poster_path']}",
+                                "is_custom": False
+                            })
+            except Exception as e:
+                print(f"TMDB Fetch Error for {lang_code}: {e}")
+
+    # সব ভাষার মুভি একসাথে করার পর রিলিজ ডেট অনুযায়ী সাজানো হবে
+    movies.sort(key=lambda x: x["release_date"])
+    tmdb_cache["movies"] = movies
     return movies
 
 @upcoming_router.get("/upcoming", response_class=HTMLResponse)
@@ -66,7 +78,6 @@ async def upcoming_page():
 
 @upcoming_router.get("/api/upcoming/movies")
 async def get_upcoming_movies():
-    # 🛑 সার্কুলার ইমপোর্ট ফিক্স করার জন্য লোকাল ইমপোর্ট করা হলো
     from main import db
 
     tmdb_movies = await fetch_tmdb_upcoming()
@@ -91,7 +102,6 @@ async def get_upcoming_movies():
 
 @upcoming_router.post("/api/upcoming/custom")
 async def add_custom_upcoming(data: dict = Body(...)):
-    # 🛑 সার্কুলার ইমপোর্ট ফিক্স করার জন্য লোকাল ইমপোর্ট করা হলো
     from main import db, admin_cache, validate_tg_data
 
     uid = data.get("uid", 0)
@@ -108,7 +118,6 @@ async def add_custom_upcoming(data: dict = Body(...)):
 
 @upcoming_router.delete("/api/upcoming/custom/{movie_id}")
 async def delete_custom_upcoming(movie_id: str, data: dict = Body(...)):
-    # 🛑 সার্কুলার ইমপোর্ট ফিক্স করার জন্য লোকাল ইমপোর্ট করা হলো
     from main import db, admin_cache, validate_tg_data
 
     uid = data.get("uid", 0)
