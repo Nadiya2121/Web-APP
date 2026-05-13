@@ -106,7 +106,7 @@
         </div>
     </div>
 
-    <!-- Add Custom Modal (WITH DIRECT UPLOAD) -->
+    <!-- Add Custom Modal (Backend Upload Version) -->
     <div class="modal" id="addModal">
         <div class="modal-content">
             <div class="close-icon" onclick="document.getElementById('addModal').style.display='none'"><i class="fa-solid fa-xmark"></i></div>
@@ -122,12 +122,10 @@
                 <option value="Malayalam">Malayalam</option>
             </select>
             
-            <!-- 🛑 ডাইরেক্ট ইমেজ আপলোড অপশন -->
             <label style="color: #94a3b8; font-size: 12px; margin-bottom: 5px; display: block; text-align: left;">Upload Poster Image:</label>
             <input type="file" id="mPhotoFile" class="modal-input" accept="image/*" style="padding: 8px;">
             
-            <!-- আপলোডিং স্ট্যাটাস দেখানোর জন্য -->
-            <div id="uploadStatus" style="color: #fbbf24; font-size: 12px; margin-bottom: 10px; display: none; text-align: left;"><i class="fa-solid fa-spinner fa-spin"></i> Uploading image... please wait.</div>
+            <div id="uploadStatus" style="color: #fbbf24; font-size: 12px; margin-bottom: 10px; display: none; text-align: left;"><i class="fa-solid fa-spinner fa-spin"></i> Uploading to server... please wait.</div>
 
             <textarea id="mDesc" class="modal-textarea" rows="3" placeholder="Movie Overview / Details..."></textarea>
             
@@ -261,55 +259,45 @@
             document.getElementById('detailModal').style.display = 'flex';
         }
 
-        // 🛑 নতুন অ্যাড কাস্টম ফাংশন (ডাইরেক্ট আপলোড সহ)
+        // 🛑 UPDATE: Backend-based Image Upload 🛑
         async function addCustomMovie() {
             let title = document.getElementById('mTitle').value;
             let rDate = document.getElementById('mDate').value;
             let fileInput = document.getElementById('mPhotoFile');
             
             if(!title || !rDate) return tg.showAlert("Title and Date are required!");
-            if(fileInput.files.length === 0) return tg.showAlert("Please select a poster image from your device!");
+            if(fileInput.files.length === 0) return tg.showAlert("Please select a poster image!");
 
             let saveBtn = document.getElementById('saveBtn');
             let statusTxt = document.getElementById('uploadStatus');
             
-            // বাটন ডিজেবল করে লোডিং দেখাচ্ছে
             saveBtn.disabled = true;
             saveBtn.style.background = "#475569";
             saveBtn.innerText = "Processing...";
             statusTxt.style.display = "block";
 
             try {
-                // ১. ছবিকে Telegraph সার্ভারে অটোমেটিক আপলোড করা হচ্ছে
+                // ব্রাউজার থেকে সরাসরি ডাটাবেস এপিআইতে ছবি এবং ইনফো পাঠানো হচ্ছে
                 let formData = new FormData();
+                formData.append('uid', uid);
+                formData.append('initData', initData);
+                formData.append('title', title);
+                formData.append('release_date', rDate);
+                formData.append('language', document.getElementById('mLang').value);
+                formData.append('overview', document.getElementById('mDesc').value);
                 formData.append('file', fileInput.files[0]);
-                
-                let tRes = await fetch('https://telegra.ph/upload', { method: 'POST', body: formData });
-                let tData = await tRes.json();
-                
-                if(tData.error) throw new Error(tData.error);
-                
-                // ডাইরেক্ট ইমেজের লিংক তৈরি হলো
-                let uploadedPhotoUrl = "https://telegra.ph" + tData[0].src;
 
-                // ২. ব্যাকএন্ড ডাটাবেসে সেভ করা হচ্ছে
-                let payload = {
-                    uid: uid, initData: initData,
-                    title: title,
-                    release_date: rDate,
-                    language: document.getElementById('mLang').value,
-                    photo_url: uploadedPhotoUrl,
-                    overview: document.getElementById('mDesc').value
-                };
-
-                let res = await fetch('/api/upcoming/custom', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) });
+                let res = await fetch('/api/upcoming/custom', { 
+                    method: 'POST', 
+                    body: formData 
+                });
+                
                 let result = await res.json();
                 
                 if(result.ok) {
                     document.getElementById('addModal').style.display='none';
                     tg.showAlert("Added Successfully!");
                     
-                    // ফরম ক্লিয়ার করা হচ্ছে
                     document.getElementById('mTitle').value = '';
                     document.getElementById('mDate').value = '';
                     fileInput.value = '';
@@ -321,9 +309,8 @@
                     tg.showAlert("Failed: " + result.msg);
                 }
             } catch(e) {
-                tg.showAlert("Error uploading image! Please try a smaller image.");
+                tg.showAlert("Network Error! Please try again.");
             } finally {
-                // বাটন আবার নরমাল করা হচ্ছে
                 saveBtn.disabled = false;
                 saveBtn.style.background = "linear-gradient(45deg, #3b82f6, #2563eb)";
                 saveBtn.innerText = "Save Movie";
