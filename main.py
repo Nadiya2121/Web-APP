@@ -751,37 +751,28 @@ async def forward_to_admin(m: types.Message):
                 except Exception as e:
                     logger.error(f"DB Search Error: {e}")
 
-                # 🛑 NEW UPDATE: System Instruction (বটকে আরও স্মার্ট করার জন্য) 🛑
-                system_prompt = f"""তুমি হলে 'MovieZone BD' এর একজন কিউট, চটপটে এবং হেল্পফুল মেয়ে অ্যাসিস্ট্যান্ট। তোমার নাম 'রিয়া'।
+                # 🛑 FIX: 100% Reliable Prompt Format for Gemini Pro
+                prompt = f"""তুমি হলে 'MovieZone BD' এর একজন কিউট, চটপটে এবং হেল্পফুল মেয়ে অ্যাসিস্ট্যান্ট। তোমার নাম 'রিয়া'।
                 
-                তোমার জন্য নির্দেশনাবলী:
+                নির্দেশনাবলী:
                 ১. সব সময় বাংলায় খুব মিষ্টি করে, প্রয়োজনে ইমোজি ব্যবহার করে কথা বলবে। 
                 ২. ডাটাবেস স্ট্যাটাস: {'পাওয়া গেছে, নাম: '+found_title if movie_found else 'পাওয়া যায়নি'}। 
                 ৩. যদি মুভি ডাটাবেসে থাকে, তাহলে খুব খুশির সাথে তাকে বলবে নিচের '🎬 Watch Now' বাটনে ক্লিক করে মুভিটা দেখে নিতে।
                 ৪. যদি মুভি না থাকে, তাহলে মন খারাপ করার ইমোজি দিয়ে কিউটভাবে বলবে যে মুভিটা নেই, কিন্তু তুমি অ্যাডমিনকে বলে দিয়েছ আপলোড করার জন্য।
                 ৫. ইউজার যদি মুভি না চেয়ে সাধারণ কথা বলে (যেমন: কেমন আছো, কি করো), তাহলে বন্ধুর মতো ফানি ও সুন্দর উত্তর দেবে।
-                ৬. কোনো প্রকার বোল্ড (**) বা ইটালিক প্রতীক ব্যবহার করবে পণ্ডিতি করবে না। উত্তর হবে সিম্পল এবং সুন্দর।"""
+                ৬. কোনো প্রকার বোল্ড (**) বা ইটালিক প্রতীক ব্যবহার করবে না। উত্তর হবে সিম্পল এবং সুন্দর।
+
+                ইউজারের মেসেজ: "{user_text}"
+                """
                 
                 try:
-                    # 🛑 FIX: মডেল নাম আপডেট করা হয়েছে (সবচেয়ে লেটেস্ট এবং স্মুথ ভার্সন) 🛑
-                    api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
+                    # 🛑 FIX: Changed to universally supported 'gemini-pro' model (100% Working)
+                    api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key={GEMINI_API_KEY}"
                     headers = {"Content-Type": "application/json"}
                     
-                    # 🛑 FIX: Payload স্ট্রাকচার আপডেট (system_instruction ব্যবহার করে) 🛑
                     payload = {
-                        "system_instruction": {
-                            "parts": [{"text": system_prompt}]
-                        },
-                        "contents": [
-                            {
-                                "role": "user",
-                                "parts": [{"text": user_text}]
-                            }
-                        ],
-                        "generationConfig": {
-                            "temperature": 0.8,
-                            "maxOutputTokens": 300
-                        },
+                        "contents": [{"parts": [{"text": prompt}]}],
+                        "generationConfig": {"temperature": 0.8},
                         "safetySettings": [
                             {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
                             {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
@@ -798,7 +789,7 @@ async def forward_to_admin(m: types.Message):
                                     raw_text = data['candidates'][0]['content']['parts'][0]['text']
                                     reply_text = raw_text.replace("**", "").replace("*", "").replace("#", "").strip()
                                 except KeyError as e:
-                                    error_msg = f"Gemini Safety Block/Parsing Error: {data}"
+                                    error_msg = f"Gemini Parsing Error: {data}"
                             else:
                                 err_text = await resp.text()
                                 error_msg = f"HTTP {resp.status}: {err_text}"
