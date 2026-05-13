@@ -1,5 +1,6 @@
 import os
 import datetime
+import asyncio
 import aiohttp
 import copy
 from fastapi import APIRouter, Body
@@ -10,10 +11,8 @@ from cachetools import TTLCache
 upcoming_router = APIRouter()
 
 TMDB_API_KEY = os.getenv("TMDB_API_KEY", "7dc544d9253bccc3cfecc1c677f69819")
-
 tmdb_cache = TTLCache(maxsize=5, ttl=10800)
 
-# মালায়ালম (ml) যোগ করা হয়েছে
 LANG_MAP = {
     "en": "Hollywood", 
     "hi": "Bollywood", 
@@ -22,6 +21,37 @@ LANG_MAP = {
     "ml": "Malayalam",
     "bn": "Bengali"
 }
+
+# প্রতিটি ভাষার জন্য আলাদা ডাটা ফেচ করার ফাংশন
+async def fetch_language_movies(session, lang_code, lang_name, today_str, next_30_days_str):
+    url = f"https://api.themoviedb.org/3/discover/movie"
+    params = {
+        "api_key": TMDB_API_KEY,
+        "primary_release_date.gte": today_str,
+        "primary_release_date.lte": next_30_days_str,
+        "with_original_language": lang_code,
+        "sort_by": "popularity.desc",
+        "page": 1
+    }
+    lang_movies = []
+    try:
+        async with session.get(url, params=params) as resp:
+            data = await resp.json()
+            for m in data.get("results", [])[:10]:
+                if m.get("poster_path"):
+                    lang_movies.append({
+                        "_id": f"tmdb_{m['id']}",
+                        "title": m["title"],
+                        "release_date": m["release_date"],
+                        "language": lang_name,
+                        "photo_url": f"https://image.tmdb.org/t/p/w500{m['poster_path']}",
+                        "overview": m.get("overview", "No description available for this movie yet."),
+                        "rating": round(m.get("vote_average", 0), 1),
+                        "is_custom": False
+                    })
+    except Exception as e:
+        print(f"TMDB Fetch Error for {lang_code}: {e}")
+    return lang_movies
 
 async def fetch_tmdb_upcoming():
     if "movies" in tmdb_cache:
@@ -32,40 +62,21 @@ async def fetch_tmdb_upcoming():
 
     today = datetime.datetime.utcnow().date()
     next_30_days = today + datetime.timedelta(days=30)
+    today_str = today.strftime("%Y-%m-%d")
+    next_30_days_str = next_30_days.strftime("%Y-%m-%d")
     
     movies = []
     
-    # প্রতিটি ভাষার জন্য আলাদাভাবে টপ পপুলার মুভি আনা হচ্ছে
+    # 🛑 UPDATE 1: asyncio.gather দিয়ে সব ভাষা প্যারালালি ফেচ করা হলো (সুপার ফাস্ট)
     async with aiohttp.ClientSession() as session:
-        for lang_code, lang_name in LANG_MAP.items():
-            url = f"https://api.themoviedb.org/3/discover/movie"
-            params = {
-                "api_key": TMDB_API_KEY,
-                "primary_release_date.gte": today.strftime("%Y-%m-%d"),
-                "primary_release_date.lte": next_30_days.strftime("%Y-%m-%d"),
-                "with_original_language": lang_code,
-                "sort_by": "popularity.desc",  # 🛑 শুধু পপুলার বা ট্রেন্ডিং মুভি আনবে
-                "page": 1
-            }
-            
-            try:
-                async with session.get(url, params=params) as resp:
-                    data = await resp.json()
-                    # প্রতিটি ভাষার সেরা ১০টি মুভি নেবে (যাদের পোস্টার আছে)
-                    for m in data.get("results", [])[:10]:
-                        if m.get("poster_path"):
-                            movies.append({
-                                "_id": f"tmdb_{m['id']}",
-                                "title": m["title"],
-                                "release_date": m["release_date"],
-                                "language": lang_name,
-                                "photo_url": f"https://image.tmdb.org/t/p/w500{m['poster_path']}",
-                                "is_custom": False
-                            })
-            except Exception as e:
-                print(f"TMDB Fetch Error for {lang_code}: {e}")
+        tasks = [
+            fetch_language_movies(session, lang_code, lang_name, today_str, next_30_days_str)
+            for lang_code, lang_name in LANG_MAP.items()
+        ]
+        results = await asyncio.gather(*tasks)
+        for res in results:
+            movies.extend(res)
 
-    # সব ভাষার মুভি একসাথে করার পর রিলিজ ডেট অনুযায়ী সাজানো হবে
     movies.sort(key=lambda x: x["release_date"])
     tmdb_cache["movies"] = movies
     return movies
@@ -92,6 +103,8 @@ async def get_upcoming_movies():
             "release_date": c["release_date"],
             "language": c["language"],
             "photo_url": c["photo_url"],
+            "overview": c.get("overview", "Custom uploaded movie. Stay tuned for details!"),
+            "rating": "N/A",
             "is_custom": True
         })
     
@@ -112,7 +125,8 @@ async def add_custom_upcoming(data: dict = Body(...)):
         "title": data["title"],
         "release_date": data["release_date"],
         "language": data["language"],
-        "photo_url": data["photo_url"]
+        "photo_url": data["photo_url"],
+        "overview": data.get("overview", "")
     })
     return {"ok": True}
 
