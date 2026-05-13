@@ -15,9 +15,10 @@ import glob
 from PIL import Image, ImageFilter
 
 # ==========================================
-# 🛑 NEW UPDATE: Google Gemini AI Import
+# 🛑 NEW UPDATE: Google Gemini AI (Fixed Deprecation)
 # ==========================================
-import google.generativeai as genai
+# বাতিল হয়ে যাওয়া `google.generativeai` ইমপোর্টটি মুছে ফেলা হয়েছে। 
+# এর বদলে সরাসরি REST API ব্যবহার করা হয়েছে যা 100% নির্ভরযোগ্য।
 
 # ==========================================
 # 🛑 Cache লাইব্রেরি ইম্পোর্ট করা হলো
@@ -85,14 +86,11 @@ _db_ch = os.getenv("DB_CHANNEL_ID", "")
 DB_CHANNEL_ID = int(_db_ch) if _db_ch.lstrip('-').isdigit() else None
 
 # ==========================================
-# 🛑 AI Config Setup
+# 🛑 AI Config Setup (Fixed)
 # ==========================================
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "AIzaSyAx6zye-3xoWlYFH0-JE2Jdo7aFGW3XQIk")
-if GEMINI_API_KEY:
-    genai.configure(api_key=GEMINI_API_KEY)
-    gemini_model = genai.GenerativeModel('gemini-1.5-flash')
-else:
-    gemini_model = None
+# ডিফল্ট Key মুছে শুধু Environment Variable রাখা হয়েছে
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+gemini_model = True if GEMINI_API_KEY else None
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
@@ -708,7 +706,7 @@ async def execute_broadcast(m: types.Message, state: FSMContext):
     await m.answer(f"✅ সম্পন্ন! সর্বমোট <b>{success}</b> জনকে মেসেজ পাঠানো হয়েছে।", parse_mode="HTML")
 
 # ==========================================
-# 🛑 NEW UPDATE: Smart AI Agent & Media Forward
+# 🛑 NEW UPDATE: Smart AI Agent (Fixed with aiohttp REST API)
 # ==========================================
 @dp.message(lambda m: m.chat.type == "private" and m.from_user.id not in admin_cache and (m.text is None or not m.text.startswith("/")))
 async def forward_to_admin(m: types.Message):
@@ -763,11 +761,26 @@ async def forward_to_admin(m: types.Message):
                 """
                 
                 try:
-                    # Async generation
-                    response = await asyncio.to_thread(gemini_model.generate_content, prompt)
-                    reply_text = response.text
+                    # Async generation using REST API to completely avoid deprecated libraries
+                    api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
+                    payload = {
+                        "contents": [{"parts": [{"text": prompt}]}],
+                        "generationConfig": {"temperature": 0.7}
+                    }
+                    
+                    async with aiohttp.ClientSession() as session:
+                        async with session.post(api_url, json=payload) as resp:
+                            if resp.status == 200:
+                                data = await resp.json()
+                                try:
+                                    reply_text = data['candidates'][0]['content']['parts'][0]['text']
+                                except KeyError:
+                                    logger.error(f"Gemini Response Blocked by Safety Settings: {data}")
+                            else:
+                                error_text = await resp.text()
+                                logger.error(f"Gemini API Error (HTTP {resp.status}): {error_text}")
                 except Exception as e:
-                    logger.error(f"Gemini AI Error: {e}")
+                    logger.error(f"Gemini AI Request Error: {e}")
             
             # Fallback if AI fails or no API Key or no text (e.g., sent only a sticker)
             if not reply_text:
