@@ -1,195 +1,120 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Upcoming Movies</title>
-    <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { background: #0f172a; font-family: sans-serif; color: #fff; padding-bottom: 80px; }
+import os
+import datetime
+import aiohttp
+import copy
+from fastapi import APIRouter, Body
+from fastapi.responses import HTMLResponse
+from bson import ObjectId
+from cachetools import TTLCache
+
+# মেইন ফাইল থেকে ডাটাবেস ও ভ্যালিডেশন ফাংশন ইম্পোর্ট করা হচ্ছে 
+# (আপনার মেইন ফাইলের নাম যদি main.py না হয়ে অন্য কিছু হয়, তবে main এর জায়গায় সেই নাম দেবেন)
+from main import db, admin_cache, validate_tg_data
+
+upcoming_router = APIRouter()
+
+TMDB_API_KEY = os.getenv("TMDB_API_KEY", "7dc544d9253bccc3cfecc1c677f69819")  # এখানে আপনার API Key বসাবেন
+
+# TMDB ডাটা ক্যাশ করার জন্য (প্রতি ৩ ঘণ্টায় একবার আপডেট হবে, যাতে API লিমিট শেষ না হয়)
+tmdb_cache = TTLCache(maxsize=5, ttl=10800)
+
+LANG_MAP = {
+    "en": "Hollywood", "hi": "Bollywood", "ta": "Tamil", 
+    "te": "Telugu", "bn": "Bengali"
+}
+
+async def fetch_tmdb_upcoming():
+    if "movies" in tmdb_cache:
+        return copy.deepcopy(tmdb_cache["movies"])
+    
+    if not TMDB_API_KEY or TMDB_API_KEY == "YOUR_TMDB_API_KEY_HERE":
+        return []
+
+    today = datetime.datetime.utcnow().date()
+    next_30_days = today + datetime.timedelta(days=30)
+    
+    url = f"https://api.themoviedb.org/3/discover/movie"
+    params = {
+        "api_key": TMDB_API_KEY,
+        "primary_release_date.gte": today.strftime("%Y-%m-%d"),
+        "primary_release_date.lte": next_30_days.strftime("%Y-%m-%d"),
+        "with_original_language": "en|hi|ta|te|bn",
+        "sort_by": "primary_release_date.asc"
+    }
+    
+    movies = []
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, params=params) as resp:
+                data = await resp.json()
+                for m in data.get("results", []):
+                    lang = m.get("original_language", "en")
+                    if lang in LANG_MAP:
+                        movies.append({
+                            "_id": f"tmdb_{m['id']}",
+                            "title": m["title"],
+                            "release_date": m["release_date"],
+                            "language": LANG_MAP[lang],
+                            "photo_url": f"https://image.tmdb.org/t/p/w500{m['poster_path']}" if m.get("poster_path") else "https://via.placeholder.com/500x750?text=No+Image",
+                            "is_custom": False
+                        })
+        tmdb_cache["movies"] = movies
+    except Exception as e:
+        print(f"TMDB Fetch Error: {e}")
+    return movies
+
+@upcoming_router.get("/upcoming", response_class=HTMLResponse)
+async def upcoming_page():
+    # upcoming.html ফাইলটি রিড করে রেসপন্স হিসেবে পাঠানো হচ্ছে
+    with open("upcoming.html", "r", encoding="utf-8") as f:
+        html_content = f.read()
+    return HTMLResponse(content=html_content)
+
+@upcoming_router.get("/api/upcoming/movies")
+async def get_upcoming_movies():
+    # 1. TMDB থেকে অটোমেটিক মুভি আনা
+    tmdb_movies = await fetch_tmdb_upcoming()
+    
+    # 2. ডাটাবেস থেকে ম্যানুয়ালি অ্যাড করা মুভি আনা
+    today_str = datetime.datetime.utcnow().strftime("%Y-%m-%d")
+    custom_movies_cursor = db.upcoming_custom.find({"release_date": {"$gte": today_str}})
+    custom_movies = []
+    async for c in custom_movies_cursor:
+        custom_movies.append({
+            "_id": str(c["_id"]),
+            "title": c["title"],
+            "release_date": c["release_date"],
+            "language": c["language"],
+            "photo_url": c["photo_url"],
+            "is_custom": True
+        })
+    
+    # দুটো লিস্ট একসাথে করে রিলিজ ডেট অনুযায়ী সাজানো
+    all_movies = tmdb_movies + custom_movies
+    all_movies.sort(key=lambda x: x["release_date"])
+    
+    return {"movies": all_movies}
+
+@upcoming_router.post("/api/upcoming/custom")
+async def add_custom_upcoming(data: dict = Body(...)):
+    # সিকিউরিটি চেক (শুধু অ্যাডমিন অ্যাড করতে পারবে)
+    uid = data.get("uid", 0)
+    if uid not in admin_cache or not validate_tg_data(data.get("initData", "")):
+        return {"ok": False, "msg": "Unauthorized"}
         
-        header { padding: 15px; text-align: center; border-bottom: 1px solid #1e293b; position: sticky; top: 0; background: rgba(15, 23, 42, 0.95); z-index: 1000; }
-        .logo { font-size: 22px; font-weight: 900; color: #38bdf8; }
+    await db.upcoming_custom.insert_one({
+        "title": data["title"],
+        "release_date": data["release_date"],
+        "language": data["language"],
+        "photo_url": data["photo_url"]
+    })
+    return {"ok": True}
 
-        .category-container { display: flex; overflow-x: auto; gap: 8px; padding: 15px; scroll-behavior: smooth; }
-        .category-container::-webkit-scrollbar { display: none; }
-        .cat-btn { background: rgba(30, 41, 59, 0.8); color: #cbd5e1; border: 1px solid #334155; padding: 8px 16px; border-radius: 20px; font-size: 13px; font-weight: bold; cursor: pointer; white-space: nowrap; }
-        .cat-btn.active { background: linear-gradient(45deg, #ef4444, #f97316); color: white; border-color: transparent; }
-
-        .grid-container { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; padding: 0 15px 20px; }
+@upcoming_router.delete("/api/upcoming/custom/{movie_id}")
+async def delete_custom_upcoming(movie_id: str, data: dict = Body(...)):
+    uid = data.get("uid", 0)
+    if uid not in admin_cache or not validate_tg_data(data.get("initData", "")):
+        return {"ok": False, "msg": "Unauthorized"}
         
-        .movie-card { background: #1e293b; border-radius: 12px; overflow: hidden; position: relative; border: 1px solid #334155; }
-        .movie-card img { width: 100%; aspect-ratio: 2/3; object-fit: cover; display: block; }
-        
-        .movie-info { padding: 10px; }
-        .movie-title { font-size: 14px; font-weight: bold; color: white; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 5px; }
-        .movie-date { font-size: 12px; color: #fbbf24; font-weight: bold; }
-        
-        .lang-badge { position: absolute; top: 8px; left: 8px; background: rgba(0,0,0,0.7); color: #4ade80; font-size: 10px; font-weight: bold; padding: 4px 8px; border-radius: 6px; border: 1px solid #4ade80; }
-        .del-btn { position: absolute; top: 8px; right: 8px; background: #ef4444; color: white; border: none; padding: 5px; border-radius: 5px; cursor: pointer; display: none; }
-
-        .bottom-nav { position: fixed; bottom: 0; width: 100%; background: #0f172a; border-top: 1px solid #334155; display: flex; justify-content: space-around; padding: 10px 0; z-index: 2000; }
-        .nav-item { display: flex; flex-direction: column; align-items: center; color: #94a3b8; font-size: 11px; cursor: pointer; gap: 4px; }
-        .nav-item i { font-size: 20px; }
-        .nav-item.active { color: #38bdf8; }
-
-        .fab { position: fixed; bottom: 85px; right: 15px; width: 50px; height: 50px; background: linear-gradient(45deg, #10b981, #059669); border-radius: 50%; display: none; align-items: center; justify-content: center; font-size: 20px; color: white; cursor: pointer; box-shadow: 0 4px 10px rgba(0,0,0,0.5); z-index: 1000; }
-
-        /* Modal Styles */
-        .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); align-items: center; justify-content: center; z-index: 3000; }
-        .modal-content { background: #1e293b; padding: 20px; border-radius: 12px; width: 90%; max-width: 400px; }
-        .modal-input { width: 100%; padding: 10px; margin-bottom: 10px; background: #0f172a; border: 1px solid #334155; color: white; border-radius: 8px; }
-        .btn-submit { width: 100%; padding: 10px; background: #3b82f6; border: none; color: white; font-weight: bold; border-radius: 8px; cursor: pointer; margin-top: 10px; }
-        .btn-close { width: 100%; padding: 10px; background: #ef4444; border: none; color: white; font-weight: bold; border-radius: 8px; cursor: pointer; margin-top: 5px; }
-    </style>
-</head>
-<body>
-    <header>
-        <div class="logo"><i class="fa-solid fa-calendar-days text-blue-400"></i> Upcoming Releases</div>
-    </header>
-
-    <div class="category-container" id="filterBox">
-        <button class="cat-btn active" onclick="filterMovies('All', this)">All</button>
-        <button class="cat-btn" onclick="filterMovies('Hollywood', this)">Hollywood</button>
-        <button class="cat-btn" onclick="filterMovies('Bollywood', this)">Bollywood</button>
-        <button class="cat-btn" onclick="filterMovies('Tamil', this)">Tamil</button>
-        <button class="cat-btn" onclick="filterMovies('Telugu', this)">Telugu</button>
-        <button class="cat-btn" onclick="filterMovies('Bengali', this)">Kolkata/Bengali</button>
-    </div>
-
-    <div class="grid-container" id="moviesGrid">
-        <p style="text-align: center; grid-column: span 2; color: #94a3b8;">Loading upcoming movies...</p>
-    </div>
-
-    <!-- Admin Floating Button -->
-    <div class="fab" id="adminFab" onclick="document.getElementById('addModal').style.display='flex'">
-        <i class="fa-solid fa-plus"></i>
-    </div>
-
-    <!-- Add Custom Movie Modal -->
-    <div class="modal" id="addModal">
-        <div class="modal-content">
-            <h3 style="color: white; margin-bottom: 15px;">➕ Add Upcoming Movie</h3>
-            <input type="text" id="mTitle" class="modal-input" placeholder="Movie Title">
-            <input type="date" id="mDate" class="modal-input">
-            <select id="mLang" class="modal-input">
-                <option value="Bengali">Kolkata/Bengali</option>
-                <option value="Bollywood">Bollywood</option>
-                <option value="Hollywood">Hollywood</option>
-                <option value="Tamil">Tamil</option>
-                <option value="Telugu">Telugu</option>
-            </select>
-            <input type="url" id="mPhoto" class="modal-input" placeholder="Poster Image URL (https://...)">
-            <button class="btn-submit" onclick="addCustomMovie()">Save Movie</button>
-            <button class="btn-close" onclick="document.getElementById('addModal').style.display='none'">Cancel</button>
-        </div>
-    </div>
-
-    <div class="bottom-nav">
-        <div class="nav-item" onclick="window.location.href='/'">
-            <i class="fa-solid fa-house"></i><span>Home</span>
-        </div>
-        <div class="nav-item active">
-            <i class="fa-solid fa-calendar-star"></i><span>Upcoming</span>
-        </div>
-    </div>
-
-    <script>
-        let tg = window.Telegram.WebApp;
-        tg.expand();
-        let uid = tg.initDataUnsafe?.user?.id || 0;
-        let initData = tg.initData || "";
-        let isAdmin = false;
-        let allMovies = [];
-
-        // Check if admin
-        async function checkAdmin() {
-            try {
-                let res = await fetch('/api/user/' + uid);
-                let data = await res.json();
-                isAdmin = data.admin;
-                if(isAdmin) document.getElementById('adminFab').style.display = 'flex';
-            } catch(e) {}
-        }
-
-        // Fetch Movies
-        async function loadUpcomingMovies() {
-            try {
-                let res = await fetch('/api/upcoming/movies');
-                let data = await res.json();
-                allMovies = data.movies;
-                renderGrid('All');
-            } catch(e) {
-                document.getElementById('moviesGrid').innerHTML = "<p style='color:red; grid-column: span 2;'>Failed to load data.</p>";
-            }
-        }
-
-        function filterMovies(lang, btnElement) {
-            document.querySelectorAll('.cat-btn').forEach(b => b.classList.remove('active'));
-            btnElement.classList.add('active');
-            renderGrid(lang);
-        }
-
-        function renderGrid(filterLang) {
-            let grid = document.getElementById('moviesGrid');
-            let filtered = filterLang === 'All' ? allMovies : allMovies.filter(m => m.language === filterLang);
-            
-            if(filtered.length === 0) {
-                grid.innerHTML = `<p style="text-align: center; grid-column: span 2; color: #fbbf24; margin-top:20px;">No upcoming movies found!</p>`;
-                return;
-            }
-
-            grid.innerHTML = filtered.map(m => {
-                let dateObj = new Date(m.release_date);
-                let formattedDate = dateObj.toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' });
-                let delBtn = (isAdmin && m.is_custom) ? `<button class="del-btn" style="display:block;" onclick="deleteCustom('${m._id}')"><i class="fa-solid fa-trash"></i></button>` : '';
-                
-                return `
-                <div class="movie-card">
-                    <div class="lang-badge">${m.language}</div>
-                    ${delBtn}
-                    <img src="${m.photo_url}" onerror="this.src='https://via.placeholder.com/500x750?text=No+Poster'">
-                    <div class="movie-info">
-                        <div class="movie-title">${m.title}</div>
-                        <div class="movie-date"><i class="fa-solid fa-clock"></i> ${formattedDate}</div>
-                    </div>
-                </div>`;
-            }).join('');
-        }
-
-        // Admin: Add Custom
-        async function addCustomMovie() {
-            let payload = {
-                uid: uid, initData: initData,
-                title: document.getElementById('mTitle').value,
-                release_date: document.getElementById('mDate').value,
-                language: document.getElementById('mLang').value,
-                photo_url: document.getElementById('mPhoto').value
-            };
-            if(!payload.title || !payload.release_date) return tg.showAlert("Title and Date are required!");
-
-            let res = await fetch('/api/upcoming/custom', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) });
-            let result = await res.json();
-            
-            if(result.ok) {
-                document.getElementById('addModal').style.display='none';
-                tg.showAlert("Added Successfully!");
-                loadUpcomingMovies();
-            } else tg.showAlert("Failed: " + result.msg);
-        }
-
-        // Admin: Delete Custom
-        async function deleteCustom(id) {
-            if(!confirm("Are you sure you want to delete this custom movie?")) return;
-            let res = await fetch('/api/upcoming/custom/' + id, { method: 'DELETE', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({uid: uid, initData: initData}) });
-            let result = await res.json();
-            if(result.ok) loadUpcomingMovies();
-        }
-
-        checkAdmin();
-        loadUpcomingMovies();
-    </script>
-</body>
-</html>
+    await db.upcoming_custom.delete_one({"_id": ObjectId(movie_id)})
+    return {"ok": True}
