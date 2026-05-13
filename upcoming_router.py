@@ -10,7 +10,7 @@ from cachetools import TTLCache
 
 upcoming_router = APIRouter()
 
-TMDB_API_KEY = os.getenv("TMDB_API_KEY", "YOUR_TMDB_API_KEY_HERE")
+TMDB_API_KEY = os.getenv("TMDB_API_KEY", "7dc544d9253bccc3cfecc1c677f69819")
 tmdb_cache = TTLCache(maxsize=5, ttl=10800)
 
 LANG_MAP = {
