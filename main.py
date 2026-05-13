@@ -15,6 +15,11 @@ import glob
 from PIL import Image, ImageFilter
 
 # ==========================================
+# 🛑 NEW UPDATE: Google Gemini AI Import
+# ==========================================
+import google.generativeai as genai
+
+# ==========================================
 # 🛑 Cache লাইব্রেরি ইম্পোর্ট করা হলো
 # ==========================================
 from cachetools import TTLCache
@@ -79,6 +84,16 @@ REQUEST_LINK = "https://t.me/+dld6-uEkdvQ5Yjg1"
 _db_ch = os.getenv("DB_CHANNEL_ID", "")
 DB_CHANNEL_ID = int(_db_ch) if _db_ch.lstrip('-').isdigit() else None
 
+# ==========================================
+# 🛑 AI Config Setup
+# ==========================================
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+if GEMINI_API_KEY:
+    genai.configure(api_key=GEMINI_API_KEY)
+    gemini_model = genai.GenerativeModel('gemini-1.5-flash')
+else:
+    gemini_model = None
+
 bot = Bot(token=TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
 
@@ -110,7 +125,8 @@ banned_cache = set()
 trending_cache = TTLCache(maxsize=10, ttl=3600)
 list_cache = TTLCache(maxsize=100, ttl=3600)
 category_cache = TTLCache(maxsize=5, ttl=43200)
-auto_reply_cache = TTLCache(maxsize=1000, ttl=300) # স্মার্ট অটো-রিপ্লাইয়ের জন্য (৫ মিনিট)
+# অ্যান্টি-স্প্যাম টাইমার ১০ সেকেন্ড করা হয়েছে (যাতে ইউজার AI এর সাথে সুন্দরভাবে চ্যাট করতে পারে)
+auto_reply_cache = TTLCache(maxsize=1000, ttl=10) 
 
 def clear_app_cache():
     trending_cache.clear()
@@ -692,7 +708,7 @@ async def execute_broadcast(m: types.Message, state: FSMContext):
     await m.answer(f"✅ সম্পন্ন! সর্বমোট <b>{success}</b> জনকে মেসেজ পাঠানো হয়েছে।", parse_mode="HTML")
 
 # ==========================================
-# 🛑 NEW UPDATE: Smart Media Forward & Auto-Reply
+# 🛑 NEW UPDATE: Smart AI Agent & Media Forward
 # ==========================================
 @dp.message(lambda m: m.chat.type == "private" and m.from_user.id not in admin_cache and (m.text is None or not m.text.startswith("/")))
 async def forward_to_admin(m: types.Message):
@@ -700,6 +716,7 @@ async def forward_to_admin(m: types.Message):
     builder.button(text="✍️ রিপ্লাই দিন", callback_data=f"reply_{m.from_user.id}")
     markup = builder.as_markup()
     
+    # 1. Forward the message to Admins
     all_admins = set([OWNER_ID])
     async for a in db.admins.find(): all_admins.add(a["user_id"])
         
@@ -713,21 +730,56 @@ async def forward_to_admin(m: types.Message):
             await m.copy_to(admin_id, reply_markup=markup)
         except Exception: pass
         
-    # Smart Auto-Reply (৫ মিনিটে একবার রিপ্লাই দেবে, স্প্যাম রোধ করতে)
+    # 2. Smart AI Auto-Reply (10 Second Cache to prevent flood, but allow chat)
     if m.from_user.id not in auto_reply_cache:
         auto_reply_cache[m.from_user.id] = True
         try:
             kb = [[types.InlineKeyboardButton(text="🎬 Watch Now (মুভি দেখুন)", web_app=types.WebAppInfo(url=APP_URL))]]
             user_markup = types.InlineKeyboardMarkup(inline_keyboard=kb)
             
-            auto_reply_text = (
-                "🤖 <b>সিস্টেম অটো-রিপ্লাই:</b>\n\n"
-                "হ্যালো! আপনি যদি কোনো মুভি বা সিরিজ খুঁজছেন, তবে অনুগ্রহ করে নিচের <b>'🎬 Watch Now'</b> বাটনে ক্লিক করে অ্যাপে সার্চ করুন। "
-                "সঠিক নাম লিখে সার্চ না করলে মুভি নাও পেতে পারেন।\n\n"
-                "📌 <i>মুভি খুঁজে না পেলে অ্যাপের <b>'Request Movie 🗳️'</b> অপশন ব্যবহার করুন।</i>\n\n"
-                "আপনার মেসেজটি অ্যাডমিনের কাছে পৌঁছে গেছে। প্রয়োজনে অ্যাডমিন আপনাকে রিপ্লাই দেবেন। ধন্যবাদ!"
-            )
-            await m.reply(auto_reply_text, reply_markup=user_markup, parse_mode="HTML")
+            reply_text = ""
+            user_text = m.text.strip() if m.text else ""
+            
+            # If AI is configured and user sent text
+            if gemini_model and user_text:
+                # Check DB for Movie
+                movie_found = False
+                found_title = ""
+                search_res = await db.movies.find_one({"title": {"$regex": user_text, "$options": "i"}})
+                if search_res:
+                    movie_found = True
+                    found_title = search_res["title"]
+                    
+                prompt = f"""
+                তুমি হলে 'MovieZone BD' এর একজন কিউট, চটপটে এবং হেল্পফুল মেয়ে অ্যাসিস্ট্যান্ট। তোমার নাম 'রিয়া'।
+                ইউজার তোমাকে এই মেসেজটি পাঠিয়েছে: "{user_text}"
+                
+                নির্দেশনা:
+                ১. সব সময় বাংলায় খুব মিষ্টি করে, প্রয়োজনে ইমোজি ব্যবহার করে কথা বলবে।
+                ২. যদি ইউজার কোনো মুভি বা সিরিজের নাম খোঁজে এবং তুমি দেখো যে ডাটাবেসে সেটা আছে (এখানে স্ট্যাটাস: {'পাওয়া গেছে, নাম: '+found_title if movie_found else 'পাওয়া যায়নি'}), তাহলে তাকে বলবে নিচের '🎬 Watch Now' বাটনে ক্লিক করে মুভিটা দেখে নিতে।
+                ৩. যদি মুভি না থাকে, তাহলে কিউটভাবে বলবে যে মুভিটা নেই, কিন্তু তুমি অ্যাডমিনকে বলে দিয়েছ আপলোড করার জন্য।
+                ৪. ইউজার যদি মুভি না চেয়ে সাধারণ কথা বলে (যেমন: হাই, হ্যালো, কেমন আছো), তাহলে বন্ধুর মতো ফানি ও সুন্দর উত্তর দেবে।
+                ৫. উত্তরগুলো খুব বেশি বড় করবে না, ২-৩ লাইনের মধ্যে রাখবে। কোনো টেক্সট বোল্ড বা ইটালিক করার দরকার নেই।
+                """
+                
+                try:
+                    # Async generation
+                    response = await asyncio.to_thread(gemini_model.generate_content, prompt)
+                    reply_text = response.text
+                except Exception as e:
+                    logger.error(f"Gemini AI Error: {e}")
+            
+            # Fallback if AI fails or no API Key or no text (e.g., sent only a sticker)
+            if not reply_text:
+                reply_text = (
+                    "🤖 <b>সিস্টেম অটো-রিপ্লাই:</b>\n\n"
+                    "হ্যালো! আপনি যদি কোনো মুভি বা সিরিজ খুঁজছেন, তবে অনুগ্রহ করে নিচের <b>'🎬 Watch Now'</b> বাটনে ক্লিক করে অ্যাপে সার্চ করুন। "
+                    "সঠিক নাম লিখে সার্চ না করলে মুভি নাও পেতে পারেন।\n\n"
+                    "📌 <i>মুভি খুঁজে না পেলে অ্যাপের <b>'Request Movie 🗳️'</b> অপশন ব্যবহার করুন।</i>\n\n"
+                    "আপনার মেসেজটি অ্যাডমিনের কাছে পৌঁছে গেছে। প্রয়োজনে অ্যাডমিন আপনাকে রিপ্লাই দেবেন। ধন্যবাদ!"
+                )
+            
+            await m.reply(reply_text, reply_markup=user_markup, parse_mode="HTML")
         except Exception: pass
 
 
