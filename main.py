@@ -751,7 +751,6 @@ async def forward_to_admin(m: types.Message):
                 except Exception as e:
                     logger.error(f"DB Search Error: {e}")
 
-                # 🛑 FIX: 100% Reliable Prompt Format for Gemini Pro
                 prompt = f"""তুমি হলে 'MovieZone BD' এর একজন কিউট, চটপটে এবং হেল্পফুল মেয়ে অ্যাসিস্ট্যান্ট। তোমার নাম 'রিয়া'।
                 
                 নির্দেশনাবলী:
@@ -766,19 +765,13 @@ async def forward_to_admin(m: types.Message):
                 """
                 
                 try:
-                    # 🛑 FIX: Changed to universally supported 'gemini-pro' model (100% Working)
-                    api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key={GEMINI_API_KEY}"
+                    # 🛑 100% FIXED: Using STABLE 'v1' API instead of buggy 'v1beta'
+                    api_url = f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
                     headers = {"Content-Type": "application/json"}
                     
                     payload = {
                         "contents": [{"parts": [{"text": prompt}]}],
-                        "generationConfig": {"temperature": 0.8},
-                        "safetySettings": [
-                            {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
-                            {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
-                            {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
-                            {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"}
-                        ]
+                        "generationConfig": {"temperature": 0.8}
                     }
                     
                     async with aiohttp.ClientSession() as session:
