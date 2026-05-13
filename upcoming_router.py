@@ -7,15 +7,10 @@ from fastapi.responses import HTMLResponse
 from bson import ObjectId
 from cachetools import TTLCache
 
-# মেইন ফাইল থেকে ডাটাবেস ও ভ্যালিডেশন ফাংশন ইম্পোর্ট করা হচ্ছে 
-# (আপনার মেইন ফাইলের নাম যদি main.py না হয়ে অন্য কিছু হয়, তবে main এর জায়গায় সেই নাম দেবেন)
-from main import db, admin_cache, validate_tg_data
-
 upcoming_router = APIRouter()
 
 TMDB_API_KEY = os.getenv("TMDB_API_KEY", "7dc544d9253bccc3cfecc1c677f69819")  # এখানে আপনার API Key বসাবেন
 
-# TMDB ডাটা ক্যাশ করার জন্য (প্রতি ৩ ঘণ্টায় একবার আপডেট হবে, যাতে API লিমিট শেষ না হয়)
 tmdb_cache = TTLCache(maxsize=5, ttl=10800)
 
 LANG_MAP = {
@@ -65,17 +60,17 @@ async def fetch_tmdb_upcoming():
 
 @upcoming_router.get("/upcoming", response_class=HTMLResponse)
 async def upcoming_page():
-    # upcoming.html ফাইলটি রিড করে রেসপন্স হিসেবে পাঠানো হচ্ছে
     with open("upcoming.html", "r", encoding="utf-8") as f:
         html_content = f.read()
     return HTMLResponse(content=html_content)
 
 @upcoming_router.get("/api/upcoming/movies")
 async def get_upcoming_movies():
-    # 1. TMDB থেকে অটোমেটিক মুভি আনা
+    # 🛑 সার্কুলার ইমপোর্ট ফিক্স করার জন্য লোকাল ইমপোর্ট করা হলো
+    from main import db
+
     tmdb_movies = await fetch_tmdb_upcoming()
     
-    # 2. ডাটাবেস থেকে ম্যানুয়ালি অ্যাড করা মুভি আনা
     today_str = datetime.datetime.utcnow().strftime("%Y-%m-%d")
     custom_movies_cursor = db.upcoming_custom.find({"release_date": {"$gte": today_str}})
     custom_movies = []
@@ -89,7 +84,6 @@ async def get_upcoming_movies():
             "is_custom": True
         })
     
-    # দুটো লিস্ট একসাথে করে রিলিজ ডেট অনুযায়ী সাজানো
     all_movies = tmdb_movies + custom_movies
     all_movies.sort(key=lambda x: x["release_date"])
     
@@ -97,7 +91,9 @@ async def get_upcoming_movies():
 
 @upcoming_router.post("/api/upcoming/custom")
 async def add_custom_upcoming(data: dict = Body(...)):
-    # সিকিউরিটি চেক (শুধু অ্যাডমিন অ্যাড করতে পারবে)
+    # 🛑 সার্কুলার ইমপোর্ট ফিক্স করার জন্য লোকাল ইমপোর্ট করা হলো
+    from main import db, admin_cache, validate_tg_data
+
     uid = data.get("uid", 0)
     if uid not in admin_cache or not validate_tg_data(data.get("initData", "")):
         return {"ok": False, "msg": "Unauthorized"}
@@ -112,6 +108,9 @@ async def add_custom_upcoming(data: dict = Body(...)):
 
 @upcoming_router.delete("/api/upcoming/custom/{movie_id}")
 async def delete_custom_upcoming(movie_id: str, data: dict = Body(...)):
+    # 🛑 সার্কুলার ইমপোর্ট ফিক্স করার জন্য লোকাল ইমপোর্ট করা হলো
+    from main import db, admin_cache, validate_tg_data
+
     uid = data.get("uid", 0)
     if uid not in admin_cache or not validate_tg_data(data.get("initData", "")):
         return {"ok": False, "msg": "Unauthorized"}
