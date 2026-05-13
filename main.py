@@ -1275,9 +1275,6 @@ async def web_ui():
             .home-btn:active { transform: scale(0.95); background: rgba(59, 130, 246, 0.2); }
 
             .bottom-nav { position: fixed; bottom: 0; left: 0; width: 100%; background: rgba(15, 23, 42, 0.98); backdrop-filter: blur(15px); border-top: 1px solid #334155; display: flex; justify-content: space-around; align-items: center; padding: 10px 0; z-index: 2000; padding-bottom: calc(10px + env(safe-area-inset-bottom)); }
-            /* ==========================================
-               🛑 NEW UPDATE: Nav item width changed to 20%
-               ========================================== */
             .nav-item { display: flex; flex-direction: column; align-items: center; justify-content: center; color: #94a3b8; font-size: 11px; font-weight: bold; cursor: pointer; transition: 0.2s; width: 20%; gap: 4px; }
             .nav-item i { font-size: 20px; transition: transform 0.2s; }
             .nav-item.active { color: #38bdf8; }
@@ -1310,17 +1307,19 @@ async def web_ui():
             .trending-card:active { transform: scale(0.98); }
 
             /* ==================================
-               📢 ADS SCROLLING SYSTEM CSS
+               📢 ADS SCROLLING SYSTEM CSS (UPDATED)
                ================================== */
-            .ads-scrolling-container { display: flex; overflow-x: auto; gap: 15px; padding: 0 15px 20px; scroll-behavior: smooth; }
+            .ads-scrolling-container { display: flex; overflow-x: auto; gap: 15px; padding: 0 15px 20px; scroll-behavior: smooth; scroll-snap-type: x mandatory; }
             .ads-scrolling-container::-webkit-scrollbar { display: none; }
-            .ad-card-scroll { min-width: 280px; max-width: 280px; background: linear-gradient(135deg, rgba(30, 41, 59, 0.9), rgba(15, 23, 42, 0.9)); border: 1px solid #f59e0b; border-radius: 12px; padding: 12px; display: flex; align-items: center; gap: 12px; position: relative; cursor: pointer; text-decoration: none; box-shadow: 0 4px 15px rgba(245, 158, 11, 0.15); flex-shrink: 0; transition: transform 0.2s; }
+            .ad-card-scroll { min-width: 85vw; max-width: 85vw; background: #1e293b; border: 1px solid #334155; border-radius: 16px; overflow: hidden; display: flex; flex-direction: column; position: relative; text-decoration: none; scroll-snap-align: center; flex-shrink: 0; box-shadow: 0 4px 15px rgba(0,0,0,0.3); transition: transform 0.2s; }
             .ad-card-scroll:active { transform: scale(0.98); }
-            .sponsored-badge { position: absolute; top: -10px; right: 15px; background: #f59e0b; color: #000; font-size: 10px; font-weight: 900; padding: 2px 8px; border-radius: 10px; text-transform: uppercase; letter-spacing: 1px; }
-            .sponsor-img { width: 50px; height: 50px; border-radius: 8px; object-fit: cover; border: 1px solid #334155; flex-shrink: 0; }
-            .sponsor-text { overflow: hidden; flex-grow: 1; }
-            .sponsor-title { color: #fcd34d; font-size: 15px; font-weight: bold; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
-            .sponsor-desc { color: #94a3b8; font-size: 12px; margin-top: 2px; }
+            .ad-img-wrapper { width: 100%; aspect-ratio: 16/9; position: relative; background: #0f172a; }
+            .ad-img-wrapper img { width: 100%; height: 100%; object-fit: cover; }
+            .ad-gradient { position: absolute; bottom: 0; left: 0; width: 100%; height: 60%; background: linear-gradient(to top, #1e293b, transparent); }
+            .sponsored-badge { position: absolute; top: 12px; right: 12px; background: rgba(0,0,0,0.7); border: 1px solid #f59e0b; color: #fcd34d; font-size: 11px; font-weight: 900; padding: 4px 10px; border-radius: 12px; text-transform: uppercase; z-index: 2; letter-spacing: 1px;}
+            .ad-content { padding: 0 15px 15px 15px; text-align: left; background: #1e293b; z-index: 2; margin-top: -10px; }
+            .ad-title-large { color: #fff; font-size: 18px; font-weight: bold; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; margin-bottom: 12px; text-shadow: 0 2px 4px rgba(0,0,0,0.5); }
+            .ad-watch-btn { background: linear-gradient(45deg, #ef4444, #f97316); color: white; text-align: center; padding: 12px; border-radius: 10px; font-weight: bold; font-size: 16px; width: 100%; display: block; border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 4px 10px rgba(239, 68, 68, 0.3); }
 
             .grid { padding: 0 15px 20px; display: flex; flex-direction: column; gap: 20px; }
             .card { background: transparent; overflow: hidden; cursor: pointer; transition: transform 0.2s; border-radius: 0; transform: translateZ(0); will-change: transform; }
@@ -1413,12 +1412,6 @@ async def web_ui():
 
         <div id="categoryBox" class="category-container"></div>
 
-        <!-- 📢 ADS SCROLLING WRAPPER -->
-        <div id="adsScrollingWrapper" style="display: none;">
-            <div class="section-title" style="color:#fcd34d;"><i class="fa-solid fa-bullhorn"></i> Sponsored</div>
-            <div class="ads-scrolling-container" id="adsScrollContent"></div>
-        </div>
-
         <div id="trendingWrapper">
             <div class="section-title"><i class="fa-solid fa-bolt text-yellow-400"></i>Trending now</div>
             <div class="trending-container" id="trendingGrid"></div>
@@ -1441,9 +1434,6 @@ async def web_ui():
         <div class="floating-btn btn-tg" onclick="window.open('{{TG_LINK}}')"><i class="fa-brands fa-telegram"></i></div>
         <div class="floating-btn btn-req" onclick="openReqModal()"><i class="fa-solid fa-code-pull-request"></i></div>
 
-        <!-- ==========================================
-             🛑 NEW UPDATE: Added Upcoming Nav Button
-             ========================================== -->
         <div class="bottom-nav">
             <div class="nav-item active" id="navHome" onclick="goHome()">
                 <i class="fa-solid fa-house"></i>
@@ -1501,12 +1491,25 @@ async def web_ui():
                 <div class="close-icon" onclick="document.getElementById('vipModal').style.display='none'"><i class="fa-solid fa-xmark"></i></div>
                 <h2 style="color:#fbbf24; font-size: 24px; margin-bottom:15px;"><i class="fa-solid fa-gem"></i> Premium & Points</h2>
                 
+                <div style="background: rgba(15, 23, 42, 0.9); border: 1px solid #10b981; padding: 15px; border-radius: 12px; margin-bottom: 20px; text-align: left;">
+                    <p style="color:#4ade80; font-size: 15px; font-weight:bold; margin-bottom: 8px;"><i class="fa-solid fa-star"></i> VIP Benefits:</p>
+                    <ul style="color:#cbd5e1; font-size: 13px; line-height: 1.6; padding-left: 20px;">
+                        <li style="margin-bottom: 4px;"><b>Zero Ads:</b> Direct video unlock. No waiting.</li>
+                        <li style="margin-bottom: 4px;"><b>Priority Requests:</b> Admins prioritize your movies.</li>
+                        <li><b>Exclusive Badge:</b> Golden VIP profile badge.</li>
+                    </ul>
+                </div>
+
                 <div style="background: rgba(15, 23, 42, 0.9); border: 1px solid #3b82f6; padding: 15px; border-radius: 12px; margin-bottom: 20px;">
                     <p style="color:#94a3b8; font-size: 14px; font-weight:bold;">Your Current Points:</p>
                     <h1 style="color:#38bdf8; font-size: 36px; font-weight:900; margin: 5px 0;"><span id="modalCoinText">0</span> <i class="fa-solid fa-gem"></i></h1>
                     <p style="color:#cbd5e1; font-size: 12px;">(<span id="vipDaysText">1</span> Days VIP = <span id="vipCostText">30</span> Points)</p>
                 </div>
                 
+                <button class="btn-submit" style="background: linear-gradient(45deg, #3b82f6, #2563eb); margin-bottom: 12px;" onclick="window.open('{{SUPPORT_LINK}}')">
+                    <i class="fa-brands fa-telegram"></i> Buy Points from Admin
+                </button>
+
                 <button id="coinAdBtn" class="btn-submit" style="background: linear-gradient(45deg, #ef4444, #f97316); margin-bottom: 12px;" onclick="executeCoinAd()">
                     <i class="fa-solid fa-play"></i> Watch Ad & Get 5 Points
                 </button>
@@ -1541,14 +1544,20 @@ async def web_ui():
             <div class="modal-content">
                 <div class="close-icon" onclick="document.getElementById('adCampModal').style.display='none'"><i class="fa-solid fa-xmark"></i></div>
                 <h2 style="color:#fcd34d; font-size: 22px; margin-bottom:10px;"><i class="fa-solid fa-bullhorn"></i> Promote Channel</h2>
-                <p style="color:#cbd5e1; font-size:13px; margin-bottom:15px;">Run your advertisement for 24 Hours in front of thousands of users!</p>
+                <p style="color:#cbd5e1; font-size:13px; margin-bottom:15px;">Run your advertisement in front of thousands of users!</p>
                 
                 <input type="text" id="campTitle" class="search-input" style="border-radius:10px; margin-bottom:10px; font-size:15px;" placeholder="Ad Title (e.g. Join Best Movie Bot)">
                 <input type="url" id="campLink" class="search-input" style="border-radius:10px; margin-bottom:10px; font-size:15px;" placeholder="https://t.me/yourlink">
                 <input type="url" id="campImg" class="search-input" style="border-radius:10px; margin-bottom:15px; font-size:15px;" placeholder="Image URL (Optional)">
                 
-                <button class="btn-submit" style="background: linear-gradient(45deg, #f59e0b, #d97706);" onclick="submitAdCampaign()">
-                    Pay 500 Points & Start
+                <select id="campPackage" class="search-input" style="border-radius:10px; margin-bottom:15px; font-size:15px; background:#1e293b; color:white; text-align:left;">
+                    <option value="1">1 Day Campaign - 500 Points</option>
+                    <option value="3">3 Days Campaign - 1200 Points</option>
+                    <option value="7">7 Days Campaign - 2500 Points</option>
+                </select>
+                
+                <button id="campBtn" class="btn-submit" style="background: linear-gradient(45deg, #f59e0b, #d97706);" onclick="submitAdCampaign()">
+                    Pay Points & Start
                 </button>
             </div>
         </div>
@@ -1618,40 +1627,38 @@ async def web_ui():
                 } catch(e) {}
             }
 
-            // =====================================
-            // 📢 FETCH & RENDER SCROLLING ADS
-            // =====================================
             async function fetchActiveAds() {
                 try {
                     const res = await fetch('/api/ads/active');
                     activeAds = await res.json();
-                    renderScrollingAds();
                 } catch(e) {}
             }
 
-            function renderScrollingAds() {
-                const wrapper = document.getElementById('adsScrollingWrapper');
-                const container = document.getElementById('adsScrollContent');
-                if(activeAds.length === 0) {
-                    wrapper.style.display = 'none';
-                    return;
-                }
-                wrapper.style.display = 'block';
-                let html = '';
-                activeAds.forEach(ad => {
-                    let imgHtml = ad.image_url ? `<img src="${ad.image_url}" class="sponsor-img" onerror="this.style.display='none'">` : `<div class="sponsor-img" style="display:flex; align-items:center; justify-content:center; background:#334155; font-size:20px;"><i class="fa-solid fa-bullhorn text-yellow-400"></i></div>`;
-                    html += `
+            function getAdsHTML() {
+                if(activeAds.length === 0) return '';
+                let adCards = activeAds.map(ad => {
+                    let imgHtml = ad.image_url ? `<img src="${ad.image_url}" onerror="this.src='https://via.placeholder.com/640x360?text=No+Image'">` : `<div style="width:100%; height:100%; display:flex; align-items:center; justify-content:center; background:#334155;"><i class="fa-solid fa-bullhorn text-yellow-400" style="font-size:40px;"></i></div>`;
+                    return `
                     <a href="${ad.link}" target="_blank" class="ad-card-scroll">
-                        <div class="sponsored-badge">AD</div>
-                        ${imgHtml}
-                        <div class="sponsor-text">
-                            <div class="sponsor-title">${ad.title}</div>
-                            <div class="sponsor-desc">Click to view sponsor</div>
+                        <div class="ad-img-wrapper">
+                            <div class="sponsored-badge">Sponsored</div>
+                            ${imgHtml}
+                            <div class="ad-gradient"></div>
+                        </div>
+                        <div class="ad-content">
+                            <div class="ad-title-large">${ad.title}</div>
+                            <div class="ad-watch-btn">Watch Now 🔗</div>
                         </div>
                     </a>`;
-                });
-                container.innerHTML = html;
-                startAdsAutoScroll();
+                }).join('');
+
+                return `
+                <div style="margin: 0 -15px 20px -15px; padding-top: 10px;">
+                    <div class="section-title" style="color:#fcd34d; padding: 0 15px 15px;"><i class="fa-solid fa-bullhorn"></i> Promoted For You</div>
+                    <div class="ads-scrolling-container" id="adsScrollContent">
+                        ${adCards}
+                    </div>
+                </div>`;
             }
 
             function startAdsAutoScroll() {
@@ -1660,17 +1667,13 @@ async def web_ui():
                     let grid = document.getElementById('adsScrollContent');
                     if(grid) {
                         if (grid.scrollLeft >= (grid.scrollWidth - grid.clientWidth - 10)) grid.scrollTo({ left: 0, behavior: 'smooth' });
-                        else grid.scrollBy({ left: 295, behavior: 'smooth' });
+                        else grid.scrollBy({ left: window.innerWidth * 0.85 + 15, behavior: 'smooth' });
                     }
-                }, 3500);
+                }, 4000);
             }
-            // =====================================
 
             function toggleMenu(e) { 
                 e.stopPropagation(); 
-                /* ==========================================
-                   🛑 NEW UPDATE: Changed index 3 to 4 for Profile
-                   ========================================== */
                 setNavActive(4);
                 const m = document.getElementById('dropdownMenu'); 
                 m.style.display = m.style.display === 'block' ? 'none' : 'block'; 
@@ -1690,7 +1693,6 @@ async def web_ui():
                 if(firstCatBtn) firstCatBtn.classList.add('active');
                 
                 document.getElementById('trendingWrapper').style.display = 'block';
-                document.getElementById('adsScrollingWrapper').style.display = activeAds.length > 0 ? 'block' : 'none';
                 loadTrending();
                 loadMovies(1); 
                 closeMenu(); 
@@ -1705,9 +1707,6 @@ async def web_ui():
             }
             
             function openVipModal() { 
-                /* ==========================================
-                   🛑 NEW UPDATE: Changed index 2 to 3 for VIP
-                   ========================================== */
                 setNavActive(3);
                 document.getElementById('vipModal').style.display = 'flex'; 
                 closeMenu(); 
@@ -1726,15 +1725,20 @@ async def web_ui():
                 const title = document.getElementById('campTitle').value;
                 const link = document.getElementById('campLink').value;
                 const img = document.getElementById('campImg').value;
+                const packageDays = parseInt(document.getElementById('campPackage').value);
+                
+                let cost = 500;
+                if(packageDays === 3) cost = 1200;
+                if(packageDays === 7) cost = 2500;
                 
                 if(!title || !link) { tg.showAlert("Title and Link are required!"); return; }
                 
-                if(confirm(`Cost is 500 Points for 24 Hours. Proceed?`)) {
+                if(confirm(`Cost is ${cost} Points for ${packageDays} Days. Proceed?`)) {
                     try {
                         const res = await fetch('/api/ads/create', { 
                             method: 'POST', 
                             headers: {'Content-Type': 'application/json'}, 
-                            body: JSON.stringify({uid: uid, initData: INIT_DATA, title: title, link: link, image_url: img}) 
+                            body: JSON.stringify({uid: uid, initData: INIT_DATA, title: title, link: link, image_url: img, package: packageDays}) 
                         });
                         const data = await res.json();
                         
@@ -1778,7 +1782,6 @@ async def web_ui():
                 searchQuery = ""; 
                 document.getElementById('searchInput').value = "";
                 document.getElementById('trendingWrapper').style.display = cat === "" ? 'block' : 'none';
-                document.getElementById('adsScrollingWrapper').style.display = (cat === "" && activeAds.length > 0) ? 'block' : 'none';
                 loadMovies(1);
             }
 
@@ -1827,9 +1830,10 @@ async def web_ui():
                     const data = await r.json();
                     if(data.movies.length === 0) return grid.innerHTML = `<p style='text-align:center; color:#fbbf24;'>No movies found!</p>`;
                     
-                    grid.innerHTML = data.movies.map(m => {
+                    let htmlContent = "";
+                    data.movies.forEach((m, index) => {
                         loadedMovies[m._id] = m; 
-                        return `<div class="card" onclick="openQualityModal('${m._id.replace(/'/g, "\\'")}')">
+                        let cardHtml = `<div class="card" onclick="openQualityModal('${m._id.replace(/'/g, "\\'")}')">
                             <div class="post-content">
                                 <img src="/api/image/${m.photo_id}" loading="lazy" onerror="this.src='https://via.placeholder.com/640x360?text=No+Image'">
                                 <div class="ep-badge"><i class="fa-solid fa-list"></i> ${m.files.length}</div>
@@ -1840,7 +1844,20 @@ async def web_ui():
                                 <div class="title-text">${m._id}</div>
                             </div>
                         </div>`;
-                    }).join('');
+                        htmlContent += cardHtml;
+                        
+                        if (page === 1 && index === 1 && activeAds.length > 0 && activeCategory === "" && searchQuery === "") {
+                            htmlContent += getAdsHTML();
+                        }
+                    });
+                    
+                    if (page === 1 && data.movies.length <= 1 && activeAds.length > 0 && activeCategory === "" && searchQuery === "") {
+                        htmlContent += getAdsHTML();
+                    }
+                    
+                    grid.innerHTML = htmlContent;
+                    
+                    if(document.getElementById('adsScrollContent')) startAdsAutoScroll();
                     
                     let html = "";
                     if(data.total_pages > 1) {
@@ -1864,13 +1881,11 @@ async def web_ui():
                 clearTimeout(timeout); searchQuery = e.target.value.trim();
                 if(searchQuery !== "") { 
                     document.getElementById('trendingWrapper').style.display = 'none'; 
-                    document.getElementById('adsScrollingWrapper').style.display = 'none';
                     activeCategory = ""; 
                     document.querySelectorAll('.cat-btn').forEach(b => b.classList.remove('active')); 
                 } 
                 else { 
                     document.getElementById('trendingWrapper').style.display = 'block'; 
-                    if(activeAds.length > 0) document.getElementById('adsScrollingWrapper').style.display = 'block';
                 }
                 timeout = setTimeout(() => loadMovies(1), 500); 
             });
@@ -2371,6 +2386,13 @@ class ReqModel(BaseModel):
 async def handle_request(data: ReqModel):
     if not validate_tg_data(data.initData): return {"ok": False}
     
+    user = await db.users.find_one({"user_id": data.uid})
+    is_vip = False
+    if user and user.get("vip_until", datetime.datetime.utcnow()) > datetime.datetime.utcnow():
+        is_vip = True
+        
+    vip_tag = "🔥 <b>[VIP PRIORITY]</b>\n" if is_vip else ""
+    
     all_admins = set([OWNER_ID])
     async for a in db.admins.find(): 
         all_admins.add(a["user_id"])
@@ -2379,14 +2401,14 @@ async def handle_request(data: ReqModel):
         try:
             await bot.send_message(
                 admin_id, 
-                f"🔔 <b>নতুন মুভি রিকোয়েস্ট!</b>\n👤 ইউজার: {data.uname} (<code>{data.uid}</code>)\n🎬 মুভি: <b>{data.movie}</b>", 
+                f"{vip_tag}🔔 <b>নতুন মুভি রিকোয়েস্ট!</b>\n👤 ইউজার: {data.uname} (<code>{data.uid}</code>)\n🎬 মুভি: <b>{data.movie}</b>", 
                 parse_mode="HTML"
             )
         except Exception: pass
     return {"ok": True}
 
 # ==========================================
-# 🛑 SPONSORED ADS API
+# 🛑 SPONSORED ADS API (UPDATED PACKAGES)
 # ==========================================
 class AdCreateModel(BaseModel):
     uid: int
@@ -2394,17 +2416,22 @@ class AdCreateModel(BaseModel):
     title: str
     link: str
     image_url: str
+    package: int
 
 @app.post("/api/ads/create")
 async def create_sponsored_ad(d: AdCreateModel):
     if not validate_tg_data(d.initData): return {"ok": False, "msg": "Invalid Request"}
     
+    costs = {1: 500, 3: 1200, 7: 2500}
+    cost = costs.get(d.package, 500)
+    days = d.package if d.package in costs else 1
+    
     user = await db.users.find_one({"user_id": d.uid})
-    if not user or user.get("coins", 0) < 500:
-        return {"ok": False, "msg": "Not enough points! Need 500 points."}
+    if not user or user.get("coins", 0) < cost:
+        return {"ok": False, "msg": f"Not enough points! Need {cost} points."}
     
     now = datetime.datetime.utcnow()
-    await db.users.update_one({"user_id": d.uid}, {"$inc": {"coins": -500}})
+    await db.users.update_one({"user_id": d.uid}, {"$inc": {"coins": -cost}})
     
     ad_data = {
         "user_id": d.uid,
@@ -2412,12 +2439,12 @@ async def create_sponsored_ad(d: AdCreateModel):
         "link": d.link,
         "image_url": d.image_url,
         "created_at": now,
-        "expires_at": now + datetime.timedelta(hours=24)
+        "expires_at": now + datetime.timedelta(days=days)
     }
     await db.ads.insert_one(ad_data)
     
     try:
-        await bot.send_message(OWNER_ID, f"📢 <b>New Ad Campaign Started!</b>\n👤 User ID: <code>{d.uid}</code>\n📝 Title: {d.title}\n🔗 Link: {d.link}\n💰 Paid: 500 Coins", parse_mode="HTML")
+        await bot.send_message(OWNER_ID, f"📢 <b>New Ad Campaign Started!</b>\n👤 User ID: <code>{d.uid}</code>\n📝 Title: {d.title}\n🔗 Link: {d.link}\n⏳ Duration: {days} Days\n💰 Paid: {cost} Coins", parse_mode="HTML")
     except: pass
 
     return {"ok": True, "msg": "Ad campaign started successfully!"}
