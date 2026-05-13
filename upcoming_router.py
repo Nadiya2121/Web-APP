@@ -3,14 +3,15 @@ import datetime
 import asyncio
 import aiohttp
 import copy
-from fastapi import APIRouter, Body, UploadFile, File, Form
+import base64
+from fastapi import APIRouter, Body
 from fastapi.responses import HTMLResponse
 from bson import ObjectId
 from cachetools import TTLCache
 
 upcoming_router = APIRouter()
 
-TMDB_API_KEY = os.getenv("TMDB_API_KEY", "YOUR_TMDB_API_KEY_HERE")
+TMDB_API_KEY = os.getenv("TMDB_API_KEY", "7dc544d9253bccc3cfecc1c677f69819")
 tmdb_cache = TTLCache(maxsize=5, ttl=10800)
 
 LANG_MAP = {
@@ -111,20 +112,15 @@ async def get_upcoming_movies():
     
     return {"movies": all_movies}
 
-# 🛑 UPDATE: Backend Image Upload Handling 🛑
+# 🛑 UPDATE: No extra libraries needed. Base64 Image Processing
 @upcoming_router.post("/api/upcoming/custom")
-async def add_custom_upcoming(
-    uid: int = Form(...),
-    initData: str = Form(...),
-    title: str = Form(...),
-    release_date: str = Form(...),
-    language: str = Form(...),
-    overview: str = Form(""),
-    file: UploadFile = File(...)
-):
+async def add_custom_upcoming(data: dict = Body(...)):
     from main import db, validate_tg_data
 
-    if not validate_tg_data(initData):
+    uid = int(data.get("uid", 0))
+    init_data = data.get("initData", "")
+    
+    if not validate_tg_data(init_data):
         return {"ok": False, "msg": "Session Expired! Please reopen bot."}
         
     OWNER_ID = int(os.getenv("ADMIN_ID", "0"))
@@ -137,30 +133,36 @@ async def add_custom_upcoming(
     if not is_admin:
         return {"ok": False, "msg": "You do not have Admin permissions!"}
         
-    # Backend থেকে Telegraph এ আপলোড
     telegraph_url = ""
-    try:
-        file_content = await file.read()
-        form_data = aiohttp.FormData()
-        form_data.add_field('file', file_content, filename=file.filename, content_type=file.content_type)
-        
-        async with aiohttp.ClientSession() as session:
-            async with session.post("https://telegra.ph/upload", data=form_data) as resp:
-                res_json = await resp.json()
-                if isinstance(res_json, list) and len(res_json) > 0 and "src" in res_json[0]:
-                    telegraph_url = "https://telegra.ph" + res_json[0]["src"]
-                else:
-                    return {"ok": False, "msg": "Failed to upload image to server."}
-    except Exception as e:
-        return {"ok": False, "msg": "Image Upload Error. Please try a smaller image."}
+    base64_img = data.get("image_base64", "")
+    
+    if base64_img and "," in base64_img:
+        try:
+            # Base64 টেক্সট থেকে ডাটা আলাদা করা
+            header, encoded = base64_img.split(",", 1)
+            file_bytes = base64.b64decode(encoded)
+            
+            form_data = aiohttp.FormData()
+            form_data.add_field('file', file_bytes, filename="poster.jpg", content_type='image/jpeg')
+            
+            async with aiohttp.ClientSession() as session:
+                async with session.post("https://telegra.ph/upload", data=form_data) as resp:
+                    res_json = await resp.json()
+                    if isinstance(res_json, list) and len(res_json) > 0 and "src" in res_json[0]:
+                        telegraph_url = "https://telegra.ph" + res_json[0]["src"]
+                    else:
+                        return {"ok": False, "msg": "Failed to upload to Telegraph."}
+        except Exception as e:
+            return {"ok": False, "msg": "Image processing error. Try another image."}
+    else:
+        return {"ok": False, "msg": "Invalid Image Data!"}
 
-    # ডাটাবেসে সেভ করা
     await db.upcoming_custom.insert_one({
-        "title": title,
-        "release_date": release_date,
-        "language": language,
+        "title": data.get("title"),
+        "release_date": data.get("release_date"),
+        "language": data.get("language"),
         "photo_url": telegraph_url,
-        "overview": overview
+        "overview": data.get("overview", "")
     })
     return {"ok": True}
 
