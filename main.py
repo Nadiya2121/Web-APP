@@ -88,7 +88,6 @@ DB_CHANNEL_ID = int(_db_ch) if _db_ch.lstrip('-').isdigit() else None
 # ==========================================
 # 🛑 AI Config Setup (সরাসরি API Key)
 # ==========================================
-# নিচের লাইনে AIzaSy... লেখাটি মুছে আপনার আসল Key বসিয়ে দিন।
 GEMINI_API_KEY = "AIzaSyDXMynfRHhI1na3TaGbd3--xabuQ_ByE7c"
 gemini_model = True if GEMINI_API_KEY and "আপনার_আসল_এপিআই_কী" not in GEMINI_API_KEY else False
 
@@ -707,7 +706,7 @@ async def execute_broadcast(m: types.Message, state: FSMContext):
     await m.answer(f"✅ সম্পন্ন! সর্বমোট <b>{success}</b> জনকে মেসেজ পাঠানো হয়েছে।", parse_mode="HTML")
 
 # ==========================================
-# 🛑 NEW: CLEAN AI LOGIC (Integrated in single file)
+# 🛑 NEW: CLEAN AI LOGIC (Integrated & Auto-Fallback)
 # ==========================================
 @dp.message(lambda m: m.chat.type == "private" and m.from_user.id not in admin_cache and (m.text is None or not m.text.startswith("/")))
 async def forward_to_admin(m: types.Message):
@@ -729,7 +728,7 @@ async def forward_to_admin(m: types.Message):
             await m.copy_to(admin_id, reply_markup=markup)
         except Exception: pass
         
-    # 2. Smart AI Auto-Reply (10 Second Cache to prevent flood)
+    # 2. Smart AI Auto-Reply (10 Second Cache)
     if m.from_user.id not in auto_reply_cache:
         auto_reply_cache[m.from_user.id] = True
         try:
@@ -754,38 +753,48 @@ async def forward_to_admin(m: types.Message):
                 prompt = f"""তুমি হলে 'MovieZone BD' এর একজন কিউট, চটপটে এবং হেল্পফুল মেয়ে অ্যাসিস্ট্যান্ট। তোমার নাম 'রিয়া'।
                 
                 নির্দেশনাবলী:
-                ১. সব সময় বাংলায় খুব মিষ্টি করে, প্রয়োজনে ইমোজি ব্যবহার করে কথা বলবে। 
+                ১. সব সময় বাংলায় খুব মিষ্টি করে কথা বলবে, প্রয়োজনে ইমোজি ব্যবহার করবে।
                 ২. ডাটাবেস স্ট্যাটাস: {'পাওয়া গেছে, নাম: '+found_title if movie_found else 'পাওয়া যায়নি'}। 
-                ৩. যদি মুভি ডাটাবেসে থাকে, তাহলে খুব খুশির সাথে তাকে বলবে নিচের '🎬 Watch Now' বাটনে ক্লিক করে মুভিটা দেখে নিতে।
-                ৪. যদি মুভি না থাকে, তাহলে মন খারাপ করার ইমোজি দিয়ে কিউটভাবে বলবে যে মুভিটা নেই, কিন্তু তুমি অ্যাডমিনকে বলে দিয়েছ আপলোড করার জন্য।
-                ৫. ইউজার যদি মুভি না চেয়ে সাধারণ কথা বলে (যেমন: কেমন আছো, কি করো), তাহলে বন্ধুর মতো ফানি ও সুন্দর উত্তর দেবে।
-                ৬. কোনো প্রকার বোল্ড (**) বা ইটালিক প্রতীক ব্যবহার করবে না। উত্তর হবে সিম্পল এবং সুন্দর।
+                ৩. যদি মুভি ডাটাবেসে থাকে, তাহলে খুশির সাথে তাকে বলবে নিচের '🎬 Watch Now' বাটনে ক্লিক করে মুভিটা দেখে নিতে।
+                ৪. যদি মুভি না থাকে, তাহলে মন খারাপ করার ইমোজি দিয়ে বলবে যে মুভিটা নেই, কিন্তু তুমি অ্যাডমিনকে বলে দিয়েছ।
+                ৫. ইউজার যদি মুভি না চেয়ে সাধারণ কথা বলে (যেমন: কেমন আছো), তাহলে ফানি ও সুন্দর উত্তর দেবে।
+                ৬. কোনো প্রকার বোল্ড (**) বা ইটালিক প্রতীক ব্যবহার করবে না। উত্তর হবে সিম্পল।
 
                 ইউজারের মেসেজ: "{user_text}"
                 """
                 
                 try:
-                    # 🛑 100% FIXED: Using STABLE 'v1' API instead of buggy 'v1beta'
-                    api_url = f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
+                    # 🛑 Auto-Fallback System 🛑
+                    # যদি নতুন মডেলে 404 দেয়, তবে বট অটোমেটিক সবচেয়ে পুরনো মডেল দিয়ে ট্রাই করবে।
+                    api_key = GEMINI_API_KEY.strip()
                     headers = {"Content-Type": "application/json"}
-                    
                     payload = {
                         "contents": [{"parts": [{"text": prompt}]}],
-                        "generationConfig": {"temperature": 0.8}
+                        "generationConfig": {"temperature": 0.7}
                     }
                     
                     async with aiohttp.ClientSession() as session:
-                        async with session.post(api_url, json=payload, headers=headers) as resp:
-                            if resp.status == 200:
-                                data = await resp.json()
-                                try:
-                                    raw_text = data['candidates'][0]['content']['parts'][0]['text']
-                                    reply_text = raw_text.replace("**", "").replace("*", "").replace("#", "").strip()
-                                except KeyError as e:
-                                    error_msg = f"Gemini Parsing Error: {data}"
+                        # Attempt 1: Standard Modern Model
+                        url_1 = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+                        async with session.post(url_1, json=payload, headers=headers) as resp1:
+                            if resp1.status == 200:
+                                data = await resp1.json()
+                                raw_text = data['candidates'][0]['content']['parts'][0]['text']
+                                reply_text = raw_text.replace("**", "").replace("*", "").replace("#", "").strip()
+                            elif resp1.status == 404:
+                                # Attempt 2: Fallback to Old Model (For old/restricted keys)
+                                url_2 = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.0-pro:generateContent?key={api_key}"
+                                async with session.post(url_2, json=payload, headers=headers) as resp2:
+                                    if resp2.status == 200:
+                                        data = await resp2.json()
+                                        raw_text = data['candidates'][0]['content']['parts'][0]['text']
+                                        reply_text = raw_text.replace("**", "").replace("*", "").replace("#", "").strip()
+                                    else:
+                                        # If even the oldest model fails, the API key is completely dead.
+                                        error_msg = f"HTTP {resp2.status} (Fallback Failed): আপনার API Key টি পুরনো বা ব্লক হয়ে গেছে। দয়া করে Google AI Studio থেকে নতুন একটি API Key তৈরি করে কোডে বসান।"
                             else:
-                                err_text = await resp.text()
-                                error_msg = f"HTTP {resp.status}: {err_text}"
+                                err_text = await resp1.text()
+                                error_msg = f"HTTP {resp1.status}: {err_text}"
                 except Exception as e:
                     error_msg = f"Code Exception: {str(e)}"
             
@@ -799,7 +808,6 @@ async def forward_to_admin(m: types.Message):
             
             await m.reply(reply_text, reply_markup=user_markup, parse_mode="HTML")
         except Exception: pass
-
 
 # ==========================================
 # 5. Movie Upload Logic
