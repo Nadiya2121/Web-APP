@@ -76,17 +76,6 @@ REQUEST_LINK = "https://t.me/+dld6-uEkdvQ5Yjg1"
 _db_ch = os.getenv("DB_CHANNEL_ID", "")
 DB_CHANNEL_ID = int(_db_ch) if _db_ch.lstrip('-').isdigit() else None
 
-# ==========================================
-# 🛑 AI Config Setup (সরাসরি API Key)
-# ==========================================
-# ⚠️ সতর্কতা: আপনার আগের Key টি নষ্ট! নিচে অবশ্যই নতুন Key বসাবেন।
-GEMINI_API_KEY = ""
-gemini_model = True if GEMINI_API_KEY and "এখানে_আপনার_নতুন_API_KEY_বসাবেন" not in GEMINI_API_KEY else False
-
-print(f"=====================================")
-print(f"🚀 AI CONFIG: API KEY LOADED = {gemini_model}")
-print(f"=====================================")
-
 bot = Bot(token=TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
 
@@ -682,10 +671,11 @@ async def execute_broadcast(m: types.Message, state: FSMContext):
     await m.answer(f"✅ সম্পন্ন! সর্বমোট <b>{success}</b> জনকে মেসেজ পাঠানো হয়েছে।", parse_mode="HTML")
 
 # ==========================================
-# 🛑 NEW: CLEAN AI LOGIC (Integrated & Auto-Fallback)
+# 🛑 NEW: SMART AUTO-RESPONDER (No External API Needed)
 # ==========================================
 @dp.message(lambda m: m.chat.type == "private" and m.from_user.id not in admin_cache and (m.text is None or not m.text.startswith("/")))
 async def forward_to_admin(m: types.Message):
+    # 1. Forward to Admins
     builder = InlineKeyboardBuilder()
     builder.button(text="✍️ রিপ্লাই দিন", callback_data=f"reply_{m.from_user.id}")
     markup = builder.as_markup()
@@ -697,80 +687,45 @@ async def forward_to_admin(m: types.Message):
         try:
             await bot.send_message(
                 admin_id, 
-                f"📩 <b>Message from <a href='tg://user?id={m.from_user.id}'>{m.from_user.first_name}</a></b> (<code>{m.from_user.id}</code>):", 
-                parse_mode="HTML"
+                f"📩 <b>Message from <a href='tg://user?id={m.from_user.id}'>{m.from_user.first_name}</a></b> (<code>{m.from_user.id}</code>):\n\n{m.text or '[Media/File]'}", 
+                parse_mode="HTML",
+                reply_markup=markup
             )
-            await m.copy_to(admin_id, reply_markup=markup)
         except Exception: pass
         
+    # 2. Smart Auto-Reply for User
     if m.from_user.id not in auto_reply_cache:
         auto_reply_cache[m.from_user.id] = True
         try:
             kb = [[types.InlineKeyboardButton(text="🎬 Watch Now (মুভি দেখুন)", web_app=types.WebAppInfo(url=APP_URL))]]
             user_markup = types.InlineKeyboardMarkup(inline_keyboard=kb)
             
-            user_text = m.text.strip() if m.text else ""
+            user_text = m.text.strip().lower() if m.text else ""
             reply_text = ""
-            error_msg = ""
             
-            if gemini_model and user_text:
-                movie_found = False
-                found_title = ""
-                try:
-                    search_res = await db.movies.find_one({"title": {"$regex": user_text, "$options": "i"}})
-                    if search_res:
-                        movie_found = True
-                        found_title = search_res["title"]
-                except Exception as e:
-                    logger.error(f"DB Search Error: {e}")
+            # Basic keyword checking
+            greetings = ["hi", "hello", "হায়", "হ্যালো", "হাই", "কেমন আছো", "kemon acho", "ki obstha"]
+            thanks = ["thanks", "thank you", "ধন্যবাদ", "tnx", "thnx"]
 
-                prompt = f"""তুমি হলে 'MovieZone BD' এর একজন কিউট, চটপটে এবং হেল্পফুল মেয়ে অ্যাসিস্ট্যান্ট। তোমার নাম 'রিয়া'।
+            if not user_text:
+                reply_text = "হ্যালো! আপনার মেসেজটি অ্যাডমিনের কাছে পৌঁছে গেছে। প্রয়োজনে অ্যাডমিন আপনাকে রিপ্লাই দেবেন। ধন্যবাদ! ❤️"
+            elif any(user_text == g for g in greetings) or any(user_text.startswith(g) for g in greetings):
+                reply_text = f"হ্যালো {m.from_user.first_name}! 👋 আমি 'MovieZone BD' এর অ্যাসিস্ট্যান্ট।\n\nআপনি কোনো মুভি বা সিরিজ খুঁজলে আমাকে নাম বলতে পারেন, অথবা নিচের '🎬 Watch Now' বাটনে ক্লিক করে সরাসরি অ্যাপে দেখতে পারেন। 🥰"
+            elif any(t in user_text for t in thanks):
+                reply_text = "আপনাকে অনেক ধন্যবাদ! ❤️ যেকোনো প্রয়োজনে আমরা আছি। মুভি দেখতে নিচের বাটনে ক্লিক করুন। 🍿"
+            else:
+                # Search in database
+                search_res = await db.movies.find_one({"title": {"$regex": user_text, "$options": "i"}})
                 
-                নির্দেশনাবলী:
-                ১. সব সময় বাংলায় খুব মিষ্টি করে কথা বলবে, প্রয়োজনে ইমোজি ব্যবহার করবে।
-                ২. ডাটাবেস স্ট্যাটাস: {'পাওয়া গেছে, নাম: '+found_title if movie_found else 'পাওয়া যায়নি'}। 
-                ৩. যদি মুভি ডাটাবেসে থাকে, তাহলে খুশির সাথে তাকে বলবে নিচের '🎬 Watch Now' বাটনে ক্লিক করে মুভিটা দেখে নিতে।
-                ৪. যদি মুভি না থাকে, তাহলে মন খারাপ করার ইমোজি দিয়ে বলবে যে মুভিটা নেই, কিন্তু তুমি অ্যাডমিনকে বলে দিয়েছ।
-                ৫. ইউজার যদি মুভি না চেয়ে সাধারণ কথা বলে (যেমন: কেমন আছো), তাহলে ফানি ও সুন্দর উত্তর দেবে।
-                ৬. কোনো প্রকার বোল্ড (**) বা ইটালিক প্রতীক ব্যবহার করবে না। উত্তর হবে সিম্পল।
-
-                ইউজারের মেসেজ: "{user_text}"
-                """
-                
-                try:
-                    api_key = GEMINI_API_KEY.strip()
-                    if api_key == "এখানে_আপনার_নতুন_API_KEY_বসাবেন" or not api_key:
-                        error_msg = "API Key সেট করা নেই! দয়া করে কোডে নতুন API Key বসান।"
-                    else:
-                        headers = {"Content-Type": "application/json"}
-                        payload = {
-                            "contents": [{"parts": [{"text": prompt}]}],
-                            "generationConfig": {"temperature": 0.7}
-                        }
-                        
-                        async with aiohttp.ClientSession() as session:
-                            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
-                            async with session.post(url, json=payload, headers=headers) as resp:
-                                if resp.status == 200:
-                                    data = await resp.json()
-                                    raw_text = data['candidates'][0]['content']['parts'][0]['text']
-                                    reply_text = raw_text.replace("**", "").replace("*", "").replace("#", "").strip()
-                                else:
-                                    err_text = await resp.text()
-                                    error_msg = f"HTTP {resp.status}: {err_text}"
-                except Exception as e:
-                    error_msg = f"Code Exception: {str(e)}"
-            
-            if not reply_text:
-                debug_info = f"\n\n🛠 <b>Admin Debug Info:</b>\n<code>{error_msg}</code>" if error_msg else ""
-                reply_text = (
-                    "🤖 <b>সিস্টেম অটো-রিপ্লাই:</b>\n\n"
-                    "হ্যালো! আপনি যদি কোনো মুভি বা সিরিজ খুঁজছেন, তবে অনুগ্রহ করে নিচের <b>'🎬 Watch Now'</b> বাটনে ক্লিক করে অ্যাপে সার্চ করুন।\n\n"
-                    "আপনার মেসেজটি অ্যাডমিনের কাছে পৌঁছে গেছে। প্রয়োজনে অ্যাডমিন আপনাকে রিপ্লাই দেবেন। ধন্যবাদ!" + debug_info
-                )
+                if search_res:
+                    found_title = search_res["title"]
+                    reply_text = f"খুশির খবর! 🎉 আপনি যা খুঁজছেন (<b>{found_title}</b>) তা আমাদের কাছে আছে! 🥳\n\nনিচের <b>'🎬 Watch Now'</b> বাটনে ক্লিক করে এখনই মুভিটি উপভোগ করুন। 🍿"
+                else:
+                    reply_text = f"দুঃখিত 😔, এই মুহূর্তে '<b>{m.text}</b>' মুভিটি আমাদের ডাটাবেসে পাওয়া যায়নি।\n\nতবে মন খারাপ করবেন না! আমি অ্যাডমিন ভাইয়াকে মেসেজটি পাঠিয়ে দিয়েছি, উনি খুব তাড়াতাড়ি এটি আপলোড করে দেবেন ইনশাআল্লাহ। 😇\n\nততক্ষণ নিচের বাটনে ক্লিক করে আমাদের অন্যান্য মুভিগুলো দেখতে পারেন। 👇"
             
             await m.reply(reply_text, reply_markup=user_markup, parse_mode="HTML")
-        except Exception: pass
+        except Exception as e: 
+            logger.error(f"Auto-Reply Error: {e}")
 
 @dp.message(F.content_type.in_({'video', 'document'}), lambda m: m.from_user.id in admin_cache)
 async def receive_movie_file(m: types.Message, state: FSMContext):
