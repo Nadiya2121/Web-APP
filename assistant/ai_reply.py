@@ -4,7 +4,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 # Groq API Key (ফ্রিতে নিতে পারবেন: console.groq.com থেকে)
-GROQ_API_KEY = "gsk_আপনার_এপিআই_কি_এখানে_দিবেন"
+GROQ_API_KEY = "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"
 
 async def get_smart_reply(user_text: str, user_name: str, db) -> str:
     """
