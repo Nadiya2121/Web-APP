@@ -4,85 +4,181 @@ import os
 
 logger = logging.getLogger(__name__)
 
-# আপনার Groq API Key এখানে দিন
-GROQ_API_KEY = "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"
+# ==============================
+# GROQ API KEY
+# Render/Koyeb Environment এ বসাবা
+# ==============================
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
-# 🛑 অটো-ফিক্স সিস্টেম: যদি একটা মডেল ডাউন থাকে, সে অটোমেটিক পরেরটা ট্রাই করবে!
+# ==============================
+# MODELS LIST
+# একটা fail করলে আরেকটা auto try করবে
+# ==============================
 MODELS_TO_TRY = [
-    "llama3-8b-8192",         # ফাস্ট মডেল (প্রথমে ট্রাই করবে)
-    "llama3-70b-8192",        # পাওয়ারফুল মডেল (আগেরটা কাজ না করলে এটা করবে)
-    "mixtral-8x7b-32768",     # ব্যাকআপ মডেল
-    "gemma2-9b-it"            # লাস্ট ব্যাকআপ
+    "llama-3.3-70b-versatile",
+    "llama3-70b-8192",
+    "mixtral-8x7b-32768",
+    "gemma2-9b-it"
 ]
 
-async def get_smart_reply(user_text: str, user_name: str, db) -> str:
-    """
-    ইউজারের সাথে মজা করবে, মুভি খুঁজবে এবং নিজে নিজেই API এরর ফিক্স করবে!
-    """
+
+# ==============================
+# MAIN AI FUNCTION
+# ==============================
+async def get_smart_reply(user_text: str, user_name: str, db):
+
+    search_res = None
+
     try:
-        # ১. আগে ডাটাবেসে চেক করা হচ্ছে মুভিটা আছে কি না
-        search_res = await db.movies.find_one({"title": {"$regex": user_text, "$options": "i"}})
-        
+
+        # ==============================
+        # MOVIE SEARCH
+        # ==============================
+        search_res = await db.movies.find_one({
+            "title": {
+                "$regex": user_text,
+                "$options": "i"
+            }
+        })
+
         db_status = "NOT FOUND"
+
         if search_res:
-            db_status = f"FOUND! Movie Title is: {search_res['title']}"
+            db_status = f"FOUND: {search_res['title']}"
 
-        # ২. AI এর জন্য মজার পার্সোনালিটি (Prompt)
+        # ==============================
+        # AI PERSONALITY
+        # ==============================
         system_prompt = f"""
-        You are a super fun, witty, and humorous AI Assistant for a Telegram movie bot called 'MovieZone BD'. 
-        User's Name: {user_name}
-        Database Check: {db_status}
-        
-        RULES FOR YOU:
-        1. Always reply in sweet, fluent, and friendly Bengali (Bangla) language. Use casual words like "ভাই", "বস", "দোস্ত", "প্যারা নাই".
-        2. Be VERY humorous! Crack jokes, use lots of emojis, and banter with the user. If they ask "কেমন আছো?", give a funny, dramatic reply before asking them what movie they want.
-        3. If Database Check is 'FOUND!', act super excited and hyped! Tell them to grab some popcorn and click the '🎬 Watch Now' button below.
-        4. If Database Check is 'NOT FOUND', act dramatically sad (like crying or broken heart), make a small joke to cheer them up, and tell them you have sent the request to the Admin Boss.
-        5. Keep replies punchy and short (maximum 3-4 lines). Do NOT write long essays.
-        """
+You are MovieZone BD AI Assistant.
 
+User Name: {user_name}
+Database Status: {db_status}
+
+RULES:
+
+1. Always reply in friendly Bengali language.
+2. Be funny, smart, emotional and entertaining.
+3. Use emojis naturally.
+4. Keep replies SHORT (2-4 lines max).
+5. If movie found:
+   - Get excited
+   - Mention movie found
+   - Tell user to click Watch Now button
+6. If movie not found:
+   - Sound slightly sad
+   - Tell user request sent to admin
+7. If user casually chats:
+   - Reply humorously
+   - Then ask what movie they want
+"""
+
+        # ==============================
+        # API URL
+        # ==============================
         url = "https://api.groq.com/openai/v1/chat/completions"
+
         headers = {
             "Authorization": f"Bearer {GROQ_API_KEY}",
             "Content-Type": "application/json"
         }
 
-        # ৩. 🛑 অটো-ফিক্স লুপ: একটা ফেইল করলে আরেকটা ট্রাই করবে
-        for model_name in MODELS_TO_TRY:
-            payload = {
-                "model": model_name,
-                "messages": [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_text}
-                ],
-                "temperature": 0.8, # ক্রিয়েটিভিটি বাড়িয়ে দেওয়া হলো যাতে সুন্দর মজা করতে পারে
-                "max_tokens": 200
-            }
+        # ==============================
+        # SESSION START
+        # ==============================
+        async with aiohttp.ClientSession() as session:
 
-            try:
-                # ৫ সেকেন্ডের বেশি সময় নিলে পরের মডেলে চলে যাবে
-                async with aiohttp.ClientSession() as session:
-                    async with session.post(url, headers=headers, json=payload, timeout=5) as response:
+            for model_name in MODELS_TO_TRY:
+
+                payload = {
+                    "model": model_name,
+                    "messages": [
+                        {
+                            "role": "system",
+                            "content": system_prompt
+                        },
+                        {
+                            "role": "user",
+                            "content": user_text
+                        }
+                    ],
+                    "temperature": 0.8,
+                    "max_tokens": 200
+                }
+
+                try:
+
+                    async with session.post(
+                        url,
+                        headers=headers,
+                        json=payload,
+                        timeout=20
+                    ) as response:
+
+                        # ==============================
+                        # SUCCESS
+                        # ==============================
                         if response.status == 200:
-                            data = await response.json()
-                            return data['choices'][0]['message']['content']
-                        else:
-                            logger.warning(f"Model {model_name} failed. Auto-trying next model...")
-                            continue # কাজ না করলে পরের মডেল ট্রাই করবে
-            except Exception:
-                continue # নেটওয়ার্ক বা টাইমআউট এরর আসলেও পরের মডেলে যাবে
 
-        # যদি কপাল অনেক খারাপ হয় এবং ৪টা মডেলই একসাথে ফেইল মারে, তখন এই লাইন কাজ করবে
+                            data = await response.json()
+
+                            ai_reply = data["choices"][0]["message"]["content"]
+
+                            return ai_reply
+
+                        # ==============================
+                        # FAILED MODEL
+                        # ==============================
+                        else:
+
+                            error_text = await response.text()
+
+                            logger.warning(
+                                f"{model_name} failed | "
+                                f"Status: {response.status} | "
+                                f"Error: {error_text}"
+                            )
+
+                except Exception as model_error:
+
+                    logger.error(
+                        f"Model Error ({model_name}): {model_error}"
+                    )
+
+                    continue
+
+        # ==============================
+        # ALL MODELS FAILED
+        # ==============================
         return fallback_reply(user_name, search_res)
 
     except Exception as e:
-        logger.error(f"Assistant Error: {e}")
+
+        logger.error(f"Assistant Main Error: {e}")
+
         return fallback_reply(user_name, search_res)
 
 
+# ==============================
+# FALLBACK REPLY
+# ==============================
 def fallback_reply(user_name, search_res):
-    """যদি কোনো কারণে সব API কাজ না করে, তবে এই অফলাইন ডিফল্ট মেসেজ যাবে"""
+
     if search_res:
-        return f"আরে বস {user_name}! 🔥 আপনি যা খুঁজছেন (<b>{search_res['title']}</b>) তা আমাদের কাছে আছে! 🥳\nনিচের <b>'🎬 Watch Now'</b> বাটনে একটা কোপ দিন আর মুভি দেখা শুরু করেন!"
+
+        return (
+            f"আরে {user_name} ভাই 🔥\n\n"
+            f"আপনার মুভি "
+            f"<b>{search_res['title']}</b> "
+            f"আমাদের কাছে available আছে 😎🍿\n"
+            f"নিচের 🎬 Watch Now বাটনে চাপ দিন!"
+        )
+
     else:
-        return f"ইশশ {user_name} ভাই 😔, এই মুহূর্তে মুভিটা স্টকে নাই। তবে প্যারা নাই, আপনার রিকোয়েস্ট আমি অ্যাডমিন বসের কাছে পাঠায় দিছি! খুব জলদি পেয়ে যাবেন। 😇"
+
+        return (
+            f"ইশশ {user_name} ভাই 😔\n\n"
+            f"এই মুভিটা এখনো স্টকে আসে নাই 💔\n"
+            f"তবে প্যারা নাই 😎\n"
+            f"আপনার রিকোয়েস্ট Admin Boss এর কাছে পাঠিয়ে দেওয়া হয়েছে 🚀"
+        )
