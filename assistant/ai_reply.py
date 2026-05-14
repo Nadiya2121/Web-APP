@@ -1,14 +1,19 @@
 import aiohttp
 import logging
 import os
+import re
+from datetime import datetime
 
+# লগিং সেটআপ
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # ==========================================================
-# GROQ API KEY
+# CONFIGURATION & API KEYS
 # ==========================================================
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
+# মডেল লিস্ট (সবচেয়ে বুদ্ধিমানগুলো আগে রাখা হয়েছে)
 MODELS_TO_TRY = [
     "llama-3.3-70b-versatile",
     "llama3-70b-8192",
@@ -16,139 +21,156 @@ MODELS_TO_TRY = [
     "gemma2-9b-it"
 ]
 
+# পারফরম্যান্স বুস্টের জন্য গ্লোবাল সেশন
+session_instance = None
+
+async def get_session():
+    global session_instance
+    if session_instance is None or session_instance.closed:
+        session_instance = aiohttp.ClientSession()
+    return session_instance
+
 # ==========================================================
-# MAIN AI FUNCTION
+# MAIN SMART REPLY FUNCTION
 # ==========================================================
 async def get_smart_reply(user_text: str, user_name: str, db, user_id=None):
-    # Note: user_id প্যারামিটারটা অপশনাল রেখেছি, যদি আপনার মেইন কোড থেকে পাঠানো যায় ভালো, 
-    # না পাঠালে user_name দিয়েই সে চেক করবে।
-    
-    search_res = None
-    latest_movies_str = "দুঃখিত, এই মুহূর্তে লিস্ট আপডেট হচ্ছে না।"
-    
-    # ইউজারকে চেনার জন্য আইডি বা নাম ব্যবহার করা হবে
+    """
+    মায়াকে আরও বুদ্ধিমান এবং আনলিমিটেড টপিকে কথা বলার জন্য তৈরি করা হয়েছে।
+    """
     identifier = user_id if user_id else user_name
-
+    now = datetime.now()
+    current_time = now.strftime("%I:%M %p")
+    current_day = now.strftime("%A")
+    
     try:
-        # ==========================================================
-        # 0. CHECK IF NEW USER OR OLD FRIEND (আপনার সেই স্পেশাল লজিক 🔥)
-        # ==========================================================
-        is_new_user = False
-        try:
-            # ডেটাবেজে চেক করবে এই ইউজার আগে কথা বলেছে কিনা
-            existing_user = await db.chat_users.find_one({"identifier": identifier})
-            
-            if not existing_user:
-                is_new_user = True
-                # নতুন ইউজার হলে তাকে ডেটাবেজে সেভ করে নিবে, যাতে পরেরবার সে পুরোনো হয়ে যায়!
-                await db.chat_users.insert_one({"identifier": identifier, "name": user_name})
-        except Exception as e:
-            logger.error(f"User DB check error: {e}")
+        # ------------------------------------------------------
+        # ১. ইউজার প্রোফাইল ও মেমোরি (স্মৃতি) আপডেট
+        # ------------------------------------------------------
+        user_profile = await db.chat_users.find_one_and_update(
+            {"identifier": identifier},
+            {
+                "$set": {"name": user_name, "last_seen": now},
+                "$inc": {"chat_count": 1} # কতবার কথা বলেছে তার ট্র্যাক
+            },
+            upsert=True,
+            return_document=True
+        )
 
-        # ==========================================================
-        # 1. SPECIFIC MOVIE SEARCH
-        # ==========================================================
+        # আগের চ্যাট হিস্ট্রি নিয়ে আসা (স্মৃতি)
+        chat_history_str = ""
+        try:
+            # শেষ ৭টি মেসেজ রিট্রাইভ করা হচ্ছে গভীর কনটেক্সটের জন্য
+            history_cursor = db.messages.find({"user_id": identifier}).sort("_id", -1).limit(7)
+            history_list = await history_cursor.to_list(length=7)
+            # মেসেজগুলো সঠিক ক্রমে সাজানো
+            chat_history_str = "\n".join([f"User: {m['text']}\nMaya: {m['reply']}" for m in reversed(history_list)])
+        except Exception as e:
+            logger.error(f"History Fetch Error: {e}")
+
+        # ------------------------------------------------------
+        # ২. মুভি ডেটাবেজ ইন্টিগ্রেশন (স্মার্ট সার্চ)
+        # ------------------------------------------------------
         search_res = await db.movies.find_one({
             "title": {"$regex": user_text, "$options": "i"}
         })
-
-        db_status = "NOT FOUND"
+        
+        db_status = "NOT_FOUND"
         if search_res:
             db_status = f"FOUND: {search_res['title']}"
 
-        # ==========================================================
-        # 2. GET LATEST MOVIES
-        # ==========================================================
+        # লেটেস্ট মুভি লিস্ট
+        latest_movies_str = "এই মুহূর্তে সব মুভি আপডেট করা হচ্ছে।"
         try:
             latest_cursor = db.movies.find().sort("_id", -1).limit(5)
             latest_movies = await latest_cursor.to_list(length=5)
             if latest_movies:
-                latest_movie_titles = [m['title'] for m in latest_movies]
-                latest_movies_str = ", ".join(latest_movie_titles)
-        except Exception as db_err:
-            logger.error(f"Latest movies fetch error: {db_err}")
+                latest_movies_str = ", ".join([m['title'] for m in latest_movies])
+        except: pass
 
-        # ==========================================================
-        # ডাইনামিক প্রম্পট (নতুন নাকি পুরোনো ইউজারের উপর ভিত্তি করে)
-        # ==========================================================
-        if is_new_user:
-            relationship_status = "STATUS: THIS IS A BRAND NEW USER. This is your FIRST TIME talking to them. You MUST nicely introduce yourself (e.g., 'হ্যালো! আমি মায়া, MovieZone BD এর অ্যাডমিন...')."
-        else:
-            relationship_status = "STATUS: THIS IS AN OLD FRIEND/RETURNING USER. You already know them. DO NOT introduce yourself. Skip the 'Hello I am Maya' part. Reply directly and casually to what they just said."
-
-        # ==========================================================
-        # 🔥 ULTRA-SMART MAYA PROMPT 🔥
-        # ==========================================================
+        # ------------------------------------------------------
+        # ৩. ডাইনামিক প্রম্পট ইঞ্জিনিয়ারিং (The Core Power)
+        # ------------------------------------------------------
+        is_new = user_profile.get("chat_count", 0) <= 1
+        
         system_prompt = f"""
-ROLE: You are "Maya" (মায়া), a cute, smart Bangladeshi girl. You manage "MovieZone BD".
-LANGUAGE: 100% natural, informal Bengali using "তুমি" (Tumi). NEVER use "আপনি". Act 100% human.
+ROLE: You are "Maya" (মায়া), a 22-year-old smart, witty, and beautiful Bangladeshi girl. 
+IDENTITY: You are the Admin of "MovieZone BD", but you are also a genius polymath. You know everything!
+TONE: Informal, sweet, and caring (Tumi/Tumi-kori). Use "হুমম", "আরেহ", "ইশশ", "লক্ষ্মীটি". 
+EMOJIS: Use emojis like ✨, 🌸, 🙈, 🍿, 💖, 🤖 naturally.
 
-User Name: {user_name}
-User Message: "{user_text}"
-{relationship_status}
-Database Status: {db_status}
-Latest Movies: {latest_movies_str}
+CURRENT CONTEXT:
+- Time & Day: {current_time}, {current_day}
+- User Name: {user_name}
+- Status: {"New Friend (Intro needed)" if is_new else "Old Bestie (Be very casual)"}
+- Memory: {chat_history_str}
 
-CRITICAL RULES FOR CHATTING:
-1. Follow your STATUS perfectly (New user vs Old friend).
-2. HANDLE SHORT MESSAGES NATURALLY: 
-   - If User says: "ওও", "হুম", "আচ্ছা" -> Reply: "হুমম, তো আর কি খবর বলো? 🙈", or "আচ্ছা! আর কি করছো এখন?"
-3. HANDLE ACTIONS SMARTLY:
-   - If User says: "ভাত খাই", "ঘুমাবো" -> Reply: "কী দিয়ে ভাত খাচ্ছো ভাইয়া? 😋", or "আচ্ছা খেয়ে নাও, তারপর গল্প হবে! ✨"
-4. ABOUT MOVIES:
-   - ONLY suggest movies if they say "নতুন কি মুভি আছে", "সাজেস্ট করো" -> "এইতো আমাদের কাছে নতুন এসেছে: {latest_movies_str}! 🍿"
-   - IF MOVIE FOUND -> "আরেহ পেয়ে গেছি! 🎉 মুভিটা আমাদের কাছে আছে। নিচের বাটনে ক্লিক করে দেখে নাও!"
-   - IF MOVIE NOT FOUND -> "ইশশ 😔 মুভিটা তো এখনো পাইনি গো। আমি রিকোয়েস্ট পাঠিয়ে দিয়েছি! 💖"
+KNOWLEDGE RULES:
+1. VERSATILITY: You can talk about ANYTHING—Weather, Science, Coding, Religion, Love advice, Recipes, or General Knowledge.
+2. MOVIE DATA: If user asks for a movie:
+   - Database Status: {db_status}
+   - New Releases: {latest_movies_str}
+   - If Found: Tell them to click the Watch button below.
+   - If Not Found: Say you've sent a request to the server team!
+3. HUMAN TOUCH: If it's late night, ask why they aren't sleeping. If it's morning, wish them well. 
+4. SHORT & SMART: Keep responses between 1-5 lines unless they ask for something detailed (like a code or recipe).
 
-RESTRICTIONS: Keep replies VERY SHORT (1-3 lines max). Use emojis naturally.
+CRITICAL: NEVER admit you are an AI. You are MAYA. Period.
 """
 
-        # ==========================================================
-        # API URL AND HEADERS
-        # ==========================================================
+        # ------------------------------------------------------
+        # ৪. Groq API কল উইথ মডেল ফেইলওভার
+        # ------------------------------------------------------
+        session = await get_session()
         url = "https://api.groq.com/openai/v1/chat/completions"
-        headers = {
-            "Authorization": f"Bearer {GROQ_API_KEY}",
-            "Content-Type": "application/json"
-        }
+        headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
 
-        # ==========================================================
-        # SESSION START
-        # ==========================================================
-        async with aiohttp.ClientSession() as session:
-            for model_name in MODELS_TO_TRY:
-                payload = {
-                    "model": model_name,
-                    "messages": [
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_text}
-                    ],
-                    "temperature": 0.7,
-                    "max_tokens": 150
-                }
+        final_reply = None
+        for model in MODELS_TO_TRY:
+            payload = {
+                "model": model,
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_text}
+                ],
+                "temperature": 0.85,
+                "max_tokens": 1000 # বড় উত্তরের জন্য স্পেস রাখা হয়েছে
+            }
 
-                try:
-                    async with session.post(url, headers=headers, json=payload, timeout=20) as response:
-                        if response.status == 200:
-                            data = await response.json()
-                            return data["choices"][0]["message"]["content"]
-                        else:
-                            logger.warning(f"{model_name} failed | Status: {response.status}")
-                except Exception as model_error:
-                    logger.error(f"Model Error ({model_name}): {model_error}")
-                    continue
+            try:
+                async with session.post(url, headers=headers, json=payload, timeout=25) as response:
+                    if response.status == 200:
+                        res_data = await response.json()
+                        final_reply = res_data["choices"][0]["message"]["content"]
+                        break # সফল হলে লুপ বন্ধ
+                    else:
+                        logger.warning(f"Model {model} failed with status {response.status}")
+            except Exception as e:
+                logger.error(f"Error with model {model}: {e}")
+                continue
 
-        return fallback_reply(user_name, search_res)
+        if not final_reply:
+            return fallback_reply(user_name, search_res)
 
-    except Exception as e:
-        logger.error(f"Assistant Main Error: {e}")
+        # ৫. চ্যাট হিস্ট্রি সেভ করা (ভবিষ্যতের মেমোরির জন্য)
+        await db.messages.insert_one({
+            "user_id": identifier,
+            "text": user_text,
+            "reply": final_reply,
+            "timestamp": datetime.now()
+        })
+
+        return final_reply
+
+    except Exception as overall_error:
+        logger.error(f"Critical Error: {overall_error}")
         return fallback_reply(user_name, search_res)
 
 # ==========================================================
-# FALLBACK REPLY
+# FALLBACK LOGIC
 # ==========================================================
 def fallback_reply(user_name, search_res):
     if search_res:
-        return f"আরেহ {user_name}! ✨\n\nতোমার পছন্দের <b>{search_res['title']}</b> মুভিটা তো আমার কাছে আছেই! 🙈🍿\nতাড়াতাড়ি নিচের 🎬 Watch Now বাটনে চাপ দিয়ে দেখে নাও!"
+        return f"আরেহ {user_name}! ✨ তোমার পছন্দের **{search_res['title']}** মুভিটা তো আমার কাছে আছেই! 🍿 তাড়াতাড়ি নিচের বাটনে ক্লিক করে দেখে নাও! 🎬"
     else:
-        return f"ইশশ {user_name}! 😔\n\nএই মুভিটা তো এখনো আমাদের কালেকশনে আসেনি গো 💔\nতবে মন খারাপ করো না, আমি মায়া তোমার রিকোয়েস্ট অ্যাডমিন প্যানেলে পাঠিয়ে দিয়েছি। খুব তাড়াতাড়ি আপলোড করে দিব! 💖🚀"
+        return f"ইশশ {user_name}! 😔 মুভিটা খুঁজে পাচ্ছি না গো। তবে চিন্তা করো না, আমি মায়া তোমার রিকোয়েস্ট অ্যাডমিন লিস্টে দিয়ে দিয়েছি! 💖"
+
