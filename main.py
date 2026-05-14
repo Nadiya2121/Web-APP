@@ -50,6 +50,9 @@ from bson import ObjectId
 from pydantic import BaseModel
 from pyrogram import Client as PyroClient
 
+# 🛑 NEW: AI Assistant Import (আলাদা ফোল্ডার থেকে)
+from assistant.ai_reply import get_smart_reply
+
 # ==========================================
 # 0. Logging Setup
 # ==========================================
@@ -671,7 +674,7 @@ async def execute_broadcast(m: types.Message, state: FSMContext):
     await m.answer(f"✅ সম্পন্ন! সর্বমোট <b>{success}</b> জনকে মেসেজ পাঠানো হয়েছে।", parse_mode="HTML")
 
 # ==========================================
-# 🛑 NEW: SMART AUTO-RESPONDER (No External API Needed)
+# 🛑 SMART AUTO-RESPONDER (Integrated with AI Folder)
 # ==========================================
 @dp.message(lambda m: m.chat.type == "private" and m.from_user.id not in admin_cache and (m.text is None or not m.text.startswith("/")))
 async def forward_to_admin(m: types.Message):
@@ -693,35 +696,20 @@ async def forward_to_admin(m: types.Message):
             )
         except Exception: pass
         
-    # 2. Smart Auto-Reply for User
+    # 2. Smart AI Auto-Reply for User
     if m.from_user.id not in auto_reply_cache:
         auto_reply_cache[m.from_user.id] = True
         try:
             kb = [[types.InlineKeyboardButton(text="🎬 Watch Now (মুভি দেখুন)", web_app=types.WebAppInfo(url=APP_URL))]]
             user_markup = types.InlineKeyboardMarkup(inline_keyboard=kb)
             
-            user_text = m.text.strip().lower() if m.text else ""
-            reply_text = ""
+            user_text = m.text.strip() if m.text else ""
             
-            # Basic keyword checking
-            greetings = ["hi", "hello", "হায়", "হ্যালো", "হাই", "কেমন আছো", "kemon acho", "ki obstha"]
-            thanks = ["thanks", "thank you", "ধন্যবাদ", "tnx", "thnx"]
-
-            if not user_text:
-                reply_text = "হ্যালো! আপনার মেসেজটি অ্যাডমিনের কাছে পৌঁছে গেছে। প্রয়োজনে অ্যাডমিন আপনাকে রিপ্লাই দেবেন। ধন্যবাদ! ❤️"
-            elif any(user_text == g for g in greetings) or any(user_text.startswith(g) for g in greetings):
-                reply_text = f"হ্যালো {m.from_user.first_name}! 👋 আমি 'MovieZone BD' এর অ্যাসিস্ট্যান্ট।\n\nআপনি কোনো মুভি বা সিরিজ খুঁজলে আমাকে নাম বলতে পারেন, অথবা নিচের '🎬 Watch Now' বাটনে ক্লিক করে সরাসরি অ্যাপে দেখতে পারেন। 🥰"
-            elif any(t in user_text for t in thanks):
-                reply_text = "আপনাকে অনেক ধন্যবাদ! ❤️ যেকোনো প্রয়োজনে আমরা আছি। মুভি দেখতে নিচের বাটনে ক্লিক করুন। 🍿"
+            if user_text:
+                # কল করা হচ্ছে আলাদা ফোল্ডারের AI লজিক
+                reply_text = await get_smart_reply(user_text, m.from_user.first_name, db)
             else:
-                # Search in database
-                search_res = await db.movies.find_one({"title": {"$regex": user_text, "$options": "i"}})
-                
-                if search_res:
-                    found_title = search_res["title"]
-                    reply_text = f"খুশির খবর! 🎉 আপনি যা খুঁজছেন (<b>{found_title}</b>) তা আমাদের কাছে আছে! 🥳\n\nনিচের <b>'🎬 Watch Now'</b> বাটনে ক্লিক করে এখনই মুভিটি উপভোগ করুন। 🍿"
-                else:
-                    reply_text = f"দুঃখিত 😔, এই মুহূর্তে '<b>{m.text}</b>' মুভিটি আমাদের ডাটাবেসে পাওয়া যায়নি।\n\nতবে মন খারাপ করবেন না! আমি অ্যাডমিন ভাইয়াকে মেসেজটি পাঠিয়ে দিয়েছি, উনি খুব তাড়াতাড়ি এটি আপলোড করে দেবেন ইনশাআল্লাহ। 😇\n\nততক্ষণ নিচের বাটনে ক্লিক করে আমাদের অন্যান্য মুভিগুলো দেখতে পারেন। 👇"
+                reply_text = "হ্যালো! আপনার মেসেজ/ফাইলটি অ্যাডমিনের কাছে পৌঁছে গেছে। প্রয়োজনে অ্যাডমিন আপনাকে রিপ্লাই দেবেন। ধন্যবাদ! ❤️"
             
             await m.reply(reply_text, reply_markup=user_markup, parse_mode="HTML")
         except Exception as e: 
