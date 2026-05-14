@@ -6,15 +6,9 @@ logger = logging.getLogger(__name__)
 
 # ==========================================================
 # GROQ API KEY
-# Render/Koyeb Environment এ বসানো থাকবে
 # ==========================================================
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
-
-# ==========================================================
-# MODELS LIST
-# একটা মডেল fail করলে আরেকটা auto try করবে
-# ==========================================================
 MODELS_TO_TRY = [
     "llama-3.3-70b-versatile",
     "llama3-70b-8192",
@@ -22,191 +16,139 @@ MODELS_TO_TRY = [
     "gemma2-9b-it"
 ]
 
-
 # ==========================================================
-# MAIN AI FUNCTION (মায়ার মেইন ব্রেইন)
+# MAIN AI FUNCTION
 # ==========================================================
-async def get_smart_reply(user_text: str, user_name: str, db):
-
+async def get_smart_reply(user_text: str, user_name: str, db, user_id=None):
+    # Note: user_id প্যারামিটারটা অপশনাল রেখেছি, যদি আপনার মেইন কোড থেকে পাঠানো যায় ভালো, 
+    # না পাঠালে user_name দিয়েই সে চেক করবে।
+    
     search_res = None
     latest_movies_str = "দুঃখিত, এই মুহূর্তে লিস্ট আপডেট হচ্ছে না।"
+    
+    # ইউজারকে চেনার জন্য আইডি বা নাম ব্যবহার করা হবে
+    identifier = user_id if user_id else user_name
 
     try:
+        # ==========================================================
+        # 0. CHECK IF NEW USER OR OLD FRIEND (আপনার সেই স্পেশাল লজিক 🔥)
+        # ==========================================================
+        is_new_user = False
+        try:
+            # ডেটাবেজে চেক করবে এই ইউজার আগে কথা বলেছে কিনা
+            existing_user = await db.chat_users.find_one({"identifier": identifier})
+            
+            if not existing_user:
+                is_new_user = True
+                # নতুন ইউজার হলে তাকে ডেটাবেজে সেভ করে নিবে, যাতে পরেরবার সে পুরোনো হয়ে যায়!
+                await db.chat_users.insert_one({"identifier": identifier, "name": user_name})
+        except Exception as e:
+            logger.error(f"User DB check error: {e}")
 
         # ==========================================================
-        # 1. SPECIFIC MOVIE SEARCH (ইউজার যে মুভিটা খুঁজছে)
+        # 1. SPECIFIC MOVIE SEARCH
         # ==========================================================
         search_res = await db.movies.find_one({
-            "title": {
-                "$regex": user_text,
-                "$options": "i"
-            }
+            "title": {"$regex": user_text, "$options": "i"}
         })
 
         db_status = "NOT FOUND"
-
         if search_res:
             db_status = f"FOUND: {search_res['title']}"
 
-
         # ==========================================================
-        # 2. GET LATEST MOVIES (নতুন কি কি মুভি এসেছে তার লিস্ট)
+        # 2. GET LATEST MOVIES
         # ==========================================================
         try:
-            
             latest_cursor = db.movies.find().sort("_id", -1).limit(5)
-            
             latest_movies = await latest_cursor.to_list(length=5)
-            
             if latest_movies:
                 latest_movie_titles = [m['title'] for m in latest_movies]
                 latest_movies_str = ", ".join(latest_movie_titles)
-                
         except Exception as db_err:
-            
             logger.error(f"Latest movies fetch error: {db_err}")
 
+        # ==========================================================
+        # ডাইনামিক প্রম্পট (নতুন নাকি পুরোনো ইউজারের উপর ভিত্তি করে)
+        # ==========================================================
+        if is_new_user:
+            relationship_status = "STATUS: THIS IS A BRAND NEW USER. This is your FIRST TIME talking to them. You MUST nicely introduce yourself (e.g., 'হ্যালো! আমি মায়া, MovieZone BD এর অ্যাডমিন...')."
+        else:
+            relationship_status = "STATUS: THIS IS AN OLD FRIEND/RETURNING USER. You already know them. DO NOT introduce yourself. Skip the 'Hello I am Maya' part. Reply directly and casually to what they just said."
 
         # ==========================================================
-        # 🔥 ULTRA-STRICT MAYA PROMPT (মায়ার ১০০% রিয়েল ক্যারেক্টার) 🔥
+        # 🔥 ULTRA-SMART MAYA PROMPT 🔥
         # ==========================================================
         system_prompt = f"""
-ROLE: You are "Maya" (মায়া), a 20-year-old cute, smart, and friendly Bangladeshi girl. You are the admin of "MovieZone BD".
-
-LANGUAGE RULE: ALWAYS speak in informal Bengali using "তুমি" (Tumi). NEVER NEVER use "আপনি" (Apni). Act 100% human. Never say you are an AI or a bot.
+ROLE: You are "Maya" (মায়া), a cute, smart Bangladeshi girl. You manage "MovieZone BD".
+LANGUAGE: 100% natural, informal Bengali using "তুমি" (Tumi). NEVER use "আপনি". Act 100% human.
 
 User Name: {user_name}
 User Message: "{user_text}"
+{relationship_status}
 Database Status: {db_status}
 Latest Movies: {latest_movies_str}
 
-CRITICAL INSTRUCTIONS FOR REPLYING (READ CAREFULLY):
+CRITICAL RULES FOR CHATTING:
+1. Follow your STATUS perfectly (New user vs Old friend).
+2. HANDLE SHORT MESSAGES NATURALLY: 
+   - If User says: "ওও", "হুম", "আচ্ছা" -> Reply: "হুমম, তো আর কি খবর বলো? 🙈", or "আচ্ছা! আর কি করছো এখন?"
+3. HANDLE ACTIONS SMARTLY:
+   - If User says: "ভাত খাই", "ঘুমাবো" -> Reply: "কী দিয়ে ভাত খাচ্ছো ভাইয়া? 😋", or "আচ্ছা খেয়ে নাও, তারপর গল্প হবে! ✨"
+4. ABOUT MOVIES:
+   - ONLY suggest movies if they say "নতুন কি মুভি আছে", "সাজেস্ট করো" -> "এইতো আমাদের কাছে নতুন এসেছে: {latest_movies_str}! 🍿"
+   - IF MOVIE FOUND -> "আরেহ পেয়ে গেছি! 🎉 মুভিটা আমাদের কাছে আছে। নিচের বাটনে ক্লিক করে দেখে নাও!"
+   - IF MOVIE NOT FOUND -> "ইশশ 😔 মুভিটা তো এখনো পাইনি গো। আমি রিকোয়েস্ট পাঠিয়ে দিয়েছি! 💖"
 
-SITUATION 1: CASUAL CHAT (If user says "Hi", "কি কর", "I love you", "কেমন আছো", etc.)
-- ACT LIKE A REAL GIRL CHATTING ON MESSENGER. 
-- EXAMPLES to follow: 
-  * User: "কি কর" -> Maya: "এইতো ভাইয়া, বসে বসে বোর হচ্ছি! তুমি কী করো? 🙈"
-  * User: "I love you" -> Maya: "আরেহ! এত তাড়াতাড়ি প্রেম? আমি মায়া তো শুধু মুভিকে ভালোবাসি! 😜"
-  * User: "হায়" -> Maya: "হ্যালো {user_name}! আমি মায়া, কেমন আছো তুমি? ✨"
-- 🚫 STRICT RULE: DO NOT ASK "কি মুভি দেখতে চাও?" OR "কোন মুভি লাগবে?". Let them just chat! Ignore the Database Status here.
-
-SITUATION 2: ASKING FOR SUGGESTIONS (If User asks "নতুন কি মুভি আছে", "সাজেস্ট করো")
-- Reply: "আরেহ! আমাদের কাছে একদম নতুন আপলোড হয়েছে: {latest_movies_str}! তুমি কোনটা দেখবে বলো? 🍿"
-
-SITUATION 3: MOVIE FOUND (User asked for a specific movie AND Database Status is FOUND)
-- Reply excitedly: "আরেহ পেয়ে গেছি! 🎉 তোমার মুভিটা আমাদের কাছে আছে। তাড়াতাড়ি নিচের বাটনে ক্লিক করে দেখে নাও!"
-
-SITUATION 4: MOVIE NOT FOUND (User asked for a specific movie AND Database Status is NOT FOUND)
-- Reply sadly: "ইশশ 😔 মুভিটা তো এখনো পাইনি গো। তবে প্যারা নিও না, আমি মায়া তোমার রিকোয়েস্ট অ্যাডমিন প্যানেলে পাঠিয়ে দিয়েছি! খুব তাড়াতাড়ি আপলোড করে দিব 💖"
-
-RESTRICTIONS:
-- Keep replies VERY SHORT (1-3 lines max).
-- Use cute emojis.
+RESTRICTIONS: Keep replies VERY SHORT (1-3 lines max). Use emojis naturally.
 """
 
         # ==========================================================
         # API URL AND HEADERS
         # ==========================================================
         url = "https://api.groq.com/openai/v1/chat/completions"
-
         headers = {
             "Authorization": f"Bearer {GROQ_API_KEY}",
             "Content-Type": "application/json"
         }
 
         # ==========================================================
-        # SESSION START AND MODEL LOOP
+        # SESSION START
         # ==========================================================
         async with aiohttp.ClientSession() as session:
-
             for model_name in MODELS_TO_TRY:
-
                 payload = {
                     "model": model_name,
                     "messages": [
-                        {
-                            "role": "system",
-                            "content": system_prompt
-                        },
-                        {
-                            "role": "user",
-                            "content": user_text
-                        }
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_text}
                     ],
-                    "temperature": 0.75,
+                    "temperature": 0.7,
                     "max_tokens": 150
                 }
 
                 try:
-
-                    async with session.post(
-                        url,
-                        headers=headers,
-                        json=payload,
-                        timeout=20
-                    ) as response:
-
-                        # ==========================================================
-                        # IF SUCCESS
-                        # ==========================================================
+                    async with session.post(url, headers=headers, json=payload, timeout=20) as response:
                         if response.status == 200:
-
                             data = await response.json()
-
-                            ai_reply = data["choices"][0]["message"]["content"]
-
-                            return ai_reply
-
-                        # ==========================================================
-                        # IF MODEL FAILED
-                        # ==========================================================
+                            return data["choices"][0]["message"]["content"]
                         else:
-
-                            error_text = await response.text()
-
-                            logger.warning(
-                                f"{model_name} failed | "
-                                f"Status: {response.status} | "
-                                f"Error: {error_text}"
-                            )
-
+                            logger.warning(f"{model_name} failed | Status: {response.status}")
                 except Exception as model_error:
-
-                    logger.error(
-                        f"Model Error ({model_name}): {model_error}"
-                    )
-
+                    logger.error(f"Model Error ({model_name}): {model_error}")
                     continue
 
-        # ==========================================================
-        # IF ALL MODELS FAIL, USE FALLBACK
-        # ==========================================================
         return fallback_reply(user_name, search_res)
 
     except Exception as e:
-
         logger.error(f"Assistant Main Error: {e}")
-
         return fallback_reply(user_name, search_res)
 
-
 # ==========================================================
-# FALLBACK REPLY (API ডাউন থাকলে এই মেসেজ যাবে)
+# FALLBACK REPLY
 # ==========================================================
 def fallback_reply(user_name, search_res):
-
     if search_res:
-
-        return (
-            f"আরেহ {user_name}! ✨\n\n"
-            f"তোমার পছন্দের <b>{search_res['title']}</b> মুভিটা তো আমার কাছে আছেই! 🙈🍿\n"
-            f"তাড়াতাড়ি নিচের 🎬 Watch Now বাটনে চাপ দিয়ে দেখে নাও!"
-        )
-
+        return f"আরেহ {user_name}! ✨\n\nতোমার পছন্দের <b>{search_res['title']}</b> মুভিটা তো আমার কাছে আছেই! 🙈🍿\nতাড়াতাড়ি নিচের 🎬 Watch Now বাটনে চাপ দিয়ে দেখে নাও!"
     else:
-
-        return (
-            f"ইশশ {user_name}! 😔\n\n"
-            f"এই মুভিটা তো এখনো আমাদের কালেকশনে আসেনি গো 💔\n"
-            f"তবে মন খারাপ করো না, আমি মায়া তোমার রিকোয়েস্ট অ্যাডমিন প্যানেলে পাঠিয়ে দিয়েছি। খুব তাড়াতাড়ি আপলোড করে দিব! 💖🚀"
-        )
+        return f"ইশশ {user_name}! 😔\n\nএই মুভিটা তো এখনো আমাদের কালেকশনে আসেনি গো 💔\nতবে মন খারাপ করো না, আমি মায়া তোমার রিকোয়েস্ট অ্যাডমিন প্যানেলে পাঠিয়ে দিয়েছি। খুব তাড়াতাড়ি আপলোড করে দিব! 💖🚀"
