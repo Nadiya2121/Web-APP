@@ -151,10 +151,20 @@ async def get_smart_reply(
                 f"Movie Search Error: {search_error}"
             )
 
-        db_status = "NOT_FOUND"
-
+        # ==========================================================
+        # DYNAMIC MOVIE INSTRUCTION (মিথ্যা বলা থেকে আটকানোর লজিক)
+        # ==========================================================
         if search_res:
-            db_status = f"FOUND: {search_res['title']}"
+            movie_title = search_res['title']
+            db_instruction = f"""
+Good News: The movie IS FOUND in our database! The exact title is '{movie_title}'.
+Your task: Give a tiny, engaging review of this movie and happily tell the user to click the 'Watch Now' button below.
+"""
+        else:
+            db_instruction = """
+Bad News: The movie is NOT FOUND in our database. 
+Your task: You MUST NOT tell them the movie is available. You MUST clearly and politely tell them in Bengali that the movie is not available right now, but you have requested the 'Admin Boss' (এডমিন বস / এডমিন ভাই) to upload it if possible. NEVER ask them to click 'Watch Now'.
+"""
 
         # ==========================================================
         # LATEST MOVIES
@@ -190,7 +200,7 @@ async def get_smart_reply(
         is_new_user = chat_count <= 1
 
         # ==========================================================
-        # SYSTEM PROMPT (SMART & CONTEXT AWARE)
+        # SYSTEM PROMPT (SMART & STRICT)
         # ==========================================================
         system_prompt = f"""
 You are Maya, a smart, sweet, logical, and funny Bangladeshi virtual assistant for MovieZone BD.
@@ -202,16 +212,14 @@ User Name: {user_name}
 Conversation Memory (Previous Chats):
 {chat_history_str}
 
-Database Status: {db_status}
-
 CRITICAL RULES:
 1. CONTEXT IS KING: Read the "Conversation Memory" carefully. If the user is answering a question YOU just asked (like saying "না", "হ্যাঁ", "দেখিনি"), or continuing a story, reply logically to that conversation! DO NOT treat small conversational words as a movie search.
-2. Speak naturally in standard conversational Bengali (e.g., ভাইয়া, আরে, ওমা). Keep it short, smart and engaging.
-3. IF THEY ARE SEARCHING A MOVIE:
-   - IF FOUND: Use the EXACT English name, give a tiny review, and smartly ask them to click 'Watch Now'.
-   - IF NOT FOUND: Playfully say you have ordered the server team to add it.
+2. Speak naturally in standard conversational Bengali (e.g., ভাইয়া, আরে, ওমা). Keep it short, smart and engaging. NEVER sound robotic.
+
+3. STRICT MOVIE STATUS (MUST FOLLOW):
+{db_instruction}
+
 4. FOR 18+ / ADULT QUERIES: Playfully roast them (Example: "আস্তাগফিরুল্লাহ! এসব কী ভাই? ভালো হয়ে যান! 😒 আমরা ফ্যামিলি ফ্রেন্ডলি!").
-5. NEVER sound robotic.
 """
 
         # ==========================================================
@@ -372,7 +380,7 @@ CRITICAL RULES:
 
 
 # ==========================================================
-# FALLBACK REPLY (UPDATED & SUPER FUNNY)
+# FALLBACK REPLY (UPDATED)
 # ==========================================================
 def fallback_reply(user_name, search_res, user_text=""):
 
@@ -397,5 +405,5 @@ def fallback_reply(user_name, search_res, user_text=""):
     return (
         f"ইশশ {user_name} 😔💔\n\n"
         f"এই মুভিটা এখনো পাই নাই...\n"
-        f"তবে আমি সার্ভার টিমকে কড়া করে বলে দিয়েছি তাড়াতাড়ি অ্যাড করার জন্য! 🚀"
+        f"তবে আমি এডমিন ভাই/বসকে বলে দিয়েছি, সম্ভব হলে তাড়াতাড়ি অ্যাড করে দিবে! 🚀"
     )
