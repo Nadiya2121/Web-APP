@@ -9,3 +9,4 @@ tgcrypto
 Pillow
 cachetools
 google-generativeai
+pytz
