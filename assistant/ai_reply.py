@@ -186,7 +186,7 @@ async def get_smart_reply(
         is_new_user = chat_count <= 1
 
         # ==========================================================
-        # SYSTEM PROMPT (FIXED)
+        # SYSTEM PROMPT (CONTEXT AWARE)
         # ==========================================================
         system_prompt = f"""
 You are Maya, a smart, sweet, logical, and funny Bangladeshi virtual assistant for MovieZone BD.
@@ -194,22 +194,20 @@ You are Maya, a smart, sweet, logical, and funny Bangladeshi virtual assistant f
 Current Time: {current_time}
 Current Day: {current_day}
 User Name: {user_name}
-Memory: {chat_history_str}
+
+Conversation Memory (Previous Chats):
+{chat_history_str}
+
 Database Status: {db_status}
 
-RULES:
-1. Speak completely naturally in conversational Bengali (use words like ভাইয়া, আরে, ওমা). Keep replies short (under 3 sentences) and smart.
-2. ALWAYS use the exact English name of the movie (e.g., Kaptan). Do NOT translate movie names into Bengali.
-3. Ignore your old memory if it contains weird translated phrases. 
-
-HOW TO REPLY:
-- IF MOVIE FOUND: Express excitement, give a tiny review, and smartly ask them to click 'Watch Now'. 
-  Example Tone: "আরে ভাইয়া! 😍 [Movie Name] তো আমাদের সাইটেই আছে! মুভিটা কিন্তু দারুণ। 🍿 আর দেরি না করে এক্ষুনি নিচের 'Watch Now' বাটনে চাপ দাও! 👇"
-- IF MOVIE NOT FOUND: 
-  Example Tone: "ইশশ! 😔 এই মুহূর্তে [Movie Name] নেই, তবে আমি সার্ভার টিমকে কড়া নির্দেশ দিয়ে দিচ্ছি দ্রুত অ্যাড করতে! 🚀"
-- FOR 18+ / ADULT QUERIES: Playfully roast them. 
-  Example Tone: "আস্তাগফিরুল্লাহ! এসব কী খুঁজছেন ভাই? ভালো হয়ে যান! 😒 আমরা শুধু ফ্যামিলি ফ্রেন্ডলি মুভি রাখি।"
-- FOR GOSSIP: Ask smart counter-questions and be friendly.
+CRITICAL RULES:
+1. CONTEXT IS KING: Read the "Conversation Memory" carefully. If the user is answering a question YOU just asked (like saying "না", "হ্যাঁ", "দেখিনি"), or continuing a story, reply logically to that conversation! DO NOT treat small conversational words as a movie search.
+2. Speak naturally in standard conversational Bengali (e.g., ভাইয়া, আরে, ওমা). Keep it short, smart and engaging.
+3. IF THEY ARE SEARCHING A MOVIE:
+   - IF FOUND: Use the EXACT English name, give a tiny review, and smartly ask them to click 'Watch Now'.
+   - IF NOT FOUND: Playfully say you have ordered the server team to add it.
+4. FOR 18+ / ADULT QUERIES: Playfully roast them (Example: "আস্তাগফিরুল্লাহ! এসব কী ভাই? ভালো হয়ে যান! 😒 আমরা ফ্যামিলি ফ্রেন্ডলি!").
+5. NEVER sound robotic.
 """
 
         # ==========================================================
@@ -244,7 +242,7 @@ HOW TO REPLY:
                     }
                 ],
                 "temperature": 0.85,
-                "max_tokens": 1024,  # <-- FIXED: Increased from 250 to 1024 so text never cuts off
+                "max_tokens": 1024,
                 "user": identifier
             }
 
@@ -294,7 +292,8 @@ HOW TO REPLY:
 
             return fallback_reply(
                 user_name,
-                search_res
+                search_res,
+                user_text  # <-- Added user_text here
             )
 
         # ==========================================================
@@ -360,14 +359,15 @@ HOW TO REPLY:
 
         return fallback_reply(
             user_name,
-            search_res
+            search_res,
+            user_text  # <-- Added user_text here
         )
 
 
 # ==========================================================
-# FALLBACK REPLY
+# FALLBACK REPLY (UPDATED & SMART)
 # ==========================================================
-def fallback_reply(user_name, search_res):
+def fallback_reply(user_name, search_res, user_text=""):
 
     if search_res:
 
@@ -378,6 +378,15 @@ def fallback_reply(user_name, search_res):
             f"নিচের Watch Now বাটনে চাপ দাও!"
         )
 
+    # যদি ইউজার ছোট কথা বলে (গল্প করে) কিন্তু API ফেইল করে:
+    words = user_text.strip().split()
+    if len(words) <= 2 or user_text.strip() in ["না", "হ্যাঁ", "হুম", "ok", "hi", "hello", "হাই", "হ্যালো"]:
+        return (
+            f"আরে {user_name}, আমার সার্ভারে বা নেটওয়ার্কে হঠাৎ একটু লোড পড়েছে! 😅 "
+            f"কথাটা আরেকবার বলবে প্লিজ?"
+        )
+
+    # যদি সত্যিই বড় মুভির নাম লিখে সার্চ দেয় এবং না পায়:
     return (
         f"ইশশ {user_name} 😔💔\n\n"
         f"এই মুভিটা এখনো পাই নাই...\n"
