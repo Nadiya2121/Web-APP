@@ -75,6 +75,7 @@ async def get_smart_reply(
         # SAFE USER TEXT
         # ==========================================================
         safe_text = re.escape(user_text.strip())
+        clean_user_text = user_text.strip()
 
         # ==========================================================
         # USER PROFILE
@@ -134,25 +135,33 @@ async def get_smart_reply(
             )
 
         # ==========================================================
-        # MOVIE SEARCH
+        # INTENT DETECTION (অযথা ডাটাবেজ সার্চ বন্ধ করা)
         # ==========================================================
-        try:
-
-            search_res = await db.movies.find_one({
-                "title": {
-                    "$regex": safe_text,
-                    "$options": "i"
-                }
-            })
-
-        except Exception as search_error:
-
-            logger.error(
-                f"Movie Search Error: {search_error}"
-            )
+        casual_words = ["hi", "hello", "হাই", "হ্যালো", "কেমন আছো", "হুম", "না", "হ্যাঁ", "ok", "ওকে", "কি অবস্থা", "কী", "কি"]
+        is_casual_chat = clean_user_text.lower() in casual_words or len(clean_user_text) <= 2
 
         # ==========================================================
-        # DYNAMIC MOVIE INSTRUCTION (মিথ্যা বলা থেকে আটকানোর লজিক)
+        # MOVIE SEARCH (Optimized with Text Search)
+        # ==========================================================
+        if not is_casual_chat:
+            try:
+
+                search_res = await db.movies.find_one({
+                    "$text": {
+                        "$search": clean_user_text
+                    }
+                })
+
+            except Exception as search_error:
+
+                logger.error(
+                    f"Movie Search Error: {search_error}"
+                )
+        else:
+            logger.info("Casual chat detected. Skipped database movie search.")
+
+        # ==========================================================
+        # DYNAMIC MOVIE INSTRUCTION (মিথ্যা বলা থেকে আটকানো ও রিলিজ লজিক)
         # ==========================================================
         if search_res:
             movie_title = search_res['title']
@@ -160,10 +169,17 @@ async def get_smart_reply(
 Good News: The movie IS FOUND in our database! The exact title is '{movie_title}'.
 Your task: Give a tiny, engaging review of this movie and happily tell the user to click the 'Watch Now' button below.
 """
+        elif is_casual_chat:
+            db_instruction = """
+The user is just chatting casually or giving a short reply. Respond to their conversation naturally. Do NOT talk about missing movies unless they specifically asked for one.
+"""
         else:
             db_instruction = """
 Bad News: The movie is NOT FOUND in our database. 
-Your task: You MUST NOT tell them the movie is available. You MUST clearly and politely tell them in Bengali that the movie is not available right now, but you have requested the 'Admin Boss' (এডমিন বস / এডমিন ভাই) to upload it if possible. NEVER ask them to click 'Watch Now'.
+Your task:
+1. First, check your own AI knowledge: Is the user asking for an UPCOMING or UNRELEASED movie/series in the real world?
+2. If YES (Unreleased): Playfully tease the user in Bengali. Tell them the movie hasn't even been released yet in theaters or OTT! (Example: "আরে ভাই, এই মুভি তো এখনো রিলিজই হয়নি! আগে রিলিজ তো হতে দিন, তারপর অ্যাডমিন বসকে বলব অ্যাড করে দিতে! 😆")
+3. If NO (Already Released but missing in DB): Politely tell them in Bengali that it's not available right now, but you have requested the 'Admin Boss' (এডমিন বস / এডমিন ভাই) to upload it if possible. NEVER ask them to click 'Watch Now'.
 """
 
         # ==========================================================
@@ -219,7 +235,9 @@ CRITICAL RULES:
 3. STRICT MOVIE STATUS (MUST FOLLOW):
 {db_instruction}
 
-4. FOR 18+ / ADULT QUERIES: Playfully roast them (Example: "আস্তাগফিরুল্লাহ! এসব কী ভাই? ভালো হয়ে যান! 😒 আমরা ফ্যামিলি ফ্রেন্ডলি!").
+4. LATEST MOVIES SUGGESTION: If a requested movie is released but missing in our DB, you can softly suggest these newly added movies: {latest_movies_str}
+
+5. FOR 18+ / ADULT QUERIES: Playfully roast them (Example: "আস্তাগফিরুল্লাহ! এসব কী ভাই? ভালো হয়ে যান! 😒 আমরা ফ্যামিলি ফ্রেন্ডলি!").
 """
 
         # ==========================================================
