@@ -890,7 +890,7 @@ async def receive_movie_category(m: types.Message, state: FSMContext):
     clear_app_cache() 
     
     cat_display = ", ".join(categories) if categories else "N/A"
-    await m.answer(f"🎉 <b>{title} [{quality}]</b> অ্যাপে যুক্ত করা হয়েছে!\n🏷 ক্যাটাগরি: <b>{cat_display}</b>", parse_mode="HTML")
+    await m.answer(f"🎉 <b>{title} [{quality}]</b> অ্যাপে যুক্ত করা গঠন করা হয়েছে!\n🏷 ক্যাটাগরি: <b>{cat_display}</b>", parse_mode="HTML")
 
     if CHANNEL_ID:
         try:
@@ -954,10 +954,13 @@ async def get_sys_settings(auth: bool = Depends(verify_admin)):
     cost_cfg = await db.settings.find_one({"id": "vip_cost"})
     days_cfg = await db.settings.find_one({"id": "vip_days"})
     unlock_cfg = await db.settings.find_one({"id": "unlock_hours"})
+    social_cfg = await db.settings.find_one({"id": "social_links"})
+    
     return {
         "vip_cost": cost_cfg["amount"] if cost_cfg else 30,
         "vip_days": days_cfg["days"] if days_cfg else 1,
-        "unlock_hours": unlock_cfg["hours"] if unlock_cfg else 24
+        "unlock_hours": unlock_cfg["hours"] if unlock_cfg else 24,
+        "social_links": social_cfg.get("links", {}) if social_cfg else {}
     }
 
 @app.post("/api/admin/sys_settings")
@@ -965,6 +968,10 @@ async def save_sys_settings(data: dict = Body(...), auth: bool = Depends(verify_
     await db.settings.update_one({"id": "vip_cost"}, {"$set": {"amount": int(data.get("vip_cost", 30))}}, upsert=True)
     await db.settings.update_one({"id": "vip_days"}, {"$set": {"days": int(data.get("vip_days", 1))}}, upsert=True)
     await db.settings.update_one({"id": "unlock_hours"}, {"$set": {"hours": int(data.get("unlock_hours", 24))}}, upsert=True)
+    
+    social_links = data.get("social_links", {})
+    await db.settings.update_one({"id": "social_links"}, {"$set": {"links": social_links}}, upsert=True)
+    
     clear_app_cache()
     return {"ok": True}
 
@@ -999,7 +1006,7 @@ async def web_admin_panel(auth: bool = Depends(verify_admin)):
                 </div>
             </div>
 
-            <!-- New System Settings Block -->
+            <!-- System Settings Block -->
             <div class="bg-gray-800 rounded-xl shadow-lg border border-gray-700 p-6 mb-8">
                 <h2 class="text-xl font-bold text-gray-200 mb-4"><i class="fa-solid fa-cogs"></i> System Settings</h2>
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -1017,6 +1024,30 @@ async def web_admin_panel(auth: bool = Depends(verify_admin)):
                     </div>
                 </div>
                 <button onclick="saveSysSettings()" class="mt-4 bg-green-600 hover:bg-green-500 text-white px-6 py-2 rounded font-bold transition">Save Settings</button>
+            </div>
+
+            <!-- New Social Media Links Block -->
+            <div class="bg-gray-800 rounded-xl shadow-lg border border-gray-700 p-6 mb-8">
+                <h2 class="text-xl font-bold text-blue-400 mb-4"><i class="fa-solid fa-share-nodes"></i> Social Media Links</h2>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label class="text-gray-400 text-sm font-bold block mb-1">Facebook Group</label>
+                        <input type="url" id="cfgFbGroup" placeholder="https://facebook.com/groups/..." class="w-full bg-gray-700 text-white px-3 py-2 rounded-lg border border-gray-600 focus:outline-none">
+                    </div>
+                    <div>
+                        <label class="text-gray-400 text-sm font-bold block mb-1">Facebook Page</label>
+                        <input type="url" id="cfgFbPage" placeholder="https://facebook.com/..." class="w-full bg-gray-700 text-white px-3 py-2 rounded-lg border border-gray-600 focus:outline-none">
+                    </div>
+                    <div>
+                        <label class="text-gray-400 text-sm font-bold block mb-1">YouTube Channel</label>
+                        <input type="url" id="cfgYoutube" placeholder="https://youtube.com/..." class="w-full bg-gray-700 text-white px-3 py-2 rounded-lg border border-gray-600 focus:outline-none">
+                    </div>
+                    <div>
+                        <label class="text-gray-400 text-sm font-bold block mb-1">Movie Review Channel</label>
+                        <input type="url" id="cfgReview" placeholder="https://t.me/..." class="w-full bg-gray-700 text-white px-3 py-2 rounded-lg border border-gray-600 focus:outline-none">
+                    </div>
+                </div>
+                <button onclick="saveSysSettings()" class="mt-4 bg-blue-600 hover:bg-blue-500 text-white px-6 py-2 rounded font-bold transition">Save Social Links</button>
             </div>
 
             <div class="bg-gray-800 rounded-xl shadow-lg border border-gray-700 p-6 mb-8">
@@ -1077,6 +1108,13 @@ async def web_admin_panel(auth: bool = Depends(verify_admin)):
                     document.getElementById('cfgVipCost').value = data.vip_cost;
                     document.getElementById('cfgVipDays').value = data.vip_days;
                     document.getElementById('cfgUnlockHrs').value = data.unlock_hours;
+                    
+                    if(data.social_links) {
+                        document.getElementById('cfgFbGroup').value = data.social_links.fb_group || '';
+                        document.getElementById('cfgFbPage').value = data.social_links.fb_page || '';
+                        document.getElementById('cfgYoutube').value = data.social_links.youtube || '';
+                        document.getElementById('cfgReview').value = data.social_links.review_channel || '';
+                    }
                 } catch(e) {}
             }
 
@@ -1084,7 +1122,13 @@ async def web_admin_panel(auth: bool = Depends(verify_admin)):
                 const payload = {
                     vip_cost: document.getElementById('cfgVipCost').value,
                     vip_days: document.getElementById('cfgVipDays').value,
-                    unlock_hours: document.getElementById('cfgUnlockHrs').value
+                    unlock_hours: document.getElementById('cfgUnlockHrs').value,
+                    social_links: {
+                        fb_group: document.getElementById('cfgFbGroup').value,
+                        fb_page: document.getElementById('cfgFbPage').value,
+                        youtube: document.getElementById('cfgYoutube').value,
+                        review_channel: document.getElementById('cfgReview').value
+                    }
                 };
                 try {
                     await fetch('/api/admin/sys_settings', {
@@ -1281,6 +1325,10 @@ async def web_ui():
     link_18 = b18_cfg['url'] if b18_cfg else "https://t.me/MovieeBD"
     direct_links = dl_cfg.get('links', []) if dl_cfg else []
     dl_json = json.dumps(direct_links)
+    
+    social_cfg = await db.settings.find_one({"id": "social_links"})
+    social_links_dict = social_cfg.get('links', {}) if social_cfg else {}
+    social_json = json.dumps(social_links_dict)
 
     html_code = r"""
     <!DOCTYPE html>
@@ -1369,6 +1417,14 @@ async def web_ui():
             .page-btn:hover { background: #334155; }
             .page-btn.active { background: #f87171; border-color: #f87171; color: white; }
 
+            .community-section { margin: 10px 15px 30px; padding: 15px; background: rgba(30, 41, 59, 0.5); border: 1px solid #334155; border-radius: 16px; backdrop-filter: blur(10px); }
+            .social-grid { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
+            .social-btn { display: flex; align-items: center; gap: 8px; padding: 10px 15px; border-radius: 12px; font-weight: bold; font-size: 13px; text-decoration: none; transition: transform 0.2s, box-shadow 0.2s; flex-grow: 1; justify-content: center; min-width: 140px; }
+            .social-btn:active { transform: scale(0.95); }
+            .fb-btn { background: rgba(24, 119, 242, 0.1); color: #1877f2; border: 1px solid rgba(24, 119, 242, 0.3); }
+            .yt-btn { background: rgba(255, 0, 0, 0.1); color: #ff0000; border: 1px solid rgba(255, 0, 0, 0.3); }
+            .tg-btn { background: rgba(36, 161, 222, 0.1); color: #24A1DE; border: 1px solid rgba(36, 161, 222, 0.3); }
+
             .developer-credit { margin: 10px 15px 130px; padding: 22px 15px; background: linear-gradient(135deg, rgba(30, 41, 59, 0.8), rgba(15, 23, 42, 0.95)); border: 1px solid rgba(56, 189, 248, 0.2); border-radius: 16px; text-align: center; box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4), 0 0 15px rgba(56, 189, 248, 0.1); backdrop-filter: blur(10px); position: relative; overflow: hidden; }
             .developer-credit::before { content: ''; position: absolute; top: 0; left: -100%; width: 50%; height: 100%; background: linear-gradient(90deg, transparent, rgba(255,255,255,0.08), transparent); animation: shine 3s infinite; }
             @keyframes shine { 100% { left: 200%; } }
@@ -1448,6 +1504,8 @@ async def web_ui():
         <div class="grid" id="movieGrid"></div>
         <div class="pagination" id="paginationBox"></div>
         
+        <div id="communityBox"></div>
+
         <div class="developer-credit">
             <div class="dev-title"><i class="fa-solid fa-laptop-code"></i> Developed & Deployed By</div>
             <div class="dev-name">Bot Developer</div>
@@ -1592,6 +1650,7 @@ async def web_ui():
         <script>
             let tg = window.Telegram.WebApp; tg.expand();
             const DIRECT_LINKS = {{DIRECT_LINKS}};
+            const SOCIAL_LINKS = {{SOCIAL_LINKS}};
             const INIT_DATA = tg.initData || "";
             const BOT_UNAME = "{{BOT_USER}}";
             const AD_WAIT_TIME = {{AD_TIME}}; 
@@ -2144,12 +2203,28 @@ async def web_ui():
                 }
             }
 
-            fetchUserInfo(); fetchActiveAds(); loadCategories(); loadTrending(); loadMovies(1); 
+            function renderCommunitySection() {
+                let html = '';
+                if(SOCIAL_LINKS.fb_group) html += `<a href="${SOCIAL_LINKS.fb_group}" target="_blank" class="social-btn fb-btn"><i class="fa-brands fa-facebook"></i> FB Group</a>`;
+                if(SOCIAL_LINKS.fb_page) html += `<a href="${SOCIAL_LINKS.fb_page}" target="_blank" class="social-btn fb-btn"><i class="fa-brands fa-facebook-f"></i> FB Page</a>`;
+                if(SOCIAL_LINKS.youtube) html += `<a href="${SOCIAL_LINKS.youtube}" target="_blank" class="social-btn yt-btn"><i class="fa-brands fa-youtube"></i> YouTube</a>`;
+                if(SOCIAL_LINKS.review_channel) html += `<a href="${SOCIAL_LINKS.review_channel}" target="_blank" class="social-btn tg-btn"><i class="fa-solid fa-film"></i> Movie Review</a>`;
+                
+                if(html !== '') {
+                    document.getElementById('communityBox').innerHTML = `
+                    <div class="community-section">
+                        <div class="section-title" style="justify-content: center; font-size: 18px;"><i class="fa-solid fa-users" style="color: #38bdf8;"></i> Join Our Community</div>
+                        <div class="social-grid">${html}</div>
+                    </div>`;
+                }
+            }
+
+            fetchUserInfo(); fetchActiveAds(); loadCategories(); loadTrending(); loadMovies(1); renderCommunitySection();
         </script>
     </body>
     </html>
     """
-    html_code = html_code.replace("{{DIRECT_LINKS}}", dl_json).replace("{{TG_LINK}}", tg_url).replace("{{SUPPORT_LINK}}", support_link).replace("{{LINK_18}}", link_18).replace("{{BOT_USER}}", BOT_USERNAME).replace("{{AD_TIME}}", str(ad_wait_seconds))
+    html_code = html_code.replace("{{DIRECT_LINKS}}", dl_json).replace("{{TG_LINK}}", tg_url).replace("{{SUPPORT_LINK}}", support_link).replace("{{LINK_18}}", link_18).replace("{{BOT_USER}}", BOT_USERNAME).replace("{{AD_TIME}}", str(ad_wait_seconds)).replace("{{SOCIAL_LINKS}}", social_json)
     return html_code
 
 # ==========================================
