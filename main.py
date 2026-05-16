@@ -105,6 +105,13 @@ list_cache = TTLCache(maxsize=100, ttl=300)
 category_cache = TTLCache(maxsize=5, ttl=43200)
 auto_reply_cache = TTLCache(maxsize=1000, ttl=10) 
 
+keyword_replies_cache = {}
+
+async def load_keyword_replies():
+    keyword_replies_cache.clear()
+    async for kw in db.keyword_replies.find():
+        keyword_replies_cache[kw["keyword"]] = kw["reply_message"]
+
 def clear_app_cache():
     trending_cache.clear()
     list_cache.clear()
@@ -673,47 +680,102 @@ async def execute_broadcast(m: types.Message, state: FSMContext):
         except Exception: pass
     await m.answer(f"✅ সম্পন্ন! সর্বমোট <b>{success}</b> জনকে মেসেজ পাঠানো হয়েছে।", parse_mode="HTML")
 
+@dp.message(Command("addreply"))
+async def add_keyword_reply(m: types.Message):
+    if m.from_user.id not in admin_cache: return
+    try:
+        args = m.text.split(" ", 1)[1]
+        keyword, reply_msg = [x.strip() for x in args.split("|", 1)]
+        keyword = keyword.lower()
+        await db.keyword_replies.update_one({"keyword": keyword}, {"$set": {"keyword": keyword, "reply_message": reply_msg}}, upsert=True)
+        await load_keyword_replies()
+        await m.answer(f"✅ <b>{keyword}</b> এর জন্য ম্যানুয়াল রিপ্লাই সেট হয়েছে!", parse_mode="HTML")
+    except Exception:
+        await m.answer("⚠️ সঠিক নিয়ম: <code>/addreply কিওয়ার্ড | আপনার রিপ্লাই</code>\n(যেমন: <code>/addreply pushpa 2 | মুভিটি এখনো রিলিজ হয়নি।</code>)", parse_mode="HTML")
+
+@dp.message(Command("delreply"))
+async def del_keyword_reply(m: types.Message):
+    if m.from_user.id not in admin_cache: return
+    try:
+        keyword = m.text.split(" ", 1)[1].strip().lower()
+        res = await db.keyword_replies.delete_one({"keyword": keyword})
+        if res.deleted_count > 0:
+            await load_keyword_replies()
+            await m.answer(f"✅ কিওয়ার্ড <b>{keyword}</b> ডিলিট করা হয়েছে!", parse_mode="HTML")
+        else:
+            await m.answer("⚠️ এই কিওয়ার্ড পাওয়া যায়নি।")
+    except Exception:
+        await m.answer("⚠️ সঠিক নিয়ম: <code>/delreply কিওয়ার্ড</code>", parse_mode="HTML")
+
 # ==========================================
 # 🛑 SMART AUTO-RESPONDER (Integrated with AI Folder)
 # ==========================================
 @dp.message(lambda m: m.chat.type == "private" and m.from_user.id not in admin_cache and (m.text is None or not m.text.startswith("/")))
 async def forward_to_admin(m: types.Message):
-    # 1. Forward to Admins
-    builder = InlineKeyboardBuilder()
-    builder.button(text="✍️ রিপ্লাই দিন", callback_data=f"reply_{m.from_user.id}")
-    markup = builder.as_markup()
+    user_text = m.text.strip() if m.text else ""
+    user_text_lower = user_text.lower()
     
-    all_admins = set([OWNER_ID])
-    async for a in db.admins.find(): all_admins.add(a["user_id"])
+    reply_text = ""
+    is_manual_reply = False
+
+    if user_text:
+        for kw, rep_msg in keyword_replies_cache.items():
+            if kw in user_text_lower:
+                reply_text = rep_msg
+                is_manual_reply = True
+                break
+
+    if not is_manual_reply:
+        # 1. Forward to Admins only if not a manual keyword
+        builder = InlineKeyboardBuilder()
+        builder.button(text="✍️ রিপ্লাই দিন", callback_data=f"reply_{m.from_user.id}")
+        markup = builder.as_markup()
         
-    for admin_id in all_admins:
-        try:
-            await bot.send_message(
-                admin_id, 
-                f"📩 <b>Message from <a href='tg://user?id={m.from_user.id}'>{m.from_user.first_name}</a></b> (<code>{m.from_user.id}</code>):\n\n{m.text or '[Media/File]'}", 
-                parse_mode="HTML",
-                reply_markup=markup
-            )
-        except Exception: pass
+        all_admins = set([OWNER_ID])
+        async for a in db.admins.find(): all_admins.add(a["user_id"])
+            
+        for admin_id in all_admins:
+            try:
+                await bot.send_message(
+                    admin_id, 
+                    f"📩 <b>Message from <a href='tg://user?id={m.from_user.id}'>{m.from_user.first_name}</a></b> (<code>{m.from_user.id}</code>):\n\n{m.text or '[Media/File]'}", 
+                    parse_mode="HTML",
+                    reply_markup=markup
+                )
+            except Exception: pass
         
-    # 2. Smart AI Auto-Reply for User
-    if m.from_user.id not in auto_reply_cache:
-        auto_reply_cache[m.from_user.id] = True
-        try:
-            kb = [[types.InlineKeyboardButton(text="🎬 Watch Now (মুভি দেখুন)", web_app=types.WebAppInfo(url=APP_URL))]]
-            user_markup = types.InlineKeyboardMarkup(inline_keyboard=kb)
-            
-            user_text = m.text.strip() if m.text else ""
-            
-            if user_text:
-                # কল করা হচ্ছে আলাদা ফোল্ডারের AI লজিক
-                reply_text = await get_smart_reply(user_text, m.from_user.first_name, db)
-            else:
-                reply_text = "হ্যালো! আপনার মেসেজ/ফাইলটি অ্যাডমিনের কাছে পৌঁছে গেছে। প্রয়োজনে অ্যাডমিন আপনাকে রিপ্লাই দেবেন। ধন্যবাদ! ❤️"
-            
-            await m.reply(reply_text, reply_markup=user_markup, parse_mode="HTML")
-        except Exception as e: 
-            logger.error(f"Auto-Reply Error: {e}")
+        # 2. Smart AI Auto-Reply for User
+        if m.from_user.id not in auto_reply_cache:
+            auto_reply_cache[m.from_user.id] = True
+            try:
+                kb = [[types.InlineKeyboardButton(text="🎬 Watch Now (মুভি দেখুন)", web_app=types.WebAppInfo(url=APP_URL))]]
+                user_markup = types.InlineKeyboardMarkup(inline_keyboard=kb)
+                
+                if user_text:
+                    reply_text = await get_smart_reply(user_text, m.from_user.first_name, db, user_id=m.from_user.id)
+                else:
+                    reply_text = "হ্যালো! আপনার মেসেজ/ফাইলটি অ্যাডমিনের কাছে পৌঁছে গেছে। প্রয়োজনে অ্যাডমিন আপনাকে রিপ্লাই দেবেন। ধন্যবাদ! ❤️"
+                
+                await m.reply(reply_text, reply_markup=user_markup, parse_mode="HTML")
+            except Exception as e: 
+                logger.error(f"Auto-Reply Error: {e}")
+    else:
+        # 3. If Manual Reply, respond immediately and save to AI history
+        if m.from_user.id not in auto_reply_cache:
+            auto_reply_cache[m.from_user.id] = True
+            try:
+                kb = [[types.InlineKeyboardButton(text="🎬 Watch Now (মুভি দেখুন)", web_app=types.WebAppInfo(url=APP_URL))]]
+                user_markup = types.InlineKeyboardMarkup(inline_keyboard=kb)
+                await m.reply(reply_text, reply_markup=user_markup, parse_mode="HTML")
+                
+                await db.messages.insert_one({
+                    "user_id": str(m.from_user.id),
+                    "text": user_text,
+                    "reply": reply_text,
+                    "timestamp": datetime.datetime.utcnow()
+                })
+            except Exception as e:
+                logger.error(f"Auto-Reply Error: {e}")
 
 @dp.message(F.content_type.in_({'video', 'document'}), lambda m: m.from_user.id in admin_cache)
 async def receive_movie_file(m: types.Message, state: FSMContext):
@@ -2595,6 +2657,7 @@ async def start():
     await init_db()
     await load_admins()
     await load_banned_users()
+    await load_keyword_replies()
     
     config = uvicorn.Config(app, host="0.0.0.0", port=int(os.getenv("PORT", 8000)), loop="asyncio")
     server = uvicorn.Server(config)
