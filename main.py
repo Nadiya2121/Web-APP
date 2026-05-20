@@ -2269,8 +2269,15 @@ async def web_ui():
                         html = '<p style="color: #cbd5e1; text-align:center; padding: 20px;">Your Watchlist is empty!</p>';
                     } else {
                         data.watchlist.forEach(m => {
+                            loadedMovies[m.title] = {
+                                _id: m.title,
+                                photo_id: m.photo_id,
+                                files: m.files,
+                                clicks: m.clicks || 0
+                            };
+                            
                             html += `
-                            <div class="card" onclick="openQualityModal('${m.title.replace(/'/g, "\\'")}')">
+                            <div class="card" onclick="openQualityModal(this)" data-title="${encodeURIComponent(m.title)}">
                                 <div class="post-content">
                                     <img src="/api/image/${m.photo_id}" loading="lazy" onerror="this.src='https://via.placeholder.com/640x360?text=No+Image'">
                                     <div class="ep-badge"><i class="fa-solid fa-bookmark text-yellow-400"></i> Saved</div>
@@ -2283,7 +2290,9 @@ async def web_ui():
                         });
                     }
                     document.getElementById('watchlistModalList').innerHTML = html;
-                } catch(e) {}
+                } catch(e) {
+                    console.error("Watchlist render error:", e);
+                }
             }
 
             async function toggleWatchlist() {
@@ -2706,18 +2715,7 @@ async def web_ui():
                     return;
                 }
                 
-                // Fetch watchlist status for user
-                try {
-                    const wlRes = await fetch(`/api/watchlist/list/${uid}`);
-                    const wlData = await wlRes.json();
-                    isCurrentMovieBookmarked = wlData.watchlist.some(w => w.title === title);
-                    updateBookmarkButtonUI();
-                } catch(e) { isCurrentMovieBookmarked = false; updateBookmarkButtonUI(); }
-                
-                // Star ratings and review loader
-                loadReviews(title);
-                setSelectRating(0);
-                
+                // মোডালটি সাথে সাথে ওপেন করুন (ইনস্ট্যান্ট রেসপন্স)
                 document.getElementById('modalTitle').innerText = title;
                 document.getElementById('qualityList').innerHTML = movie.files.map(f => {
                     let isFree = f.is_unlocked || isUserVip;
@@ -2727,6 +2725,29 @@ async def web_ui():
                 }).join('');
                 document.getElementById('qualityModal').style.display = 'flex';
                 
+                // বুকমার্ক এবং রেটিংয়ে চমৎকার লোড-অ্যানিমেশন যোগ করা হলো
+                document.getElementById('bookmarkBtn').innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Checking...';
+                document.getElementById('avgRatingVal').innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
+                document.getElementById('modalReviewsList').innerHTML = '<div style="text-align:center; padding:10px; color:#94a3b8;"><i class="fa-solid fa-spinner fa-spin"></i> Loading reviews...</div>';
+                
+                setSelectRating(0);
+                
+                // ব্যাকগ্রাউন্ডে ওয়াচলিস্ট স্ট্যাটাস চেক
+                fetch(`/api/watchlist/list/${uid}`)
+                    .then(res => res.json())
+                    .then(wlData => {
+                        isCurrentMovieBookmarked = wlData.watchlist.some(w => w.title === title);
+                        updateBookmarkButtonUI();
+                    })
+                    .catch(e => {
+                        isCurrentMovieBookmarked = false;
+                        updateBookmarkButtonUI();
+                    });
+                
+                // ব্যাকগ্রাউন্ডে রিভিউ এবং রেটিং লোড করা হচ্ছে
+                loadReviews(title);
+                
+                // ব্যাকগ্রাউন্ডে ভিউ বৃদ্ধি করা হচ্ছে
                 fetch('/api/view_movie', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
@@ -3391,16 +3412,34 @@ async def get_watchlist(uid: int):
     user = await db.users.find_one({"user_id": uid})
     if not user: return {"watchlist": []}
     watchlist = user.get("watchlist", [])
-    movies = []
-    for title in watchlist:
-        m = await db.movies.find_one({"title": title})
-        if m:
-            movies.append({
-                "title": title,
-                "photo_id": m.get("photo_id") or (f"db_{m['db_photo_id']}" if m.get("db_photo_id") else None),
-                "quality": m.get("quality", "HD")
-            })
-    return {"watchlist": movies}
+    if not watchlist: return {"watchlist": []}
+    
+    # ওয়াচলিস্টের সব ফাইলের তথ্য গ্রুপ করে এগ্রিগেশন কোয়েরি
+    pipeline = [
+        {"$match": {"title": {"$in": watchlist}}},
+        {"$group": {
+            "_id": "$title",
+            "photo_id": {"$first": "$photo_id"},
+            "db_photo_id": {"$first": "$db_photo_id"},
+            "clicks": {"$sum": "$clicks"},
+            "created_at": {"$max": "$created_at"},
+            "files": {"$push": {"id": {"$toString": "$_id"}, "quality": {"$ifNull": ["$quality", "HD"]}}}
+        }},
+        {"$sort": {"created_at": -1}}
+    ]
+    movies = await db.movies.aggregate(pipeline).to_list(len(watchlist))
+    
+    formatted_movies = []
+    for m in movies:
+        photo_id = m.get("photo_id") or (f"db_{m['db_photo_id']}" if m.get("db_photo_id") else None)
+        formatted_movies.append({
+            "title": m["_id"],
+            "photo_id": photo_id,
+            "files": m["files"],
+            "clicks": m.get("clicks", 0)
+        })
+        
+    return {"watchlist": formatted_movies}
 
 class ReviewModel(BaseModel):
     uid: int
