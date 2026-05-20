@@ -308,6 +308,10 @@ async def init_db():
     await db.auto_delete.create_index("delete_at")
     await db.payments.create_index("trx_id", unique=True)
     await db.ads.create_index("expires_at")
+    
+    # 7 Days Trending Tracking indexes
+    await db.movie_views.create_index([("title", 1), ("viewed_at", -1)])
+    await db.movie_views.create_index("viewed_at", expireAfterSeconds=2592000) # Auto deletes views older than 30 days
 
 def validate_tg_data(init_data: str) -> bool:
     try:
@@ -1441,9 +1445,10 @@ async def web_ui():
 
             .section-title { padding: 5px 15px 15px; font-size: 20px; font-weight: 900; display: flex; align-items: center; gap: 8px; color:#ff416c; }
             
-            .trending-container { display: flex; overflow-x: auto; gap: 15px; padding: 0 15px 20px; scroll-behavior: smooth; }
+            /* Enhanced Trending Container with CSS Scroll Snap to prevent stopping halfway */
+            .trending-container { display: flex; overflow-x: auto; gap: 15px; padding: 0 15px 20px; scroll-behavior: smooth; scroll-snap-type: x mandatory; }
             .trending-container::-webkit-scrollbar { display: none; }
-            .trending-card { min-width: 280px; max-width: 280px; background: transparent; overflow: hidden; cursor: pointer; flex-shrink: 0; position: relative; transition: transform 0.2s; transform: translateZ(0); will-change: transform; }
+            .trending-card { min-width: 280px; max-width: 280px; background: transparent; overflow: hidden; cursor: pointer; flex-shrink: 0; position: relative; transition: transform 0.2s; transform: translateZ(0); will-change: transform; scroll-snap-align: start; }
             .trending-card:active { transform: scale(0.98); }
 
             .ads-scrolling-container { display: flex; overflow-x: auto; gap: 15px; padding: 0 15px 20px; scroll-behavior: smooth; scroll-snap-type: x mandatory; }
@@ -1454,6 +1459,7 @@ async def web_ui():
             .ad-img-wrapper img { width: 100%; height: 100%; object-fit: cover; }
             .ad-gradient { position: absolute; bottom: 0; left: 0; width: 100%; height: 60%; background: linear-gradient(to top, #1e293b, transparent); }
             .sponsored-badge { position: absolute; top: 12px; right: 12px; background: rgba(0,0,0,0.7); border: 1px solid #f59e0b; color: #fcd34d; font-size: 11px; font-weight: 900; padding: 4px 10px; border-radius: 12px; text-transform: uppercase; z-index: 2; letter-spacing: 1px;}
+            .ad-content { padding: 0 15px 15px 15px; text-align: left; background: #1e293b; z-index: 2; margin-top: -10px; }
             .ad-content { padding: 0 15px 15px 15px; text-align: left; background: #1e293b; z-index: 2; margin-top: -10px; }
             .ad-title-large { color: #fff; font-size: 18px; font-weight: bold; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; margin-bottom: 12px; text-shadow: 0 2px 4px rgba(0,0,0,0.5); }
             .ad-watch-btn { background: linear-gradient(45deg, #ef4444, #f97316); color: white; text-align: center; padding: 12px; border-radius: 10px; font-weight: bold; font-size: 16px; width: 100%; display: block; border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 4px 10px rgba(239, 68, 68, 0.3); }
@@ -2363,9 +2369,37 @@ async def trending_movies(uid: int = 0):
     if "trending_list" in trending_cache:
         movies = copy.deepcopy(trending_cache["trending_list"])
     else:
+        # Optimized MongoDB aggregate to rank top 10 movies strictly based on the last 7 days of views
+        seven_days_ago = datetime.datetime.utcnow() - datetime.timedelta(days=7)
         pipeline = [
-            {"$group": {"_id": "$title", "photo_id": {"$first": "$photo_id"}, "db_photo_id": {"$first": "$db_photo_id"}, "clicks": {"$sum": "$clicks"}, "files": {"$push": {"id": {"$toString": "$_id"}, "quality": {"$ifNull": ["$quality", "HD"]}}}}},
-            {"$sort": {"clicks": -1}}, {"$limit": 10}
+            {"$group": {
+                "_id": "$title", 
+                "photo_id": {"$first": "$photo_id"}, 
+                "db_photo_id": {"$first": "$db_photo_id"}, 
+                "clicks": {"$sum": "$clicks"}, 
+                "files": {"$push": {"id": {"$toString": "$_id"}, "quality": {"$ifNull": ["$quality", "HD"]}}}
+            }},
+            {"$lookup": {
+                "from": "movie_views",
+                "let": {"movie_title": "$_id"},
+                "pipeline": [
+                    {"$match": {
+                        "$expr": {
+                            "$and": [
+                                {"$eq": ["$title", "$$movie_title"]},
+                                {"$gte": ["$viewed_at", seven_days_ago]}
+                            ]
+                        }
+                    }},
+                    {"$count": "count"}
+                ],
+                "as": "weekly"
+            }},
+            {"$addFields": {
+                "weekly_clicks": {"$ifNull": [{"$arrayElemAt": ["$weekly.count", 0]}, 0]}
+            }},
+            {"$sort": {"weekly_clicks": -1, "clicks": -1}}, # Secondary sort by lifetime clicks
+            {"$limit": 10}
         ]
         movies = await db.movies.aggregate(pipeline).to_list(10)
         for m in movies:
@@ -2490,7 +2524,10 @@ class ViewRequestModel(BaseModel):
 @app.post("/api/view_movie")
 async def increment_movie_view(d: ViewRequestModel):
     try:
+        # Increments general lifetime clicks
         await db.movies.update_many({"title": d.title}, {"$inc": {"clicks": 1}})
+        # Records a timestamped click log for accurate 7-day trending analytics
+        await db.movie_views.insert_one({"title": d.title, "viewed_at": datetime.datetime.utcnow()})
     except Exception as e:
         logger.error(f"View Increment Error: {e}")
     return {"ok": True}
