@@ -12,6 +12,7 @@ import json
 import html
 import logging
 import glob
+import random
 from PIL import Image, ImageFilter
 
 # ==========================================
@@ -309,7 +310,7 @@ async def init_db():
     await db.payments.create_index("trx_id", unique=True)
     await db.ads.create_index("expires_at")
     
-    # 7 Days Trending Tracking indexes
+    # 7 Days Trending Tracking indexes [5]
     await db.movie_views.create_index([("title", 1), ("viewed_at", -1)])
     await db.movie_views.create_index("viewed_at", expireAfterSeconds=2592000) # Auto deletes views older than 30 days
 
@@ -1057,107 +1058,231 @@ async def web_admin_panel(auth: bool = Depends(verify_admin)):
         <div class="max-w-6xl mx-auto">
             <h1 class="text-3xl font-bold text-red-500 mb-6 border-b border-gray-700 pb-3"><i class="fa-solid fa-screwdriver-wrench"></i> Admin Dashboard</h1>
             
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8" id="statsBoard">
-                <div class="bg-gray-800 p-6 rounded-xl border border-gray-700 shadow flex items-center gap-4">
-                    <div class="bg-blue-600 p-4 rounded-full text-2xl"><i class="fa-solid fa-users"></i></div>
-                    <div><p class="text-gray-400 text-sm font-bold uppercase">Total Users</p><h3 class="text-2xl font-black" id="stUsers">...</h3></div>
+            <!-- Tabs Menu -->
+            <div class="flex flex-wrap gap-2 mb-6 border-b border-gray-700 pb-3">
+                <button onclick="switchAdminTab('dashboard')" id="tabBtn-dashboard" class="px-4 py-2 bg-blue-600 rounded text-white font-bold transition">Dashboard & Analytics</button>
+                <button onclick="switchAdminTab('settings')" id="tabBtn-settings" class="px-4 py-2 bg-gray-800 hover:bg-gray-750 rounded text-gray-300 font-bold transition">System Settings</button>
+                <button onclick="switchAdminTab('social')" id="tabBtn-social" class="px-4 py-2 bg-gray-800 hover:bg-gray-750 rounded text-gray-300 font-bold transition">Social Links</button>
+                <button onclick="switchAdminTab('movies')" id="tabBtn-movies" class="px-4 py-2 bg-gray-800 hover:bg-gray-750 rounded text-gray-300 font-bold transition">Manage Movies</button>
+                <button onclick="switchAdminTab('ads')" id="tabBtn-ads" class="px-4 py-2 bg-gray-800 hover:bg-gray-750 rounded text-gray-300 font-bold transition">Ads Manager</button>
+                <button onclick="switchAdminTab('keywords')" id="tabBtn-keywords" class="px-4 py-2 bg-gray-800 hover:bg-gray-750 rounded text-gray-300 font-bold transition">Keyword Replies</button>
+                <button onclick="switchAdminTab('requests')" id="tabBtn-requests" class="px-4 py-2 bg-gray-800 hover:bg-gray-750 rounded text-gray-300 font-bold transition">User Requests</button>
+            </div>
+
+            <!-- Tab Content: Dashboard & Analytics -->
+            <div id="adminTab-dashboard" class="admin-tab-content">
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8" id="statsBoard">
+                    <div class="bg-gray-800 p-6 rounded-xl border border-gray-700 shadow flex items-center gap-4">
+                        <div class="bg-blue-600 p-4 rounded-full text-2xl"><i class="fa-solid fa-users"></i></div>
+                        <div><p class="text-gray-400 text-sm font-bold uppercase">Total Users</p><h3 class="text-2xl font-black" id="stUsers">...</h3></div>
+                    </div>
+                    <div class="bg-gray-800 p-6 rounded-xl border border-gray-700 shadow flex items-center gap-4">
+                        <div class="bg-green-600 p-4 rounded-full text-2xl"><i class="fa-solid fa-film"></i></div>
+                        <div><p class="text-gray-400 text-sm font-bold uppercase">Total Uploads</p><h3 class="text-2xl font-black" id="stMovies">...</h3></div>
+                    </div>
+                    <div class="bg-gray-800 p-6 rounded-xl border border-gray-700 shadow flex items-center gap-4">
+                        <div class="bg-yellow-600 p-4 rounded-full text-2xl"><i class="fa-solid fa-eye"></i></div>
+                        <div><p class="text-gray-400 text-sm font-bold uppercase">Total Views</p><h3 class="text-2xl font-black" id="stViews">...</h3></div>
+                    </div>
                 </div>
-                <div class="bg-gray-800 p-6 rounded-xl border border-gray-700 shadow flex items-center gap-4">
-                    <div class="bg-green-600 p-4 rounded-full text-2xl"><i class="fa-solid fa-film"></i></div>
-                    <div><p class="text-gray-400 text-sm font-bold uppercase">Total Uploads</p><h3 class="text-2xl font-black" id="stMovies">...</h3></div>
+
+                <!-- Advanced Analytics Widgets -->
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+                    <!-- Engagement Analytics Card -->
+                    <div class="bg-gray-800 rounded-xl border border-gray-700 p-6 shadow">
+                        <h2 class="text-xl font-bold text-gray-200 mb-4"><i class="fa-solid fa-chart-line text-blue-500"></i> User Engagement & Status</h2>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div class="bg-gray-900 p-4 rounded-lg text-center">
+                                <p class="text-xs text-gray-400 font-bold uppercase">Active Today (DAU)</p>
+                                <h3 id="analyticsDau" class="text-3xl font-bold text-green-400">0</h3>
+                            </div>
+                            <div class="bg-gray-900 p-4 rounded-lg text-center">
+                                <p class="text-xs text-gray-400 font-bold uppercase">Active Weekly (WAU)</p>
+                                <h3 id="analyticsWau" class="text-3xl font-bold text-blue-400">0</h3>
+                            </div>
+                            <div class="bg-gray-900 p-4 rounded-lg text-center">
+                                <p class="text-xs text-gray-400 font-bold uppercase">Total User Reviews</p>
+                                <h3 id="analyticsReviews" class="text-3xl font-bold text-yellow-400">0</h3>
+                            </div>
+                            <div class="bg-gray-900 p-4 rounded-lg text-center">
+                                <p class="text-xs text-gray-400 font-bold uppercase">Pending Requests</p>
+                                <h3 id="analyticsRequests" class="text-3xl font-bold text-red-400">0</h3>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Category Popularity Graph/Bars -->
+                    <div class="bg-gray-800 rounded-xl border border-gray-700 p-6 shadow">
+                        <h2 class="text-xl font-bold text-gray-200 mb-4"><i class="fa-solid fa-tags text-purple-500"></i> Top Viewed Categories</h2>
+                        <div id="analyticsCategoryList" class="flex flex-col gap-4">
+                            <p class="text-gray-400 text-sm">Loading Category Popularity...</p>
+                        </div>
+                    </div>
                 </div>
-                <div class="bg-gray-800 p-6 rounded-xl border border-gray-700 shadow flex items-center gap-4">
-                    <div class="bg-yellow-600 p-4 rounded-full text-2xl"><i class="fa-solid fa-eye"></i></div>
-                    <div><p class="text-gray-400 text-sm font-bold uppercase">Total Views</p><h3 class="text-2xl font-black" id="stViews">...</h3></div>
+
+                <!-- Top Rated Movies List Widget -->
+                <div class="bg-gray-800 rounded-xl border border-gray-700 p-6 shadow mb-8">
+                    <h2 class="text-xl font-bold text-gray-200 mb-4"><i class="fa-solid fa-star text-yellow-400"></i> Top Rated Movies (By User Reviews)</h2>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left text-sm whitespace-nowrap">
+                            <thead class="bg-gray-700 text-gray-300">
+                                <tr>
+                                    <th class="p-4">Movie Title</th>
+                                    <th class="p-4">Average Rating</th>
+                                    <th class="p-4">Total Reviews</th>
+                                </tr>
+                            </thead>
+                            <tbody id="analyticsTopRatedList">
+                                <tr><td colspan="3" class="p-4 text-center text-gray-500">Loading top rated movies...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
 
-            <!-- System Settings Block -->
-            <div class="bg-gray-800 rounded-xl shadow-lg border border-gray-700 p-6 mb-8">
-                <h2 class="text-xl font-bold text-gray-200 mb-4"><i class="fa-solid fa-cogs"></i> System Settings</h2>
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div>
-                        <label class="text-gray-400 text-sm font-bold block mb-1">VIP Cost (Points)</label>
-                        <input type="number" id="cfgVipCost" class="w-full bg-gray-700 text-white px-3 py-2 rounded-lg border border-gray-600 focus:outline-none">
+            <!-- Tab Content: System Settings -->
+            <div id="adminTab-settings" class="admin-tab-content hidden">
+                <div class="bg-gray-800 rounded-xl shadow-lg border border-gray-700 p-6 mb-8">
+                    <h2 class="text-xl font-bold text-gray-200 mb-4"><i class="fa-solid fa-cogs"></i> System Settings</h2>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div>
+                            <label class="text-gray-400 text-sm font-bold block mb-1">VIP Cost (Points)</label>
+                            <input type="number" id="cfgVipCost" class="w-full bg-gray-700 text-white px-3 py-2 rounded-lg border border-gray-600 focus:outline-none">
+                        </div>
+                        <div>
+                            <label class="text-gray-400 text-sm font-bold block mb-1">VIP Duration (Days)</label>
+                            <input type="number" id="cfgVipDays" class="w-full bg-gray-700 text-white px-3 py-2 rounded-lg border border-gray-600 focus:outline-none">
+                        </div>
+                        <div>
+                            <label class="text-gray-400 text-sm font-bold block mb-1">Movie Unlock (Hours)</label>
+                            <input type="number" id="cfgUnlockHrs" class="w-full bg-gray-700 text-white px-3 py-2 rounded-lg border border-gray-600 focus:outline-none">
+                        </div>
                     </div>
-                    <div>
-                        <label class="text-gray-400 text-sm font-bold block mb-1">VIP Duration (Days)</label>
-                        <input type="number" id="cfgVipDays" class="w-full bg-gray-700 text-white px-3 py-2 rounded-lg border border-gray-600 focus:outline-none">
-                    </div>
-                    <div>
-                        <label class="text-gray-400 text-sm font-bold block mb-1">Movie Unlock (Hours)</label>
-                        <input type="number" id="cfgUnlockHrs" class="w-full bg-gray-700 text-white px-3 py-2 rounded-lg border border-gray-600 focus:outline-none">
-                    </div>
+                    <button onclick="saveSysSettings()" class="mt-4 bg-green-600 hover:bg-green-500 text-white px-6 py-2 rounded font-bold transition">Save Settings</button>
                 </div>
-                <button onclick="saveSysSettings()" class="mt-4 bg-green-600 hover:bg-green-500 text-white px-6 py-2 rounded font-bold transition">Save Settings</button>
             </div>
 
-            <!-- New Social Media Links Block -->
-            <div class="bg-gray-800 rounded-xl shadow-lg border border-gray-700 p-6 mb-8">
-                <h2 class="text-xl font-bold text-blue-400 mb-4"><i class="fa-solid fa-share-nodes"></i> Social Media Links</h2>
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                        <label class="text-gray-400 text-sm font-bold block mb-1">Facebook Group</label>
-                        <input type="url" id="cfgFbGroup" placeholder="https://facebook.com/groups/..." class="w-full bg-gray-700 text-white px-3 py-2 rounded-lg border border-gray-600 focus:outline-none">
+            <!-- Tab Content: Social Links -->
+            <div id="adminTab-social" class="admin-tab-content hidden">
+                <div class="bg-gray-800 rounded-xl shadow-lg border border-gray-700 p-6 mb-8">
+                    <h2 class="text-xl font-bold text-blue-400 mb-4"><i class="fa-solid fa-share-nodes"></i> Social Media Links</h2>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label class="text-gray-400 text-sm font-bold block mb-1">Facebook Group</label>
+                            <input type="url" id="cfgFbGroup" placeholder="https://facebook.com/groups/..." class="w-full bg-gray-700 text-white px-3 py-2 rounded-lg border border-gray-600 focus:outline-none">
+                        </div>
+                        <div>
+                            <label class="text-gray-400 text-sm font-bold block mb-1">Facebook Page</label>
+                            <input type="url" id="cfgFbPage" placeholder="https://facebook.com/..." class="w-full bg-gray-700 text-white px-3 py-2 rounded-lg border border-gray-600 focus:outline-none">
+                        </div>
+                        <div>
+                            <label class="text-gray-400 text-sm font-bold block mb-1">YouTube Channel</label>
+                            <input type="url" id="cfgYoutube" placeholder="https://youtube.com/..." class="w-full bg-gray-700 text-white px-3 py-2 rounded-lg border border-gray-600 focus:outline-none">
+                        </div>
+                        <div>
+                            <label class="text-gray-400 text-sm font-bold block mb-1">Movie Review Channel</label>
+                            <input type="url" id="cfgReview" placeholder="https://t.me/..." class="w-full bg-gray-700 text-white px-3 py-2 rounded-lg border border-gray-600 focus:outline-none">
+                        </div>
                     </div>
-                    <div>
-                        <label class="text-gray-400 text-sm font-bold block mb-1">Facebook Page</label>
-                        <input type="url" id="cfgFbPage" placeholder="https://facebook.com/..." class="w-full bg-gray-700 text-white px-3 py-2 rounded-lg border border-gray-600 focus:outline-none">
-                    </div>
-                    <div>
-                        <label class="text-gray-400 text-sm font-bold block mb-1">YouTube Channel</label>
-                        <input type="url" id="cfgYoutube" placeholder="https://youtube.com/..." class="w-full bg-gray-700 text-white px-3 py-2 rounded-lg border border-gray-600 focus:outline-none">
-                    </div>
-                    <div>
-                        <label class="text-gray-400 text-sm font-bold block mb-1">Movie Review Channel</label>
-                        <input type="url" id="cfgReview" placeholder="https://t.me/..." class="w-full bg-gray-700 text-white px-3 py-2 rounded-lg border border-gray-600 focus:outline-none">
-                    </div>
+                    <button onclick="saveSysSettings()" class="mt-4 bg-blue-600 hover:bg-blue-500 text-white px-6 py-2 rounded font-bold transition">Save Social Links</button>
                 </div>
-                <button onclick="saveSysSettings()" class="mt-4 bg-blue-600 hover:bg-blue-500 text-white px-6 py-2 rounded font-bold transition">Save Social Links</button>
             </div>
 
-            <div class="bg-gray-800 rounded-xl shadow-lg border border-gray-700 p-6 mb-8">
-                <div class="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
-                    <h2 class="text-xl font-bold text-gray-200"><i class="fa-solid fa-list-ul"></i> Manage Movies</h2>
-                    <input type="text" id="adminSearch" placeholder="🔍 Search Movies..." class="bg-gray-700 text-white px-4 py-2 rounded-lg border border-gray-600 focus:outline-none w-full md:w-1/3">
-                </div>
+            <!-- Tab Content: Manage Movies -->
+            <div id="adminTab-movies" class="admin-tab-content hidden">
+                <div class="bg-gray-800 rounded-xl shadow-lg border border-gray-700 p-6 mb-8">
+                    <div class="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
+                        <h2 class="text-xl font-bold text-gray-200"><i class="fa-solid fa-list-ul"></i> Manage Movies</h2>
+                        <input type="text" id="adminSearch" placeholder="🔍 Search Movies..." class="bg-gray-700 text-white px-4 py-2 rounded-lg border border-gray-600 focus:outline-none w-full md:w-1/3">
+                    </div>
 
-                <div class="overflow-x-auto">
-                    <table class="w-full text-left text-sm whitespace-nowrap">
-                        <thead class="bg-gray-700 text-gray-300">
-                            <tr><th class="p-4">Title</th><th class="p-4">Category</th><th class="p-4">Views</th><th class="p-4">Files</th><th class="p-4">Action</th></tr>
-                        </thead>
-                        <tbody id="movieTableBody"><tr><td colspan="5" class="text-center p-8 text-gray-400">Loading...</td></tr></tbody>
-                    </table>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left text-sm whitespace-nowrap">
+                            <thead class="bg-gray-700 text-gray-300">
+                                <tr><th class="p-4">Title</th><th class="p-4">Category</th><th class="p-4">Views</th><th class="p-4">Files</th><th class="p-4">Action</th></tr>
+                            </thead>
+                            <tbody id="movieTableBody"><tr><td colspan="5" class="text-center p-8 text-gray-400">Loading...</td></tr></tbody>
+                        </table>
+                    </div>
+                    <div class="flex justify-center items-center gap-3 mt-6" id="adminPagination"></div>
                 </div>
-                <div class="flex justify-center items-center gap-3 mt-6" id="adminPagination"></div>
             </div>
 
-            <!-- Admin Ads Manager Section -->
-            <div class="bg-gray-800 rounded-xl shadow-lg border border-gray-700 p-6 mt-8">
-                <div class="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
-                    <h2 class="text-xl font-bold text-yellow-400"><i class="fa-solid fa-bullhorn"></i> Ads Manager (Sponsored)</h2>
-                </div>
-                
-                <!-- Create Admin Ad Form -->
-                <div class="bg-gray-900 p-4 rounded-lg border border-gray-700 mb-6">
-                    <h3 class="text-gray-300 font-bold mb-3">Create Free Ad (Admin Only)</h3>
-                    <div class="flex flex-col md:flex-row gap-3">
-                        <input type="text" id="adTitle" placeholder="Ad Title" class="w-full bg-gray-700 text-white px-3 py-2 rounded border border-gray-600 focus:outline-none">
-                        <input type="text" id="adLink" placeholder="URL / Link" class="w-full bg-gray-700 text-white px-3 py-2 rounded border border-gray-600 focus:outline-none">
-                        <input type="text" id="adImage" placeholder="Image URL (Optional)" class="w-full bg-gray-700 text-white px-3 py-2 rounded border border-gray-600 focus:outline-none">
-                        <button onclick="createAdminAd()" class="bg-yellow-600 hover:bg-yellow-500 text-white px-6 py-2 rounded font-bold whitespace-nowrap">Create Ad</button>
+            <!-- Tab Content: Ads Manager -->
+            <div id="adminTab-ads" class="admin-tab-content hidden">
+                <div class="bg-gray-800 rounded-xl shadow-lg border border-gray-700 p-6">
+                    <div class="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
+                        <h2 class="text-xl font-bold text-yellow-400"><i class="fa-solid fa-bullhorn"></i> Ads Manager (Sponsored)</h2>
+                    </div>
+                    
+                    <div class="bg-gray-900 p-4 rounded-lg border border-gray-700 mb-6">
+                        <h3 class="text-gray-300 font-bold mb-3">Create Free Ad (Admin Only)</h3>
+                        <div class="flex flex-col md:flex-row gap-3">
+                            <input type="text" id="adTitle" placeholder="Ad Title" class="w-full bg-gray-700 text-white px-3 py-2 rounded border border-gray-600 focus:outline-none">
+                            <input type="text" id="adLink" placeholder="URL / Link" class="w-full bg-gray-700 text-white px-3 py-2 rounded border border-gray-600 focus:outline-none">
+                            <input type="text" id="adImage" placeholder="Image URL (Optional)" class="w-full bg-gray-700 text-white px-3 py-2 rounded border border-gray-600 focus:outline-none">
+                            <button onclick="createAdminAd()" class="bg-yellow-600 hover:bg-yellow-500 text-white px-6 py-2 rounded font-bold whitespace-nowrap">Create Ad</button>
+                        </div>
+                    </div>
+
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left text-sm whitespace-nowrap">
+                            <thead class="bg-gray-700 text-gray-300">
+                                <tr><th class="p-4">Title</th><th class="p-4">Link</th><th class="p-4">Expires</th><th class="p-4">Action</th></tr>
+                            </thead>
+                            <tbody id="adsTableBody"><tr><td colspan="4" class="text-center p-8 text-gray-400">Loading Ads...</td></tr></tbody>
+                        </table>
                     </div>
                 </div>
+            </div>
 
-                <!-- Active Ads Table -->
-                <div class="overflow-x-auto">
-                    <table class="w-full text-left text-sm whitespace-nowrap">
-                        <thead class="bg-gray-700 text-gray-300">
-                            <tr><th class="p-4">Title</th><th class="p-4">Link</th><th class="p-4">Expires</th><th class="p-4">Action</th></tr>
-                        </thead>
-                        <tbody id="adsTableBody"><tr><td colspan="4" class="text-center p-8 text-gray-400">Loading Ads...</td></tr></tbody>
-                    </table>
+            <!-- Tab Content: Keyword Manager (New Keyword replies Web interface) -->
+            <div id="adminTab-keywords" class="admin-tab-content hidden">
+                <div class="bg-gray-800 rounded-xl border border-gray-700 p-6 shadow mb-8">
+                    <h2 class="text-xl font-bold text-gray-200 mb-4"><i class="fa-solid fa-reply text-green-500"></i> Auto-Reply Keyword Manager</h2>
+                    
+                    <!-- Create new keyword form -->
+                    <div class="bg-gray-900 p-4 rounded-lg border border-gray-700 mb-6">
+                        <h3 class="text-gray-300 font-bold mb-3">Add Custom Keyword Reply</h3>
+                        <div class="flex flex-col md:flex-row gap-3">
+                            <input type="text" id="kwInput" placeholder="Keyword (e.g. pushpa 2)" class="w-full bg-gray-700 text-white px-3 py-2 rounded border border-gray-600 focus:outline-none md:w-1/3">
+                            <input type="text" id="kwReplyInput" placeholder="Reply Message" class="w-full bg-gray-700 text-white px-3 py-2 rounded border border-gray-600 focus:outline-none flex-grow">
+                            <button onclick="addKeywordReply()" class="bg-green-600 hover:bg-green-500 text-white px-6 py-2 rounded font-bold whitespace-nowrap">Add Rule</button>
+                        </div>
+                    </div>
+
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left text-sm whitespace-nowrap">
+                            <thead class="bg-gray-700 text-gray-300">
+                                <tr><th class="p-4">Keyword</th><th class="p-4">Reply Message</th><th class="p-4">Action</th></tr>
+                            </thead>
+                            <tbody id="keywordsTableBody">
+                                <tr><td colspan="3" class="p-4 text-center text-gray-500">Loading custom keyword rules...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tab Content: User Requests Status Manager (New Requests tracker Web interface) -->
+            <div id="adminTab-requests" class="admin-tab-content hidden">
+                <div class="bg-gray-800 rounded-xl border border-gray-700 p-6 shadow mb-8">
+                    <h2 class="text-xl font-bold text-gray-200 mb-4"><i class="fa-solid fa-code-pull-request text-red-500"></i> User Movie Requests Management</h2>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left text-sm whitespace-nowrap">
+                            <thead class="bg-gray-700 text-gray-300">
+                                <tr>
+                                    <th class="p-4">User Name (UID)</th>
+                                    <th class="p-4">Requested Movie</th>
+                                    <th class="p-4">Priority Status</th>
+                                    <th class="p-4">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="requestsTableBody">
+                                <tr><td colspan="4" class="p-4 text-center text-gray-500">Loading requests...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
 
@@ -1166,6 +1291,23 @@ async def web_admin_panel(auth: bool = Depends(verify_admin)):
             let currentPage = 1;
             let searchQuery = "";
             let searchTimeout = null;
+
+            // Admin Tabs switching logic
+            function switchAdminTab(tabId) {
+                document.querySelectorAll('.admin-tab-content').forEach(content => content.classList.add('hidden'));
+                document.getElementById('adminTab-' + tabId).classList.remove('hidden');
+                
+                document.querySelectorAll('[id^="tabBtn-"]').forEach(btn => {
+                    btn.className = "px-4 py-2 bg-gray-800 hover:bg-gray-750 rounded text-gray-300 font-bold transition";
+                });
+                document.getElementById('tabBtn-' + tabId).className = "px-4 py-2 bg-blue-600 rounded text-white font-bold transition";
+
+                if (tabId === 'dashboard') { loadStats(); loadAnalytics(); }
+                else if (tabId === 'movies') { loadAdminData(1); }
+                else if (tabId === 'ads') { loadAds(); }
+                else if (tabId === 'keywords') { loadKeywordList(); }
+                else if (tabId === 'requests') { loadAdminRequests(); }
+            }
 
             async function loadSysSettings() {
                 try {
@@ -1216,6 +1358,50 @@ async def web_admin_panel(auth: bool = Depends(verify_admin)):
                     document.getElementById('stMovies').innerText = data.movies;
                     document.getElementById('stViews').innerText = data.views;
                 } catch(e) {}
+            }
+
+            // Advanced Analytics Dashboard Loader
+            async function loadAnalytics() {
+                try {
+                    const res = await fetch('/api/admin/analytics');
+                    const data = await res.json();
+                    
+                    document.getElementById('analyticsDau').innerText = data.active_today;
+                    document.getElementById('analyticsWau').innerText = data.active_week;
+                    document.getElementById('analyticsReviews').innerText = data.total_reviews;
+                    document.getElementById('analyticsRequests').innerText = data.pending_requests;
+
+                    // Category Popularity UI (Pure HTML and Tailwind CSS Progress Bars)
+                    let totalCategoryViews = data.category_stats.reduce((acc, curr) => acc + curr.total_views, 0) || 1;
+                    let categoryHtml = '';
+                    data.category_stats.forEach(cat => {
+                        let pct = Math.round((cat.total_views / totalCategoryViews) * 100);
+                        categoryHtml += `
+                        <div>
+                            <div class="flex justify-between text-sm font-semibold mb-1">
+                                <span>${cat._id}</span>
+                                <span>${cat.total_views} Views (${pct}%)</span>
+                            </div>
+                            <div class="w-full bg-gray-700 h-2.5 rounded-full overflow-hidden">
+                                <div class="bg-purple-600 h-2.5 rounded-full" style="width: ${pct}%"></div>
+                            </div>
+                        </div>`;
+                    });
+                    document.getElementById('analyticsCategoryList').innerHTML = categoryHtml || '<p class="text-gray-500">No category views logged yet.</p>';
+
+                    // Top Rated Movies List UI
+                    let ratedHtml = '';
+                    data.top_rated.forEach(m => {
+                        ratedHtml += `
+                        <tr class="border-b border-gray-700 hover:bg-gray-750">
+                            <td class="p-4 font-bold text-yellow-400">${m._id}</td>
+                            <td class="p-4 font-semibold"><i class="fa-solid fa-star text-yellow-400 mr-1"></i> ${m.avg_rating.toFixed(1)} / 5</td>
+                            <td class="p-4 text-gray-400">${m.total_reviews} Reviews</td>
+                        </tr>`;
+                    });
+                    document.getElementById('analyticsTopRatedList').innerHTML = ratedHtml || '<tr><td colspan="3" class="p-4 text-center text-gray-500">No movie reviews logged yet.</td></tr>';
+
+                } catch(e) { console.log(e); }
             }
 
             document.getElementById('adminSearch').addEventListener('input', function(e) {
@@ -1324,8 +1510,98 @@ async def web_admin_panel(auth: bool = Depends(verify_admin)):
                     loadAds();
                 }
             }
+
+            // --- Keyword Manager Web JS ---
+            async function loadKeywordList() {
+                try {
+                    const res = await fetch('/api/admin/keywords');
+                    const data = await res.json();
+                    let html = '';
+                    data.keywords.forEach(kw => {
+                        html += `
+                        <tr class="border-b border-gray-700 hover:bg-gray-750">
+                            <td class="p-4 font-bold text-green-400">${kw.keyword}</td>
+                            <td class="p-4 text-gray-300 whitespace-pre-wrap">${kw.reply_message}</td>
+                            <td class="p-4"><button onclick="deleteKeyword('${kw.keyword}')" class="bg-red-600 hover:bg-red-500 text-white px-3 py-1 rounded">Delete</button></td>
+                        </tr>`;
+                    });
+                    document.getElementById('keywordsTableBody').innerHTML = html || '<tr><td colspan="3" class="p-4 text-center text-gray-500">No keyword responses.</td></tr>';
+                } catch(e) {}
+            }
+
+            async function addKeywordReply() {
+                const keyword = document.getElementById('kwInput').value.trim();
+                const reply = document.getElementById('kwReplyInput').value.trim();
+                if(!keyword || !reply) { alert('Enter Keyword and reply!'); return; }
+                
+                await fetch('/api/admin/keywords', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ keyword: keyword, reply_message: reply })
+                });
+                document.getElementById('kwInput').value = '';
+                document.getElementById('kwReplyInput').value = '';
+                loadKeywordList();
+            }
+
+            async function deleteKeyword(keyword) {
+                if(confirm(`Delete response rule for keyword "${keyword}"?`)) {
+                    await fetch(`/api/admin/keywords/${encodeURIComponent(keyword)}`, { method: 'DELETE' });
+                    loadKeywordList();
+                }
+            }
+
+            // --- Requests Manager Web JS ---
+            async function loadAdminRequests() {
+                try {
+                    const res = await fetch('/api/admin/requests');
+                    const data = await res.json();
+                    let html = '';
+                    data.requests.forEach(req => {
+                        let priorityClass = req.is_vip ? "bg-yellow-900 text-yellow-300 border-yellow-700" : "bg-gray-800 text-gray-400 border-gray-700";
+                        let selectPending = req.status === 'pending' ? 'selected' : '';
+                        let selectProcessing = req.status === 'processing' ? 'selected' : '';
+                        let selectUploaded = req.status === 'uploaded' ? 'selected' : '';
+                        
+                        html += `
+                        <tr class="border-b border-gray-700 hover:bg-gray-750">
+                            <td class="p-4">
+                                <span class="font-bold text-white block">${req.uname}</span>
+                                <span class="text-xs text-gray-500 block">${req.user_id}</span>
+                            </td>
+                            <td class="p-4 font-bold text-blue-400">${req.movie}</td>
+                            <td class="p-4"><span class="px-2 py-1 text-xs font-bold border rounded ${priorityClass}">${req.is_vip ? "⭐ VIP Priority" : "Free"}</span></td>
+                            <td class="p-4 flex gap-2 items-center">
+                                <select onchange="updateRequestStatus('${req._id}', this.value)" class="bg-gray-700 border border-gray-600 rounded px-2 py-1 text-white">
+                                    <option value="pending" ${selectPending}>⏳ Pending</option>
+                                    <option value="processing" ${selectProcessing}>⚙️ Processing</option>
+                                    <option value="uploaded" ${selectUploaded}>✅ Uploaded</option>
+                                </select>
+                                <button onclick="deleteRequest('${req._id}')" class="bg-red-600 hover:bg-red-500 text-white px-2 py-1 rounded"><i class="fa-solid fa-trash"></i></button>
+                            </td>
+                        </tr>`;
+                    });
+                    document.getElementById('requestsTableBody').innerHTML = html || '<tr><td colspan="4" class="p-4 text-center text-gray-500">No requests log.</td></tr>';
+                } catch(e) {}
+            }
+
+            async function updateRequestStatus(id, newStatus) {
+                await fetch(`/api/admin/requests/${id}`, {
+                    method: 'PUT',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({status: newStatus})
+                });
+                loadAdminRequests();
+            }
+
+            async function deleteRequest(id) {
+                if(confirm('Delete this request entry?')) {
+                    await fetch(`/api/admin/requests/${id}`, { method: 'DELETE' });
+                    loadAdminRequests();
+                }
+            }
             
-            loadSysSettings(); loadStats(); loadAdminData(1); loadAds();
+            loadSysSettings(); loadStats(); loadAnalytics();
         </script>
     </body>
     </html>
@@ -1460,7 +1736,6 @@ async def web_ui():
             .ad-gradient { position: absolute; bottom: 0; left: 0; width: 100%; height: 60%; background: linear-gradient(to top, #1e293b, transparent); }
             .sponsored-badge { position: absolute; top: 12px; right: 12px; background: rgba(0,0,0,0.7); border: 1px solid #f59e0b; color: #fcd34d; font-size: 11px; font-weight: 900; padding: 4px 10px; border-radius: 12px; text-transform: uppercase; z-index: 2; letter-spacing: 1px;}
             .ad-content { padding: 0 15px 15px 15px; text-align: left; background: #1e293b; z-index: 2; margin-top: -10px; }
-            .ad-content { padding: 0 15px 15px 15px; text-align: left; background: #1e293b; z-index: 2; margin-top: -10px; }
             .ad-title-large { color: #fff; font-size: 18px; font-weight: bold; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; margin-bottom: 12px; text-shadow: 0 2px 4px rgba(0,0,0,0.5); }
             .ad-watch-btn { background: linear-gradient(45deg, #ef4444, #f97316); color: white; text-align: center; padding: 12px; border-radius: 10px; font-weight: bold; font-size: 16px; width: 100%; display: block; border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 4px 10px rgba(239, 68, 68, 0.3); }
 
@@ -1523,6 +1798,10 @@ async def web_ui():
             @keyframes spin-fast { 100% { transform: rotate(360deg); } }
             .big-processing-text { font-size: 26px; font-weight: 900; color: #4ade80; animation: pulse 1.5s infinite; }
             @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
+            
+            /* Enhanced Spin Wheel graphics Styles */
+            .wheel-slice { position: absolute; width: 50%; height: 50%; transform-origin: 100% 100%; }
+            .spin-win-anim { animation: spin-stop-effect 4s cubic-bezier(0.25, 0.1, 0.25, 1) forwards; }
         </style>
     </head>
     <body onclick="closeMenu(event)">
@@ -1547,7 +1826,8 @@ async def web_ui():
             </div>
             
             <a onclick="openReferModal()"><i class="fa-solid fa-share-nodes text-blue-400"></i> Refer & Earn</a>
-            <a onclick="openReqModal()"><i class="fa-solid fa-code-pull-request text-green-400"></i> Request Movie</a>
+            <a onclick="openRequestsTrackerModal()"><i class="fa-solid fa-code-pull-request text-green-400"></i> Request Movie & Track</a>
+            <a onclick="openWatchlistModal()"><i class="fa-solid fa-bookmark text-red-400"></i> My Watchlist</a>
             <a onclick="openAdCampModal()"><i class="fa-solid fa-bullhorn text-yellow-400"></i> Promote Channel/Web</a>
             <div style="height: 1px; background: #334155; margin: 4px 0;"></div>
             <a onclick="tg.showAlert(`How to Download:\n1. Click the Download button.\n2. Wait for ${AD_WAIT_TIME} seconds on the opened link.\n3. Return to the mini app and the video will be automatically sent to your bot inbox!`)"><i class="fa-solid fa-circle-question text-red-400"></i> How to Download</a>
@@ -1585,7 +1865,7 @@ async def web_ui():
 
         <div class="floating-btn btn-18" onclick="window.open('{{LINK_18}}')">18+</div>
         <div class="floating-btn btn-tg" onclick="window.open('{{TG_LINK}}')"><i class="fa-brands fa-telegram"></i></div>
-        <div class="floating-btn btn-req" onclick="openReqModal()"><i class="fa-solid fa-code-pull-request"></i></div>
+        <div class="floating-btn btn-req" onclick="openRequestsTrackerModal()"><i class="fa-solid fa-code-pull-request"></i></div>
 
         <div class="bottom-nav">
             <div class="nav-item active" id="navHome" onclick="goHome()">
@@ -1613,14 +1893,42 @@ async def web_ui():
         <div id="qualityModal" class="modal">
             <div class="modal-content">
                 <div class="close-icon" onclick="document.getElementById('qualityModal').style.display='none'"><i class="fa-solid fa-xmark"></i></div>
-                <h2 id="modalTitle" style="color:#38bdf8; margin-bottom: 15px; font-size: 22px; font-weight:900;">Movie Title</h2>
+                <h2 id="modalTitle" style="color:#38bdf8; margin-bottom: 5px; font-size: 22px; font-weight:900;">Movie Title</h2>
                 
-                <div style="background: rgba(15, 23, 42, 0.9); border-left: 4px solid #f59e0b; padding: 12px; border-radius: 8px; text-align: left; margin-bottom: 20px;">
-                    <p style="color:#f59e0b; font-weight:bold; font-size: 15px; margin-bottom: 8px;"><i class="fa-solid fa-circle-info"></i> How to Download?</p>
-                    <p style="color:#cbd5e1; font-size: 13.5px; line-height: 1.6;">1. Click the download button below.<br>2. A new page will open, wait there for <b>{{AD_TIME}} seconds</b>.<br>3. Return to the mini app and the video will be automatically sent to your bot inbox!</p>
+                <!-- Bookmarks & Average Rating Option -->
+                <div style="margin-bottom: 15px; display: flex; justify-content: center; gap: 10px;">
+                    <button id="bookmarkBtn" class="home-btn" style="border-radius: 12px; font-size: 13px;" onclick="toggleWatchlist()"></button>
+                    <span id="avgRatingBadge" style="background: rgba(251,191,36,0.1); color: #fbbf24; border: 1px solid rgba(251,191,36,0.4); padding: 4px 12px; border-radius: 12px; font-weight: bold; font-size: 13px; display: flex; align-items: center; gap: 4px;"><i class="fa-solid fa-star"></i> <span id="avgRatingVal">0.0</span></span>
                 </div>
 
-                <div id="qualityList" style="display: flex; flex-direction: column; gap: 8px;"></div>
+                <div style="background: rgba(15, 23, 42, 0.9); border-left: 4px solid #f59e0b; padding: 12px; border-radius: 8px; text-align: left; margin-bottom: 15px;">
+                    <p style="color:#f59e0b; font-weight:bold; font-size: 14px; margin-bottom: 5px;"><i class="fa-solid fa-circle-info"></i> How to Download?</p>
+                    <p style="color:#cbd5e1; font-size: 12.5px; line-height: 1.5;">1. Click the download button below.<br>2. A new page will open, wait there for <b>{{AD_TIME}} seconds</b>.<br>3. Return to the mini app and the video will be automatically sent to your bot inbox!</p>
+                </div>
+
+                <div id="qualityList" style="display: flex; flex-direction: column; gap: 8px; margin-bottom: 20px;"></div>
+
+                <!-- Star Ratings & Review UI Component inside Movie Modal -->
+                <div style="border-top: 1px solid #334155; padding-top: 15px; text-align: left;">
+                    <h3 style="font-size: 16px; font-weight: bold; margin-bottom: 10px; color: #cbd5e1;"><i class="fa-solid fa-comments text-blue-400"></i> Reviews & Ratings</h3>
+                    
+                    <!-- Review Input Box and Stars selectors -->
+                    <div style="background: rgba(15, 23, 42, 0.5); padding: 12px; border-radius: 10px; border: 1px solid #334155; margin-bottom: 15px;">
+                        <p style="font-size: 12px; color: #94a3b8; margin-bottom: 6px; font-weight:bold;">Your Rating:</p>
+                        <div style="display: flex; gap: 6px; font-size: 20px; color: #475569; cursor: pointer; margin-bottom: 10px;" id="starRatingSelect">
+                            <i class="fa-solid fa-star" onclick="setSelectRating(1)"></i>
+                            <i class="fa-solid fa-star" onclick="setSelectRating(2)"></i>
+                            <i class="fa-solid fa-star" onclick="setSelectRating(3)"></i>
+                            <i class="fa-solid fa-star" onclick="setSelectRating(4)"></i>
+                            <i class="fa-solid fa-star" onclick="setSelectRating(5)"></i>
+                        </div>
+                        <textarea id="reviewText" style="width: 100%; height: 50px; background: #0f172a; border: 1px solid #334155; border-radius: 8px; color: white; padding: 8px; font-size: 13px; outline: none; resize: none; margin-bottom: 8px;" placeholder="Write a review..."></textarea>
+                        <button class="btn-submit" style="font-size: 13px; padding: 6px 12px; width: auto;" onclick="submitReview()">Submit Review</button>
+                    </div>
+
+                    <!-- Reviews list -->
+                    <div id="modalReviewsList" style="max-height: 150px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px;"></div>
+                </div>
             </div>
         </div>
 
@@ -1639,37 +1947,77 @@ async def web_ui():
             </div>
         </div>
 
+        <!-- Premium & Points Modal (Integrated with Lucky Spin & Check-in & Leaderboard) -->
         <div id="vipModal" class="modal">
             <div class="modal-content">
                 <div class="close-icon" onclick="document.getElementById('vipModal').style.display='none'"><i class="fa-solid fa-xmark"></i></div>
-                <h2 style="color:#fbbf24; font-size: 24px; margin-bottom:15px;"><i class="fa-solid fa-gem"></i> Premium & Points</h2>
                 
-                <div style="background: rgba(15, 23, 42, 0.9); border: 1px solid #10b981; padding: 15px; border-radius: 12px; margin-bottom: 20px; text-align: left;">
-                    <p style="color:#4ade80; font-size: 15px; font-weight:bold; margin-bottom: 8px;"><i class="fa-solid fa-star"></i> VIP Benefits:</p>
-                    <ul style="color:#cbd5e1; font-size: 13px; line-height: 1.6; padding-left: 20px;">
-                        <li style="margin-bottom: 4px;"><b>Zero Ads:</b> Direct video unlock. No waiting.</li>
-                        <li style="margin-bottom: 4px;"><b>Priority Requests:</b> Admins prioritize your movies.</li>
-                        <li><b>Exclusive Badge:</b> Golden VIP profile badge.</li>
-                    </ul>
+                <!-- Inner Sub-Tabs Navigation -->
+                <div style="display: flex; gap: 5px; margin-bottom: 15px; border-bottom: 1px solid #334155; padding-bottom: 8px;">
+                    <button class="cat-btn active" id="btnTabVip" onclick="switchVipModalTab('vip')">💎 VIP & Buy</button>
+                    <button class="cat-btn" id="btnTabSpin" onclick="switchVipModalTab('spin')">🎡 Lucky Spin</button>
+                    <button class="cat-btn" id="btnTabLeader" onclick="switchVipModalTab('leader')">🏆 Leaders</button>
                 </div>
 
-                <div style="background: rgba(15, 23, 42, 0.9); border: 1px solid #3b82f6; padding: 15px; border-radius: 12px; margin-bottom: 20px;">
-                    <p style="color:#94a3b8; font-size: 14px; font-weight:bold;">Your Current Points:</p>
-                    <h1 style="color:#38bdf8; font-size: 36px; font-weight:900; margin: 5px 0;"><span id="modalCoinText">0</span> <i class="fa-solid fa-gem"></i></h1>
-                    <p style="color:#cbd5e1; font-size: 12px;">(<span id="vipDaysText">1</span> Days VIP = <span id="vipCostText">30</span> Points)</p>
-                </div>
-                
-                <button class="btn-submit" style="background: linear-gradient(45deg, #3b82f6, #2563eb); margin-bottom: 12px;" onclick="window.open('{{SUPPORT_LINK}}')">
-                    <i class="fa-brands fa-telegram"></i> Buy Points from Admin
-                </button>
+                <!-- Sub-Tab: VIP -->
+                <div id="modalTabVipContent">
+                    <h2 style="color:#fbbf24; font-size: 22px; margin-bottom:12px;"><i class="fa-solid fa-gem"></i> Premium & Points</h2>
+                    <div style="background: rgba(15, 23, 42, 0.9); border: 1px solid #10b981; padding: 12px; border-radius: 12px; margin-bottom: 15px; text-align: left;">
+                        <p style="color:#4ade80; font-size: 14px; font-weight:bold; margin-bottom: 6px;"><i class="fa-solid fa-star"></i> VIP Benefits:</p>
+                        <ul style="color:#cbd5e1; font-size: 12px; line-height: 1.5; padding-left: 15px;">
+                            <li style="margin-bottom: 3px;"><b>Zero Ads:</b> Direct video unlock. No waiting.</li>
+                            <li style="margin-bottom: 3px;"><b>Priority Requests:</b> Admins prioritize your movies.</li>
+                            <li><b>Exclusive Badge:</b> Golden VIP profile badge.</li>
+                        </ul>
+                    </div>
 
-                <button id="coinAdBtn" class="btn-submit" style="background: linear-gradient(45deg, #ef4444, #f97316); margin-bottom: 12px;" onclick="executeCoinAd()">
-                    <i class="fa-solid fa-play"></i> Watch Ad & Get 5 Points
-                </button>
-                
-                <button class="btn-submit" style="background: linear-gradient(45deg, #10b981, #059669);" onclick="buyVipWithCoins()">
-                    <i class="fa-solid fa-crown"></i> Get <span id="btnVipDays">1</span> Days VIP for <span id="btnVipCost">30</span> Points
-                </button>
+                    <div style="background: rgba(15, 23, 42, 0.9); border: 1px solid #3b82f6; padding: 12px; border-radius: 12px; margin-bottom: 15px;">
+                        <p style="color:#94a3b8; font-size: 13px; font-weight:bold;">Your Current Points:</p>
+                        <h1 style="color:#38bdf8; font-size: 30px; font-weight:900; margin: 3px 0;"><span id="modalCoinText">0</span> <i class="fa-solid fa-gem"></i></h1>
+                        <p style="color:#cbd5e1; font-size: 11px;">(<span id="vipDaysText">1</span> Days VIP = <span id="vipCostText">30</span> Points)</p>
+                    </div>
+                    
+                    <!-- Daily Check-In Bonus Button (Gamification) -->
+                    <button id="dailyCheckinBtn" class="btn-submit" style="background: linear-gradient(45deg, #10b981, #3b82f6); margin-bottom: 12px;" onclick="claimDailyCheckin()">
+                        📅 Daily Check-in (+5 Points)
+                    </button>
+
+                    <button class="btn-submit" style="background: linear-gradient(45deg, #3b82f6, #2563eb); margin-bottom: 12px;" onclick="window.open('{{SUPPORT_LINK}}')">
+                        <i class="fa-brands fa-telegram"></i> Buy Points from Admin
+                    </button>
+
+                    <button id="coinAdBtn" class="btn-submit" style="background: linear-gradient(45deg, #ef4444, #f97316); margin-bottom: 12px;" onclick="executeCoinAd()">
+                        <i class="fa-solid fa-play"></i> Watch Ad & Get 5 Points
+                    </button>
+                    
+                    <button class="btn-submit" style="background: linear-gradient(45deg, #10b981, #059669);" onclick="buyVipWithCoins()">
+                        <i class="fa-solid fa-crown"></i> Get <span id="btnVipDays">1</span> Days VIP for <span id="btnVipCost">30</span> Points
+                    </button>
+                </div>
+
+                <!-- Sub-Tab: Lucky Spin (Gamification) -->
+                <div id="modalTabSpinContent" style="display: none;">
+                    <h2 style="color:#f59e0b; font-size: 22px; margin-bottom:10px;"><i class="fa-solid fa-circle-notch"></i> Lucky Spin Wheel</h2>
+                    <p style="color:#94a3b8; font-size:12px; margin-bottom:15px;">Spend <b>5 Points</b> to spin the wheel and win huge points or VIP!</p>
+                    
+                    <!-- Conic conic-gradient visual wheel -->
+                    <div style="position: relative; width: 180px; height: 180px; margin: auto; border: 6px solid #334155; border-radius: 50%; overflow: hidden; background: #0f172a;" id="wheelOuter">
+                        <div style="position: absolute; top:0; left:0; width:100%; height:100%; border-radius: 50%; transition: transform 4s cubic-bezier(0.25, 0.1, 0.25, 1); background: conic-gradient(#ef4444 0% 14%, #3b82f6 14% 28%, #10b981 28% 42%, #fbbf24 42% 56%, #8b5cf6 56% 70%, #ec4899 70% 84%, #06b6d4 84% 100%);" id="wheelInner"></div>
+                        <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 45px; height: 45px; background: white; border-radius: 50%; border: 4px solid #334155; z-index: 10; display:flex; align-items:center; justify-content:center; color:#0f172a; font-size:18px;"><i class="fa-solid fa-arrow-up"></i></div>
+                    </div>
+
+                    <button id="spinBtn" class="btn-submit" style="background: linear-gradient(45deg, #f59e0b, #ef4444); margin-top: 20px;" onclick="spinWheel()">
+                        🎡 Spin (Cost: 5 Points)
+                    </button>
+                </div>
+
+                <!-- Sub-Tab: Leaders (Leaderboard) -->
+                <div id="modalTabLeaderContent" style="display: none;">
+                    <h2 style="color:#60a5fa; font-size: 22px; margin-bottom:12px;"><i class="fa-solid fa-trophy"></i> Referrers Leaderboard</h2>
+                    <p style="color:#94a3b8; font-size:12px; margin-bottom:15px;">Top referrers ranking. Refer friends and reach the top!</p>
+                    
+                    <div id="leaderboardList" style="text-align: left; display: flex; flex-direction: column; gap: 8px; max-height: 250px; overflow-y: auto;"></div>
+                </div>
             </div>
         </div>
 
@@ -1684,12 +2032,30 @@ async def web_ui():
             </div>
         </div>
         
-        <div id="reqModal" class="modal">
+        <!-- Watchlist Modal -->
+        <div id="watchlistModal" class="modal">
             <div class="modal-content">
-                <div class="close-icon" onclick="document.getElementById('reqModal').style.display='none'"><i class="fa-solid fa-xmark"></i></div>
-                <h2 style="color:white; font-size: 22px; margin-bottom:15px;">Movie Request 🗳️</h2>
-                <input type="text" id="reqText" class="search-input" placeholder="Movie name...">
-                <button class="btn-submit" style="margin-top:10px;" onclick="sendReq()">Send Request</button>
+                <div class="close-icon" onclick="document.getElementById('watchlistModal').style.display='none'"><i class="fa-solid fa-xmark"></i></div>
+                <h2 style="color:#38bdf8; font-size: 22px; margin-bottom:15px;"><i class="fa-solid fa-bookmark"></i> My Watchlist</h2>
+                <div id="watchlistModalList" class="grid" style="padding:0; max-height: 60vh; overflow-y:auto; gap: 15px;">
+                    <p style="color: #94a3b8;">Loading watchlist...</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Movie Requests Tracking Modal (Status Tracker) -->
+        <div id="requestsTrackerModal" class="modal">
+            <div class="modal-content">
+                <div class="close-icon" onclick="document.getElementById('requestsTrackerModal').style.display='none'"><i class="fa-solid fa-xmark"></i></div>
+                <h2 style="color:#10b981; font-size: 22px; margin-bottom:10px;"><i class="fa-solid fa-code-pull-request"></i> Movie Request Status</h2>
+                <p style="color:#cbd5e1; font-size:13px; margin-bottom:15px;">Submit and track the processing status of your requested movies!</p>
+                
+                <div style="display:flex; gap:10px; margin-bottom: 20px;">
+                    <input type="text" id="reqTrackerInput" class="search-input" style="border-radius:12px; text-align:left; padding:10px 15px; font-size:15px;" placeholder="Enter Movie/Series name...">
+                    <button class="btn-submit" style="width: auto; padding:0 20px; font-size:14px;" onclick="submitReqTracker()">Request</button>
+                </div>
+
+                <div id="requestsTrackerList" style="text-align: left; display: flex; flex-direction: column; gap: 12px; max-height: 45vh; overflow-y: auto;"></div>
             </div>
         </div>
 
@@ -1733,6 +2099,10 @@ async def web_ui():
             let autoScrollInterval;
             let adsScrollInterval;
             let activeAds = [];
+            
+            // Rating and Bookmark States
+            let currentSelectRating = 0;
+            let isCurrentMovieBookmarked = false;
 
             function setNavActive(index) {
                 const items = document.querySelectorAll('.nav-item');
@@ -1862,14 +2232,301 @@ async def web_ui():
             
             function openVipModal() { 
                 setNavActive(3);
+                switchVipModalTab('vip');
                 document.getElementById('vipModal').style.display = 'flex'; 
                 closeMenu(); 
             }
 
+            // Sub tabs switching within the VIP/Points Modal
+            function switchVipModalTab(tab) {
+                document.getElementById('modalTabVipContent').style.display = tab === 'vip' ? 'block' : 'none';
+                document.getElementById('modalTabSpinContent').style.display = tab === 'spin' ? 'block' : 'none';
+                document.getElementById('modalTabLeaderContent').style.display = tab === 'leader' ? 'block' : 'none';
+                
+                document.getElementById('btnTabVip').className = tab === 'vip' ? 'cat-btn active' : 'cat-btn';
+                document.getElementById('btnTabSpin').className = tab === 'spin' ? 'cat-btn active' : 'cat-btn';
+                document.getElementById('btnTabLeader').className = tab === 'leader' ? 'cat-btn active' : 'cat-btn';
+
+                if (tab === 'leader') { renderLeaderboard(); }
+            }
+
             function openReferModal() { document.getElementById('referModal').style.display = 'flex'; closeMenu(); }
             function copyReferLink() { navigator.clipboard.writeText(document.getElementById('refLinkText').innerText); tg.showAlert("✅ Copied!"); }
-            function openReqModal() { document.getElementById('reqModal').style.display = 'flex'; closeMenu(); }
             
+            // --- Watchlist UI JS ---
+            function openWatchlistModal() {
+                document.getElementById('watchlistModal').style.display = 'flex';
+                closeMenu();
+                renderWatchlist();
+            }
+
+            async function renderWatchlist() {
+                try {
+                    const res = await fetch(`/api/watchlist/list/${uid}`);
+                    const data = await res.json();
+                    let html = '';
+                    if (!data.watchlist || data.watchlist.length === 0) {
+                        html = '<p style="color: #cbd5e1; text-align:center; padding: 20px;">Your Watchlist is empty!</p>';
+                    } else {
+                        data.watchlist.forEach(m => {
+                            html += `
+                            <div class="card" onclick="openQualityModal('${m.title.replace(/'/g, "\\'")}')">
+                                <div class="post-content">
+                                    <img src="/api/image/${m.photo_id}" loading="lazy" onerror="this.src='https://via.placeholder.com/640x360?text=No+Image'">
+                                    <div class="ep-badge"><i class="fa-solid fa-bookmark text-yellow-400"></i> Saved</div>
+                                </div>
+                                <div class="card-footer">
+                                    <div class="channel-logo">MB</div>
+                                    <div class="title-text">${m.title}</div>
+                                </div>
+                            </div>`;
+                        });
+                    }
+                    document.getElementById('watchlistModalList').innerHTML = html;
+                } catch(e) {}
+            }
+
+            async function toggleWatchlist() {
+                const title = document.getElementById('modalTitle').innerText;
+                let endpoint = isCurrentMovieBookmarked ? '/api/watchlist/remove' : '/api/watchlist/add';
+                try {
+                    const res = await fetch(endpoint, {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({ uid: uid, title: title, initData: INIT_DATA })
+                    });
+                    const d = await res.json();
+                    if (d.ok) {
+                        isCurrentMovieBookmarked = !isCurrentMovieBookmarked;
+                        updateBookmarkButtonUI();
+                        tg.showAlert(isCurrentMovieBookmarked ? "💾 Added to Watchlist!" : "❌ Removed from Watchlist!");
+                    }
+                } catch(e) {}
+            }
+
+            function updateBookmarkButtonUI() {
+                const btn = document.getElementById('bookmarkBtn');
+                if (isCurrentMovieBookmarked) {
+                    btn.innerHTML = '<i class="fa-solid fa-bookmark text-yellow-400"></i> Saved';
+                    btn.style.background = 'rgba(250,204,21,0.1)';
+                    btn.style.borderColor = 'rgba(250,204,21,0.4)';
+                } else {
+                    btn.innerHTML = '<i class="fa-regular fa-bookmark"></i> Save Later';
+                    btn.style.background = 'rgba(59, 130, 246, 0.1)';
+                    btn.style.borderColor = 'rgba(59, 130, 246, 0.5)';
+                }
+            }
+
+            // --- Rating and Reviews UI JS ---
+            function setSelectRating(r) {
+                currentSelectRating = r;
+                const stars = document.querySelectorAll('#starRatingSelect i');
+                stars.forEach((star, index) => {
+                    if (index < r) {
+                        star.className = "fa-solid fa-star text-yellow-400";
+                    } else {
+                        star.className = "fa-solid fa-star text-gray-600";
+                    }
+                });
+            }
+
+            async function submitReview() {
+                const title = document.getElementById('modalTitle').innerText;
+                const rText = document.getElementById('reviewText').value.trim();
+                const uname = tg.initDataUnsafe?.user?.first_name || 'Guest';
+
+                if (currentSelectRating === 0) { tg.showAlert("Please select a star rating!"); return; }
+                if (!rText) { tg.showAlert("Please write a review message!"); return; }
+
+                try {
+                    const res = await fetch('/api/reviews/add', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({
+                            uid: uid,
+                            uname: uname,
+                            title: title,
+                            rating: currentSelectRating,
+                            review: rText,
+                            initData: INIT_DATA
+                        })
+                    });
+                    const data = await res.json();
+                    if (data.ok) {
+                        tg.showAlert("🎉 Review submitted successfully!");
+                        document.getElementById('reviewText').value = '';
+                        setSelectRating(0);
+                        loadReviews(title);
+                    }
+                } catch(e) {}
+            }
+
+            async function loadReviews(title) {
+                try {
+                    const res = await fetch(`/api/reviews/get/${encodeURIComponent(title)}`);
+                    const data = await res.json();
+                    
+                    document.getElementById('avgRatingVal').innerText = data.avg_rating > 0 ? data.avg_rating.toFixed(1) : '0.0';
+                    
+                    let html = '';
+                    data.reviews.forEach(r => {
+                        let starsHtml = '';
+                        for(let i=1; i<=5; i++) {
+                            starsHtml += i <= r.rating ? '<i class="fa-solid fa-star text-yellow-400 text-xs"></i>' : '<i class="fa-solid fa-star text-gray-700 text-xs"></i>';
+                        }
+                        html += `
+                        <div style="background: rgba(15, 23, 42, 0.4); padding: 10px; border-radius: 8px; border: 1px solid #334155;">
+                            <div style="display:flex; justify-content:space-between; margin-bottom: 4px;">
+                                <span style="font-weight:bold; font-size:12px; color:#cbd5e1;">${r.uname}</span>
+                                <div>${starsHtml}</div>
+                            </div>
+                            <p style="font-size:12px; color:#94a3b8; line-height:1.4;">${r.review}</p>
+                        </div>`;
+                    });
+                    document.getElementById('modalReviewsList').innerHTML = html || '<p style="color: #64748b; font-size: 12px;">No reviews yet. Be the first to review!</p>';
+                } catch(e) {}
+            }
+
+            // --- Gamification UI JS ---
+            async function claimDailyCheckin() {
+                try {
+                    const res = await fetch('/api/gamification/daily_checkin', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({ uid: uid, initData: INIT_DATA })
+                    });
+                    const d = await res.json();
+                    if (d.ok) {
+                        tg.showAlert(`🎉 Checked-in Successfully! You received +5 Points.`);
+                        fetchUserInfo();
+                    } else {
+                        tg.showAlert(`⚠️ ${d.msg}`);
+                    }
+                } catch(e) {}
+            }
+
+            let isSpinning = false;
+            async function spinWheel() {
+                if (isSpinning) return;
+                try {
+                    const res = await fetch('/api/gamification/spin', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({ uid: uid, initData: INIT_DATA })
+                    });
+                    const data = await res.json();
+                    if (!data.ok) {
+                        tg.showAlert(`⚠️ ${data.msg}`);
+                        return;
+                    }
+
+                    isSpinning = true;
+                    const inner = document.getElementById('wheelInner');
+                    
+                    // Conic slice degrees maps
+                    const degMap = {
+                        0: 25,   // Better luck
+                        2: 75,   // 2 points
+                        5: 125,  // Free spin
+                        10: 175, // 10 points
+                        20: 225, // 20 points
+                        50: 275, // 50 points
+                        vip: 325 // VIP
+                    };
+
+                    let prizeKey = data.reward.type === 'points' ? data.reward.amount : 'vip';
+                    let targetDeg = degMap[prizeKey] || 25;
+                    let extraRotations = 5 * 360; // Spin 5 times
+                    let finalRotation = extraRotations + (360 - targetDeg);
+
+                    inner.style.transform = `rotate(${finalRotation}deg)`;
+
+                    setTimeout(() => {
+                        tg.showAlert(data.msg);
+                        isSpinning = false;
+                        // Reset rotation silently
+                        inner.style.transition = 'none';
+                        inner.style.transform = `rotate(${360 - targetDeg}deg)`;
+                        setTimeout(() => { inner.style.transition = 'transform 4s cubic-bezier(0.25, 0.1, 0.25, 1)'; }, 50);
+                        fetchUserInfo();
+                    }, 4100);
+
+                } catch(e) { isSpinning = false; }
+            }
+
+            async function renderLeaderboard() {
+                try {
+                    const res = await fetch('/api/gamification/leaderboard');
+                    const d = await res.json();
+                    let html = '';
+                    d.leaderboard.forEach((user, idx) => {
+                        let rankMedal = idx === 0 ? "🥇" : idx === 1 ? "🥈" : idx === 2 ? "🥉" : `[${idx+1}]`;
+                        html += `
+                        <div style="background: rgba(30,41,59,0.5); padding: 10px 15px; border-radius: 12px; border:1px solid #334155; display:flex; justify-content:space-between; align-items:center;">
+                            <div style="display:flex; align-items:center; gap: 10px;">
+                                <span style="font-size:16px;">${rankMedal}</span>
+                                <span style="font-weight:bold; color:white;">${user.name}</span>
+                            </div>
+                            <div style="text-align:right;">
+                                <span style="color:#fbbf24; font-weight:bold; font-size:13px;"><i class="fa-solid fa-share-nodes"></i> ${user.refer_count} Ref</span>
+                            </div>
+                        </div>`;
+                    });
+                    document.getElementById('leaderboardList').innerHTML = html || '<p class="text-gray-500">No leaderboard entries.</p>';
+                } catch(e) {}
+            }
+
+            // --- Request Status Tracker UI JS ---
+            function openRequestsTrackerModal() {
+                document.getElementById('requestsTrackerModal').style.display = 'flex';
+                closeMenu();
+                renderRequestsTracker();
+            }
+
+            async function submitReqTracker() {
+                const val = document.getElementById('reqTrackerInput').value.trim();
+                if (!val) return;
+                const uname = tg.initDataUnsafe?.user?.first_name || 'Guest';
+
+                try {
+                    await fetch('/api/request', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({ uid: uid, uname: uname, movie: val, initData: INIT_DATA })
+                    });
+                    document.getElementById('reqTrackerInput').value = '';
+                    tg.showAlert('🎉 Request successfully queued!');
+                    renderRequestsTracker();
+                } catch(e) {}
+            }
+
+            async function renderRequestsTracker() {
+                try {
+                    const res = await fetch(`/api/requests/user_list/${uid}`);
+                    const d = await res.json();
+                    let html = '';
+                    d.requests.forEach(req => {
+                        let statusText = req.status === 'pending' ? '⏳ Pending Review' : req.status === 'processing' ? '⚙️ Processing Movie' : '✅ Uploaded successfully!';
+                        let pct = req.status === 'pending' ? 30 : req.status === 'processing' ? 70 : 100;
+                        let barColor = req.status === 'pending' ? '#f59e0b' : req.status === 'processing' ? '#3b82f6' : '#10b981';
+                        
+                        html += `
+                        <div style="background: rgba(30,41,59,0.5); padding: 15px; border-radius: 12px; border:1px solid #334155;">
+                            <div style="display:flex; justify-content:space-between; margin-bottom: 6px;">
+                                <span style="font-weight:bold; color:white;">${req.movie}</span>
+                                <span style="font-size:11px; font-weight:bold; color:${barColor};">${statusText}</span>
+                            </div>
+                            <div style="w-full bg-gray-700 h-2 rounded-full overflow-hidden">
+                                <div style="height:100%; width:${pct}%; background:${barColor}; border-radius:10px;"></div>
+                            </div>
+                        </div>`;
+                    });
+                    document.getElementById('requestsTrackerList').innerHTML = html || '<p style="color: #64748b; text-align:center;">You have not made any movie requests yet.</p>';
+                } catch(e) {}
+            }
+
+            function openReqModal() { openRequestsTrackerModal(); }
+
             function openAdCampModal() {
                 document.getElementById('adCampModal').style.display = 'flex';
                 closeMenu();
@@ -1909,10 +2566,7 @@ async def web_ui():
             }
 
             async function sendReq() {
-                const text = document.getElementById('reqText').value;
-                if(!text) return;
-                await fetch('/api/request', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({uid: uid, uname: tg.initDataUnsafe.user?.first_name || 'Guest', movie: text, initData: INIT_DATA}) });
-                document.getElementById('reqText').value = ''; tg.showAlert('Request sent successfully!'); document.getElementById('reqModal').style.display='none';
+                submitReqTracker();
             }
 
             function formatViews(n) { if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M'; if (n >= 1000) return (n / 1000).toFixed(1) + 'K'; return n; }
@@ -2044,13 +2698,26 @@ async def web_ui():
                 timeout = setTimeout(() => loadMovies(1), 500); 
             });
 
-            function openQualityModal(element) {
+            async function openQualityModal(element) {
                 let title = decodeURIComponent(element.getAttribute('data-title'));
                 const movie = loadedMovies[title];
                 if (!movie) {
                     console.error("Movie not found in loadedMovies:", title);
                     return;
                 }
+                
+                // Fetch watchlist status for user
+                try {
+                    const wlRes = await fetch(`/api/watchlist/list/${uid}`);
+                    const wlData = await wlRes.json();
+                    isCurrentMovieBookmarked = wlData.watchlist.some(w => w.title === title);
+                    updateBookmarkButtonUI();
+                } catch(e) { isCurrentMovieBookmarked = false; updateBookmarkButtonUI(); }
+                
+                // Star ratings and review loader
+                loadReviews(title);
+                setSelectRating(0);
+                
                 document.getElementById('modalTitle').innerText = title;
                 document.getElementById('qualityList').innerHTML = movie.files.map(f => {
                     let isFree = f.is_unlocked || isUserVip;
@@ -2369,7 +3036,7 @@ async def trending_movies(uid: int = 0):
     if "trending_list" in trending_cache:
         movies = copy.deepcopy(trending_cache["trending_list"])
     else:
-        # Optimized MongoDB aggregate to rank top 10 movies strictly based on the last 7 days of views
+        # Optimized MongoDB aggregate to rank top 10 movies strictly based on the last 7 days of views [5]
         seven_days_ago = datetime.datetime.utcnow() - datetime.timedelta(days=7)
         pipeline = [
             {"$group": {
@@ -2599,6 +3266,17 @@ async def handle_request(data: ReqModel):
         
     vip_tag = "🔥 <b>[VIP PRIORITY]</b>\n" if is_vip else ""
     
+    # Save request details in DB
+    now = datetime.datetime.utcnow()
+    await db.requests.insert_one({
+        "user_id": data.uid,
+        "uname": data.uname,
+        "movie": data.movie,
+        "status": "pending", # pending, processing, uploaded
+        "created_at": now,
+        "is_vip": is_vip
+    })
+    
     all_admins = set([OWNER_ID])
     async for a in db.admins.find(): 
         all_admins.add(a["user_id"])
@@ -2687,6 +3365,237 @@ async def get_all_ads(auth: bool = Depends(verify_admin)):
 async def delete_ad(ad_id: str, auth: bool = Depends(verify_admin)):
     await db.ads.delete_one({"_id": ObjectId(ad_id)})
     return {"ok": True}
+
+# ==========================================
+# 🎁 NEW: Advanced API Route Extensions
+# ==========================================
+class WatchlistModel(BaseModel):
+    uid: int
+    title: str
+    initData: str
+
+@app.post("/api/watchlist/add")
+async def add_to_watchlist(d: WatchlistModel):
+    if not validate_tg_data(d.initData): return {"ok": False}
+    await db.users.update_one({"user_id": d.uid}, {"$addToSet": {"watchlist": d.title}})
+    return {"ok": True}
+
+@app.post("/api/watchlist/remove")
+async def remove_from_watchlist(d: WatchlistModel):
+    if not validate_tg_data(d.initData): return {"ok": False}
+    await db.users.update_one({"user_id": d.uid}, {"$pull": {"watchlist": d.title}})
+    return {"ok": True}
+
+@app.get("/api/watchlist/list/{uid}")
+async def get_watchlist(uid: int):
+    user = await db.users.find_one({"user_id": uid})
+    if not user: return {"watchlist": []}
+    watchlist = user.get("watchlist", [])
+    movies = []
+    for title in watchlist:
+        m = await db.movies.find_one({"title": title})
+        if m:
+            movies.append({
+                "title": title,
+                "photo_id": m.get("photo_id") or (f"db_{m['db_photo_id']}" if m.get("db_photo_id") else None),
+                "quality": m.get("quality", "HD")
+            })
+    return {"watchlist": movies}
+
+class ReviewModel(BaseModel):
+    uid: int
+    uname: str
+    title: str
+    rating: int
+    review: str
+    initData: str
+
+@app.post("/api/reviews/add")
+async def add_review(d: ReviewModel):
+    if not validate_tg_data(d.initData): return {"ok": False}
+    now = datetime.datetime.utcnow()
+    await db.reviews.update_one(
+        {"user_id": d.uid, "movie_title": d.title},
+        {"$set": {"user_id": d.uid, "uname": d.uname, "movie_title": d.title, "rating": d.rating, "review": d.review, "created_at": now}},
+        upsert=True
+    )
+    return {"ok": True}
+
+@app.get("/api/reviews/get/{title}")
+async def get_reviews(title: str):
+    reviews = await db.reviews.find({"movie_title": title}).sort("created_at", -1).to_list(50)
+    avg_rating = 0
+    if reviews:
+        avg_rating = sum(r["rating"] for r in reviews) / len(reviews)
+    for r in reviews:
+        r["_id"] = str(r["_id"])
+        r["created_at"] = r["created_at"].isoformat()
+    return {"reviews": reviews, "avg_rating": round(avg_rating, 1)}
+
+@app.post("/api/gamification/daily_checkin")
+async def daily_checkin(d: UserActionModel):
+    if not validate_tg_data(d.initData): return {"ok": False}
+    user = await db.users.find_one({"user_id": d.uid})
+    if not user: return {"ok": False, "msg": "User not found"}
+    
+    now = datetime.datetime.utcnow()
+    last_checkin = user.get("last_check_in")
+    
+    if last_checkin and last_checkin.date() == now.date():
+        return {"ok": False, "msg": "Already checked in today!"}
+        
+    await db.users.update_one(
+        {"user_id": d.uid},
+        {"$set": {"last_check_in": now}, "$inc": {"coins": 5}}
+    )
+    return {"ok": True, "coins": user.get("coins", 0) + 5}
+
+@app.post("/api/gamification/spin")
+async def spin_wheel(d: UserActionModel):
+    if not validate_tg_data(d.initData): return {"ok": False}
+    user = await db.users.find_one({"user_id": d.uid})
+    if not user or user.get("coins", 0) < 5:
+        return {"ok": False, "msg": "Not enough points! Need 5 points to spin."}
+        
+    # Spin prizes layout: 0, 2, 5, 10, 20, 50, VIP (1 day)
+    rewards = [
+        {"type": "points", "amount": 0, "label": "Better Luck Next Time", "weight": 35},
+        {"type": "points", "amount": 2, "label": "2 Points", "weight": 25},
+        {"type": "points", "amount": 5, "label": "Free Spin (5 Points)", "weight": 20},
+        {"type": "points", "amount": 10, "label": "10 Points", "weight": 12},
+        {"type": "points", "amount": 20, "label": "20 Points", "weight": 5},
+        {"type": "points", "amount": 50, "label": "Mega 50 Points!", "weight": 2},
+        {"type": "vip", "days": 1, "label": "1 Day VIP Pass!", "weight": 1}
+    ]
+    choices = []
+    for r in rewards:
+        choices.extend([r] * r["weight"])
+    reward = random.choice(choices)
+    
+    # Deduct spin points
+    await db.users.update_one({"user_id": d.uid}, {"$inc": {"coins": -5}})
+    
+    # Apply spin rewards
+    msg = ""
+    if reward["type"] == "points":
+        if reward["amount"] > 0:
+            await db.users.update_one({"user_id": d.uid}, {"$inc": {"coins": reward["amount"]}})
+            msg = f"You won {reward['amount']} Points!"
+        else:
+            msg = "Better luck next time!"
+    elif reward["type"] == "vip":
+        now = datetime.datetime.utcnow()
+        current_vip = user.get("vip_until", now) if user.get("vip_until") else now
+        if current_vip < now: current_vip = now
+        new_vip = current_vip + datetime.timedelta(days=1)
+        await db.users.update_one({"user_id": d.uid}, {"$set": {"vip_until": new_vip}})
+        msg = "Congratulations! You won 1 Day VIP Pass!"
+        
+    return {"ok": True, "reward": reward, "msg": msg}
+
+@app.get("/api/gamification/leaderboard")
+async def get_leaderboard():
+    top_referrers = await db.users.find().sort("refer_count", -1).limit(10).to_list(10)
+    leaderboard = []
+    for u in top_referrers:
+        leaderboard.append({
+            "name": u.get("first_name", "User"),
+            "refer_count": u.get("refer_count", 0),
+            "coins": u.get("coins", 0)
+        })
+    return {"leaderboard": leaderboard}
+
+@app.get("/api/requests/user_list/{uid}")
+async def user_requests(uid: int):
+    reqs = await db.requests.find({"user_id": uid}).sort("created_at", -1).to_list(50)
+    for r in reqs:
+        r["_id"] = str(r["_id"])
+        r["created_at"] = r["created_at"].isoformat()
+    return {"requests": reqs}
+
+@app.get("/api/admin/requests")
+async def admin_get_requests(auth: bool = Depends(verify_admin)):
+    reqs = await db.requests.find().sort("created_at", -1).to_list(100)
+    for r in reqs:
+        r["_id"] = str(r["_id"])
+        r["created_at"] = r["created_at"].isoformat()
+    return {"requests": reqs}
+
+@app.put("/api/admin/requests/{req_id}")
+async def admin_update_request(req_id: str, data: dict = Body(...), auth: bool = Depends(verify_admin)):
+    status = data.get("status") # pending, processing, uploaded
+    await db.requests.update_one({"_id": ObjectId(req_id)}, {"$set": {"status": status}})
+    return {"ok": True}
+
+@app.delete("/api/admin/requests/{req_id}")
+async def admin_delete_request(req_id: str, auth: bool = Depends(verify_admin)):
+    await db.requests.delete_one({"_id": ObjectId(req_id)})
+    return {"ok": True}
+
+@app.get("/api/admin/keywords")
+async def get_keywords_api(auth: bool = Depends(verify_admin)):
+    kws = await db.keyword_replies.find().to_list(100)
+    for kw in kws: kw["_id"] = str(kw["_id"])
+    return {"keywords": kws}
+
+@app.post("/api/admin/keywords")
+async def add_keyword_api(data: dict = Body(...), auth: bool = Depends(verify_admin)):
+    keyword = data.get("keyword", "").lower().strip()
+    reply_message = data.get("reply_message", "").strip()
+    if not keyword or not reply_message:
+        raise HTTPException(status_code=400, detail="Missing data")
+    await db.keyword_replies.update_one({"keyword": keyword}, {"$set": {"keyword": keyword, "reply_message": reply_message}}, upsert=True)
+    await load_keyword_replies()
+    return {"ok": True}
+
+@app.delete("/api/admin/keywords/{keyword}")
+async def delete_keyword_api(keyword: str, auth: bool = Depends(verify_admin)):
+    await db.keyword_replies.delete_one({"keyword": keyword.lower()})
+    await load_keyword_replies()
+    return {"ok": True}
+
+@app.get("/api/admin/analytics")
+async def get_analytics(auth: bool = Depends(verify_admin)):
+    now = datetime.datetime.utcnow()
+    today_start = datetime.datetime(now.year, now.month, now.day)
+    seven_days_ago = today_start - datetime.timedelta(days=7)
+    
+    # Active Users Today
+    active_users_today = await db.user_unlocks.distinct("user_id", {"unlocked_at": {"$gte": today_start}})
+    # Weekly Active Users
+    active_users_week = await db.user_unlocks.distinct("user_id", {"unlocked_at": {"$gte": seven_days_ago}})
+    
+    # Total Reviews Count
+    total_reviews = await db.reviews.count_documents({})
+    # Total Requests Count
+    total_requests = await db.requests.count_documents({})
+    # Pending Requests Count
+    pending_requests = await db.requests.count_documents({"status": "pending"})
+    
+    # Category Popularity (Top Viewed Categories)
+    category_stats = await db.movies.aggregate([
+        {"$unwind": "$categories"},
+        {"$group": {"_id": "$categories", "total_views": {"$sum": "$clicks"}}},
+        {"$sort": {"total_views": -1}},
+        {"$limit": 5}
+    ]).to_list(5)
+    
+    # Top Rated Movies
+    top_rated = await db.reviews.aggregate([
+        {"$group": {"_id": "$movie_title", "avg_rating": {"$avg": "$rating"}, "total_reviews": {"$sum": 1}}},
+        {"$sort": {"avg_rating": -1, "total_reviews": -1}},
+        {"$limit": 5}
+    ]).to_list(5)
+    
+    return {
+        "active_today": len(active_users_today),
+        "active_week": len(active_users_week),
+        "total_reviews": total_reviews,
+        "total_requests": total_requests,
+        "pending_requests": pending_requests,
+        "category_stats": category_stats,
+        "top_rated": top_rated
+    }
 
 async def start():
     global video_queue
