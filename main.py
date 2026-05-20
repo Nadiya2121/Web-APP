@@ -1610,7 +1610,7 @@ async def web_ui():
                 <h2 id="modalTitle" style="color:#38bdf8; margin-bottom: 15px; font-size: 22px; font-weight:900;">Movie Title</h2>
                 
                 <div style="background: rgba(15, 23, 42, 0.9); border-left: 4px solid #f59e0b; padding: 12px; border-radius: 8px; text-align: left; margin-bottom: 20px;">
-                    <p style="color:#fbbf24; font-weight:bold; font-size: 15px; margin-bottom: 8px;"><i class="fa-solid fa-circle-info"></i> How to Download?</p>
+                    <p style="color:#f59e0b; font-weight:bold; font-size: 15px; margin-bottom: 8px;"><i class="fa-solid fa-circle-info"></i> How to Download?</p>
                     <p style="color:#cbd5e1; font-size: 13.5px; line-height: 1.6;">1. Click the download button below.<br>2. A new page will open, wait there for <b>{{AD_TIME}} seconds</b>.<br>3. Return to the mini app and the video will be automatically sent to your bot inbox!</p>
                 </div>
 
@@ -1952,7 +1952,7 @@ async def web_ui():
                     if(data.length === 0) return document.getElementById('trendingWrapper').style.display = 'none';
                     grid.innerHTML = data.map(m => {
                         loadedMovies[m._id] = m;
-                        return `<div class="trending-card" onclick="openQualityModal('${m._id.replace(/'/g, "\\'")}')">
+                        return `<div class="trending-card" onclick="openQualityModal(this)" data-title="${encodeURIComponent(m._id)}">
                             <div class="post-content">
                                 <div class="top-badge">🔥 TOP</div>
                                 <img src="/api/image/${m.photo_id}" loading="lazy" onerror="this.src='https://via.placeholder.com/640x360?text=No+Image'">
@@ -1981,7 +1981,7 @@ async def web_ui():
                     let htmlContent = "";
                     data.movies.forEach((m, index) => {
                         loadedMovies[m._id] = m; 
-                        let cardHtml = `<div class="card" onclick="openQualityModal('${m._id.replace(/'/g, "\\'")}')">
+                        let cardHtml = `<div class="card" onclick="openQualityModal(this)" data-title="${encodeURIComponent(m._id)}">
                             <div class="post-content">
                                 <img src="/api/image/${m.photo_id}" loading="lazy" onerror="this.src='https://via.placeholder.com/640x360?text=No+Image'">
                                 <div class="ep-badge"><i class="fa-solid fa-list"></i> ${m.files.length}</div>
@@ -2038,8 +2038,13 @@ async def web_ui():
                 timeout = setTimeout(() => loadMovies(1), 500); 
             });
 
-            function openQualityModal(title) {
+            function openQualityModal(element) {
+                let title = decodeURIComponent(element.getAttribute('data-title'));
                 const movie = loadedMovies[title];
+                if (!movie) {
+                    console.error("Movie not found in loadedMovies:", title);
+                    return;
+                }
                 document.getElementById('modalTitle').innerText = title;
                 document.getElementById('qualityList').innerHTML = movie.files.map(f => {
                     let isFree = f.is_unlocked || isUserVip;
